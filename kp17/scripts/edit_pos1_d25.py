@@ -262,6 +262,81 @@ def redraw_pos1_schema_bars(msp) -> int:
     return n
 
 
+def shift_dim_block_to_diameter(doc, dim, new_d: float = NEW_D) -> None:
+    """Rewrite anonymous *D block so AutoCAD measures new_d (not stale 22)."""
+    gname = dim.dxf.get("geometry") if dim.dxf.hasattr("geometry") else None
+    if not gname:
+        return
+    block = doc.blocks.get(gname)
+    if block is None:
+        return
+
+    point_xs = [e.dxf.location.x for e in block.query("POINT")]
+    if len(point_xs) < 2:
+        return
+    old_left, old_right = min(point_xs), max(point_xs)
+    old_span = old_right - old_left
+    if abs(old_span - new_d) < 0.05:
+        # already correct width; still fix text if needed
+        pass
+    elif abs(old_span - 22) > 0.6:
+        print("skip dim block", gname, "unexpected span", old_span)
+        return
+
+    new_left = old_right - new_d
+    delta = new_left - old_left
+
+    def map_x(x: float) -> float:
+        # keep right-side geometry; shift everything to the left of right edge
+        if x >= old_right - 0.05:
+            return x
+        return x + delta
+
+    def map_vec(v):
+        return (map_x(v.x), v.y, v.z)
+
+    for ent in block:
+        dt = ent.dxftype()
+        if dt == "LINE":
+            ent.dxf.start = map_vec(ent.dxf.start)
+            ent.dxf.end = map_vec(ent.dxf.end)
+        elif dt == "POINT":
+            ent.dxf.location = map_vec(ent.dxf.location)
+        elif dt == "INSERT":
+            ent.dxf.insert = map_vec(ent.dxf.insert)
+        elif dt in ("MTEXT", "TEXT"):
+            # text insert can stay; content must show Ø25
+            if dt == "TEXT":
+                if "%%C22" in ent.dxf.text:
+                    ent.dxf.text = ent.dxf.text.replace("%%C22", "%%C25")
+            else:
+                if "%%C22" in ent.text:
+                    ent.text = ent.text.replace("%%C22", "%%C25")
+                # also handle plain measured rendering leftovers
+                if ent.text.strip() in ("\\A1;22", "\\A1;%%C22"):
+                    ent.text = "\\A1;%%C25"
+
+    # Sync DIMENSION entity defpoints / measurement / visible override
+    p2, p3 = dim.dxf.defpoint2, dim.dxf.defpoint3
+    if p2.x >= p3.x:
+        dim.dxf.defpoint2 = (old_right, p2.y, p2.z)
+        dim.dxf.defpoint3 = (new_left, p3.y, p3.z)
+    else:
+        dim.dxf.defpoint2 = (new_left, p2.y, p2.z)
+        dim.dxf.defpoint3 = (old_right, p3.y, p3.z)
+    dp = dim.dxf.defpoint
+    dim.dxf.defpoint = (map_x(dp.x), dp.y, dp.z)
+    dim.dxf.text = "%%C25"
+    if dim.dxf.hasattr("actual_measurement"):
+        dim.dxf.actual_measurement = new_d
+    print(
+        "dim block",
+        gname,
+        f"span {old_span:.0f}→{new_d:.0f}",
+        f"left {old_left:.1f}→{new_left:.1f}",
+    )
+
+
 def edit_doc(src: Path, dst: Path) -> None:
     import math
 
@@ -284,7 +359,7 @@ def edit_doc(src: Path, dst: Path) -> None:
             c.dxf.radius = 12.5
         print("section circle", leaf, "-> r=12.5")
 
-    # 4) Schema diameter dimensions for pos.1: keep right edge, span → 25, text %%C25
+    # 4) Schema diameter dimensions for pos.1 — rewrite *D blocks (AutoCAD source of truth)
     n_dim = 0
     for e in msp.query("DIMENSION"):
         t = e.dxf.text or ""
@@ -292,38 +367,15 @@ def edit_doc(src: Path, dst: Path) -> None:
             continue
         p2, p3 = e.dxf.defpoint2, e.dxf.defpoint3
         dist = math.hypot(p2.x - p3.x, p2.y - p3.y)
-        if abs(dist - 22) > 0.5:
+        # original or already-widened
+        if not (abs(dist - 22) < 0.5 or abs(dist - 25) < 0.5):
             continue
         mid = ((p2.x + p3.x) / 2, (p2.y + p3.y) / 2)
         dmin = min(math.hypot(mid[0] - tx, mid[1] - ty) for tx, ty in POS1_DIM_TIPS)
         if dmin > 1500:
             continue
-        # Match schema bar redraw: keep right edge, extend left
-        right = max(p2.x, p3.x)
-        left = right - NEW_D
-        if p2.x >= p3.x:
-            e.dxf.defpoint2 = (right, p2.y, p2.z)
-            e.dxf.defpoint3 = (left, p3.y, p3.z)
-        else:
-            e.dxf.defpoint2 = (left, p2.y, p2.z)
-            e.dxf.defpoint3 = (right, p3.y, p3.z)
-        e.dxf.text = "%%C25"
-        if e.dxf.hasattr("actual_measurement"):
-            e.dxf.actual_measurement = NEW_D
-        # Anonymous *D geometry block still holds visible MTEXT %%C22 — update it
-        gname = e.dxf.get("geometry") if e.dxf.hasattr("geometry") else None
-        if gname:
-            gblock = doc.blocks.get(gname)
-            if gblock is not None:
-                for ent in gblock.query("MTEXT TEXT"):
-                    gt = ent.dxf.text if ent.dxftype() == "TEXT" else ent.text
-                    if "%%C22" in gt:
-                        new_gt = gt.replace("%%C22", "%%C25")
-                        if ent.dxftype() == "TEXT":
-                            ent.dxf.text = new_gt
-                        else:
-                            ent.text = new_gt
-                        print("dim block", gname, "%%C22→%%C25")
+        # Prefer block POINT span (authoritative for AutoCAD regen)
+        shift_dim_block_to_diameter(doc, e, NEW_D)
         n_dim += 1
     print("schema Ø dims", n_dim)
 
