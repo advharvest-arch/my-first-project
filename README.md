@@ -4,7 +4,34 @@
 
 ## Как открыть
 
-Откройте [`index.html`](./index.html) в браузере — отдельный сервер не нужен.
+### Вариант 1 — локально (надёжно)
+
+Скачайте `index.html` из ветки PR и откройте файл двойным щелчком в браузере. Сервер не нужен.
+
+Или из клона репозитория:
+
+```bash
+git checkout cursor/crane-joint-schedule-ae50
+# macOS
+open index.html
+# Linux
+xdg-open index.html
+# Windows
+start index.html
+```
+
+### Вариант 2 — онлайн-просмотр с GitHub (без Pages)
+
+Откройте ссылку (рендер HTML с ветки PR):
+
+[Открыть график в браузере](https://htmlpreview.github.io/?https://github.com/advharvest-arch/my-first-project/blob/cursor/crane-joint-schedule-ae50/index.html)
+
+> GitHub Pages (`*.github.io`) для этого репозитория не включён — поэтому `https://advharvest-arch.github.io/my-first-project/` даёт **404**. Это ожидаемо.
+
+### Вариант 3 — включить GitHub Pages (постоянный сайт)
+
+В настройках репозитория: **Settings → Pages → Source: Deploy from a branch** → ветка `cursor/crane-joint-schedule-ae50` (или `main` после merge) → папка `/ (root)` → Save.  
+После этого сайт будет по адресу `https://advharvest-arch.github.io/my-first-project/`.
 
 ## Что внутри
 
