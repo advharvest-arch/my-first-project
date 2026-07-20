@@ -35,6 +35,15 @@ NEW_ARM = round(6066.00 - OLD_ROW + NEW_ROW, 2)
 NEW_D = 25.0
 BAR_LEN = 5850.0
 
+# Section circle leaf blocks for pos.1 on kotlovan side (разрезы 1-1…7-7)
+POS1_CIRCLE_LEAVES = ("*U234", "*U248", "*U268", "*U285", "*U289")
+
+# Schema diameter dim tips for pos.1 (ISO callouts)
+POS1_DIM_TIPS = (
+    (9442.227284744735, -99966.02281184404),
+    (13209.34392743162, -71172.04711154554),
+)
+
 
 def fmt_comma(x: float) -> str:
     return f"{x:.2f}".replace(".", ",")
@@ -134,6 +143,8 @@ def redraw_pos1_bar_block(block) -> None:
 
 
 def edit_doc(src: Path, dst: Path) -> None:
+    import math
+
     shutil.copy(src, dst)
     doc = ezdxf.readfile(dst)
     msp = doc.modelspace()
@@ -143,7 +154,38 @@ def edit_doc(src: Path, dst: Path) -> None:
         redraw_pos1_bar_block(doc.blocks.get(bname))
         print("redrawn", bname)
 
-    # 2) Tables
+    # 2) Section circles 1-1…7-7 (kotlovan), pos.1 only: r 11 → 12.5
+    for leaf in POS1_CIRCLE_LEAVES:
+        for c in doc.blocks.get(leaf).query("CIRCLE"):
+            c.dxf.radius = 12.5
+        print("section circle", leaf, "-> r=12.5")
+
+    # 3) Schema diameter dimensions for pos.1: span 22 → 25, text %%C25
+    n_dim = 0
+    for e in msp.query("DIMENSION"):
+        t = e.dxf.text or ""
+        if "%%C" not in t:
+            continue
+        p2, p3 = e.dxf.defpoint2, e.dxf.defpoint3
+        dist = math.hypot(p2.x - p3.x, p2.y - p3.y)
+        if abs(dist - 22) > 0.5:
+            continue
+        mid = ((p2.x + p3.x) / 2, (p2.y + p3.y) / 2)
+        dmin = min(math.hypot(mid[0] - tx, mid[1] - ty) for tx, ty in POS1_DIM_TIPS)
+        if dmin > 1500:
+            continue
+        tip = min(POS1_DIM_TIPS, key=lambda t: math.hypot(mid[0] - t[0], mid[1] - t[1]))
+        if abs(p2.x - tip[0]) <= abs(p3.x - tip[0]):
+            new_p3_x = p2.x - NEW_D if p3.x < p2.x else p2.x + NEW_D
+            e.dxf.defpoint3 = (new_p3_x, p3.y, p3.z)
+        else:
+            new_p2_x = p3.x - NEW_D if p2.x < p3.x else p3.x + NEW_D
+            e.dxf.defpoint2 = (new_p2_x, p2.y, p2.z)
+        e.dxf.text = "%%C25"
+        n_dim += 1
+    print("schema Ø dims", n_dim)
+
+    # 4) Tables
     for e in doc.blocks.get("*T37").query("MTEXT"):
         t, y = e.text, e.dxf.insert.y
         if abs(y + 3750) < 5:
@@ -169,7 +211,7 @@ def edit_doc(src: Path, dst: Path) -> None:
         elif t in ("6474.15", "6474,15") and abs(x - 23314.9) < 300:
             e.text = f"{NEW_TOTAL:.2f}" if t == "6474.15" else fmt_comma(NEW_TOTAL)
 
-    # 3) Callouts
+    # 5) Callouts
     for e in msp.query("MULTILEADER"):
         ctx = getattr(e, "context", None)
         if not (ctx and getattr(ctx, "mtext", None)):
@@ -242,17 +284,19 @@ def to_dwg(dxf: Path, dwg: Path) -> None:
 def main():
     src = ensure_source_dxf()
     print("source", src)
-    print(f"pos.1 geometry+text: Ø22→Ø25, unit {NEW_UNIT}, total {NEW_TOTAL}")
+    print(f"pos.1: Ø22→Ø25 (bars+sections+dims+tables), total {NEW_TOTAL}")
     edit_doc(src, OUT_DXF)
     shutil.copy(OUT_DXF, ROOT / "drawings" / "KP17.dxf")
     to_dwg(OUT_DXF, OUT_DWG)
-    # verify
     doc = ezdxf.readfile(OUT_DXF)
     for bname in ("*U24", "*U34"):
         poly = next(e for e in doc.blocks.get(bname) if e.dxftype() == "LWPOLYLINE")
         pts = list(poly.get_points("xy"))
         xs = [p[0] for p in pts]
         print(bname, "width", max(xs) - min(xs))
+    for leaf in POS1_CIRCLE_LEAVES:
+        r = list(doc.blocks.get(leaf).query("CIRCLE"))[0].dxf.radius
+        print(leaf, "r", r)
     print("done", OUT_DXF)
 
 
