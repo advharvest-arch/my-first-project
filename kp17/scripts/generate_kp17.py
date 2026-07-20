@@ -638,7 +638,8 @@ def maybe_merge_underlay(doc, path: Path):
 
 
 def main():
-    out = ROOT / "drawings" / "KP17.dxf"
+    # Параметрическая пересборка — отдельный файл, чтобы не затирать 1:1 PDF→DWG
+    out = ROOT / "drawings" / "KP17_parametric.dxf"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     doc = setup_doc()

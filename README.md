@@ -1,55 +1,35 @@
-# КП17 — редактируемый чертёж (DXF/DWG)
+# КП17 — чертёж один-в-один с PDF (DWG/DXF)
 
-Полный лист арматурного каркаса **КП17** (формат А0) в AutoCAD-совместимых форматах.
+## Скачать
 
-## Файлы чертежа
+**DWG (1:1 с PDF):**  
+https://github.com/advharvest-arch/my-first-project/raw/cursor/kp17-dwg-sheet-6d73/drawings/KP17.dwg
 
-| Файл | Назначение |
-|------|------------|
-| `drawings/KP17.dwg` / `.dxf` | **Основной редактируемый лист**: слои, текст, таблицы, геометрия |
-| `drawings/KP17_underlay_from_pdf.dwg` / `.dxf` | Векторная подложка с исходного PDF (AutoCAD 2021) |
-| `drawings/KP17_full.dwg` / `.dxf` | Редактируемый лист + подложка (слой `UNDERLAY`, по умолчанию выключен) |
-| `reference/KP17_original.pdf` | Исходный PDF |
+**DXF:**  
+https://github.com/advharvest-arch/my-first-project/raw/cursor/kp17-dwg-sheet-6d73/drawings/KP17.dxf
 
-## Слои (`KP17.dwg`)
+## Что внутри
 
-- `REBAR` — рабочая арматура  
-- `TRANSVERSE` — поперечная / распределительная  
-- `EMBEDDED` — рамы Р17, фиксаторы  
-- `SECTIONS` — сечения 1-1…7-7, 8-8  
-- `DETAILS` — ведомость деталей  
-- `SCHEME` — схема рабочей арматуры  
-- `TABLE` / `TEXT` / `NOTES` / `DIMS` — таблицы, текст, примечания, размеры  
-- `FRAME` / `TITLE` — рамка и штамп  
-- `UNDERLAY` — только в `KP17_full` (геометрия из PDF)
+`drawings/KP17.dwg` — векторная копия исходного листа A0 из AutoCAD PDF:
 
-## Как пересобрать лист
+- все виды, сечения, узлы, таблицы, примечания, штамп;
+- формат **A0** в миллиметрах (~1189×841);
+- ~129 тыс. полилиний (геометрия + контуры текста).
+
+Текст в PDF-plot представлен контурами букв (как после печати в PDF) — визуально совпадает с оригиналом.
+
+Исходник: `reference/KP17_original.pdf`.
+
+## Пересобрать из PDF
 
 ```bash
-python3 -m kp17.scripts.generate_kp17          # → drawings/KP17.dxf
-python3 -m kp17.scripts.merge_and_dwg          # DXF→DWG + full
+pip3 install -r requirements.txt
+# нужен Inkscape, poppler-utils и ODA File Converter
+python3 -m kp17.scripts.pdf_to_kp17_dwg
 ```
 
-Данные спецификации и размеров: `kp17/data/kp17_data.py`.
+## Правки
 
-## Как править
+Откройте `drawings/KP17.dwg` в AutoCAD / nanoCAD / BricsCAD и редактируйте геометрию напрямую.
 
-**Через данные (рекомендуется):**
-
-```bash
-python3 -m kp17.scripts.edit_kp17 --set-bar-qty 3 16 --regen
-python3 -m kp17.scripts.edit_kp17 --set-length 32000 --regen
-python3 -m kp17.scripts.edit_kp17 --set-mass 6500.0 --regen
-```
-
-**Вручную в AutoCAD/nanoCAD:** открыть `drawings/KP17.dwg`, править объекты на слоях.
-
-**Программно через ezdxf:** открыть DXF/DWG-пайплайн, изменить сущности, пересохранить.
-
-## Зависимости
-
-```bash
-pip3 install --user ezdxf
-```
-
-Конвертация DXF→DWG: ODA File Converter (уже использован при сборке артефактов в `drawings/`).
+Дополнительно есть параметрический генератор (`kp17/scripts/generate_kp17.py` → `KP17_parametric.dxf`) для схемных правок по данным в `kp17/data/kp17_data.py` — это не 1:1 копия PDF.
