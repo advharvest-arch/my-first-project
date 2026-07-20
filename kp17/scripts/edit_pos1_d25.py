@@ -44,7 +44,6 @@ POS1_DIM_TIPS = (
     (13209.34392743162, -71172.04711154554),
 )
 
-
 def fmt_comma(x: float) -> str:
     return f"{x:.2f}".replace(".", ",")
 
@@ -94,13 +93,11 @@ def fix_pos1_callout(text: str) -> str:
     return text
 
 
-def redraw_pos1_bar_block(block) -> None:
-    """Widen 22×5850 bar rectangle + wipeout fill to Ø25."""
-    poly = next(e for e in block if e.dxftype() == "LWPOLYLINE")
+def widen_rect_poly(poly, *, keep_right: bool = False) -> float:
+    """Widen a ~22-wide rectangle polyline to NEW_D. Returns new width."""
     pts = list(poly.get_points("xy"))
     xs = [p[0] for p in pts]
-    ys = [p[1] for p in pts]
-    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    minx, maxx = min(xs), max(xs)
     cx = (minx + maxx) / 2
     new_pts = []
     if abs(cx) < 1.0:
@@ -109,8 +106,18 @@ def redraw_pos1_bar_block(block) -> None:
         for x, y in pts:
             nx = half if x > 0 else (-half if x < 0 else 0.0)
             new_pts.append((nx, y))
+    elif keep_right:
+        # schema bars: keep right edge, extend left (like existing Ø25 50C26)
+        for x, y in pts:
+            if abs(x - minx) < 0.2:
+                nx = maxx - NEW_D
+            elif abs(x - maxx) < 0.2:
+                nx = maxx
+            else:
+                nx = x
+            new_pts.append((nx, y))
     else:
-        # keep left edge, extend right to width 25 (like existing Ø25 *U22)
+        # cage view blocks: keep left edge, extend right
         for x, y in pts:
             if abs(x - minx) < 0.2:
                 nx = minx
@@ -120,6 +127,15 @@ def redraw_pos1_bar_block(block) -> None:
                 nx = x
             new_pts.append((nx, y))
     poly.set_points(new_pts)
+    nxs = [p[0] for p in new_pts]
+    return max(nxs) - min(nxs)
+
+
+def redraw_pos1_bar_block(block) -> None:
+    """Widen 22×5850 bar rectangle + wipeout fill to Ø25."""
+    poly = next(e for e in block if e.dxftype() == "LWPOLYLINE")
+    widen_rect_poly(poly, keep_right=False)
+    new_pts = list(poly.get_points("xy"))
 
     wipe = next((e for e in block if e.dxftype() == "WIPEOUT"), None)
     if wipe is None:
@@ -142,6 +158,28 @@ def redraw_pos1_bar_block(block) -> None:
     )
 
 
+def redraw_pos1_schema_bars(msp) -> int:
+    """Widen modelspace 22×5850 bars on «Схема расположения» to Ø25."""
+    n = 0
+    for e in msp.query("LWPOLYLINE"):
+        pts = list(e.get_points("xy"))
+        if len(pts) < 4:
+            continue
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        cy = (max(ys) + min(ys)) / 2
+        # pos.1 schema bars only (not 3050/8450 of pos.2/8)
+        if abs(w - 22) > 0.6 or abs(h - BAR_LEN) > 1.0:
+            continue
+        if not (-110000 < cy < -65000):
+            continue
+        new_w = widen_rect_poly(e, keep_right=True)
+        print("schema bar", e.dxf.handle, f"-> {new_w:.0f}×{BAR_LEN:.0f}")
+        n += 1
+    return n
+
+
 def edit_doc(src: Path, dst: Path) -> None:
     import math
 
@@ -154,13 +192,17 @@ def edit_doc(src: Path, dst: Path) -> None:
         redraw_pos1_bar_block(doc.blocks.get(bname))
         print("redrawn", bname)
 
-    # 2) Section circles 1-1…7-7 (kotlovan), pos.1 only: r 11 → 12.5
+    # 2) Schema layout bars (modelspace 22×5850 → 25×5850)
+    n_schema = redraw_pos1_schema_bars(msp)
+    print("schema bars redrawn", n_schema)
+
+    # 3) Section circles 1-1…7-7 (kotlovan), pos.1 only: r 11 → 12.5
     for leaf in POS1_CIRCLE_LEAVES:
         for c in doc.blocks.get(leaf).query("CIRCLE"):
             c.dxf.radius = 12.5
         print("section circle", leaf, "-> r=12.5")
 
-    # 3) Schema diameter dimensions for pos.1: span 22 → 25, text %%C25
+    # 4) Schema diameter dimensions for pos.1: keep right edge, span → 25, text %%C25
     n_dim = 0
     for e in msp.query("DIMENSION"):
         t = e.dxf.text or ""
@@ -174,18 +216,20 @@ def edit_doc(src: Path, dst: Path) -> None:
         dmin = min(math.hypot(mid[0] - tx, mid[1] - ty) for tx, ty in POS1_DIM_TIPS)
         if dmin > 1500:
             continue
-        tip = min(POS1_DIM_TIPS, key=lambda t: math.hypot(mid[0] - t[0], mid[1] - t[1]))
-        if abs(p2.x - tip[0]) <= abs(p3.x - tip[0]):
-            new_p3_x = p2.x - NEW_D if p3.x < p2.x else p2.x + NEW_D
-            e.dxf.defpoint3 = (new_p3_x, p3.y, p3.z)
+        # Match schema bar redraw: keep right edge, extend left
+        right = max(p2.x, p3.x)
+        left = right - NEW_D
+        if p2.x >= p3.x:
+            e.dxf.defpoint2 = (right, p2.y, p2.z)
+            e.dxf.defpoint3 = (left, p3.y, p3.z)
         else:
-            new_p2_x = p3.x - NEW_D if p2.x < p3.x else p3.x + NEW_D
-            e.dxf.defpoint2 = (new_p2_x, p2.y, p2.z)
+            e.dxf.defpoint2 = (left, p2.y, p2.z)
+            e.dxf.defpoint3 = (right, p3.y, p3.z)
         e.dxf.text = "%%C25"
         n_dim += 1
     print("schema Ø dims", n_dim)
 
-    # 4) Tables
+    # 5) Tables
     for e in doc.blocks.get("*T37").query("MTEXT"):
         t, y = e.text, e.dxf.insert.y
         if abs(y + 3750) < 5:
@@ -211,7 +255,7 @@ def edit_doc(src: Path, dst: Path) -> None:
         elif t in ("6474.15", "6474,15") and abs(x - 23314.9) < 300:
             e.text = f"{NEW_TOTAL:.2f}" if t == "6474.15" else fmt_comma(NEW_TOTAL)
 
-    # 5) Callouts
+    # 6) Callouts
     for e in msp.query("MULTILEADER"):
         ctx = getattr(e, "context", None)
         if not (ctx and getattr(ctx, "mtext", None)):
@@ -284,11 +328,12 @@ def to_dwg(dxf: Path, dwg: Path) -> None:
 def main():
     src = ensure_source_dxf()
     print("source", src)
-    print(f"pos.1: Ø22→Ø25 (bars+sections+dims+tables), total {NEW_TOTAL}")
+    print(f"pos.1: Ø22→Ø25 (cage+schema+sections+dims+tables), total {NEW_TOTAL}")
     edit_doc(src, OUT_DXF)
     shutil.copy(OUT_DXF, ROOT / "drawings" / "KP17.dxf")
     to_dwg(OUT_DXF, OUT_DWG)
     doc = ezdxf.readfile(OUT_DXF)
+    msp = doc.modelspace()
     for bname in ("*U24", "*U34"):
         poly = next(e for e in doc.blocks.get(bname) if e.dxftype() == "LWPOLYLINE")
         pts = list(poly.get_points("xy"))
@@ -297,6 +342,14 @@ def main():
     for leaf in POS1_CIRCLE_LEAVES:
         r = list(doc.blocks.get(leaf).query("CIRCLE"))[0].dxf.radius
         print(leaf, "r", r)
+    for e in msp.query("LWPOLYLINE"):
+        pts = list(e.get_points("xy"))
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        cy = (max(ys) + min(ys)) / 2
+        if abs(h - BAR_LEN) < 1 and -110000 < cy < -65000 and abs(w - 25) < 0.1:
+            print("schema", e.dxf.handle, f"{w:.0f}x{h:.0f}")
     print("done", OUT_DXF)
 
 
