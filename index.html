@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>График совместной работы двух кранов</title>
+  <title>Календарный график · монтаж 10 колонн двумя кранами</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -16,18 +16,15 @@
       --text: #e8eef5;
       --muted: #8fa3b8;
       --crane-a: #2f9e8f;
-      --crane-a-soft: rgba(47, 158, 143, 0.22);
       --crane-b: #d9772f;
-      --crane-b-soft: rgba(217, 119, 47, 0.22);
       --joint: #c9a227;
-      --joint-soft: rgba(201, 162, 39, 0.28);
       --idle: rgba(143, 163, 184, 0.12);
-      --danger: #e05a5a;
       --ok: #3dbf7a;
       --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
       --radius: 14px;
       --font: "Manrope", sans-serif;
       --mono: "JetBrains Mono", monospace;
+      --days: 5;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,7 +41,7 @@
     }
 
     .page {
-      max-width: 1180px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 40px 24px 72px;
     }
@@ -88,7 +85,7 @@
     }
 
     .lede {
-      max-width: 52ch;
+      max-width: 58ch;
       color: var(--muted);
       font-size: 1.05rem;
       margin-bottom: 22px;
@@ -108,10 +105,7 @@
       font-weight: 600;
     }
 
-    .layout {
-      display: grid;
-      gap: 22px;
-    }
+    .layout { display: grid; gap: 22px; }
 
     .panel {
       background: rgba(26, 37, 51, 0.72);
@@ -125,6 +119,7 @@
     .panel:nth-child(1) { animation-delay: 0.08s; }
     .panel:nth-child(2) { animation-delay: 0.16s; }
     .panel:nth-child(3) { animation-delay: 0.24s; }
+    .panel:nth-child(4) { animation-delay: 0.32s; }
 
     .panel h2 {
       font-size: 1.05rem;
@@ -164,7 +159,6 @@
     .swatch.b { background: var(--crane-b); }
     .swatch.joint { background: var(--joint); }
     .swatch.idle { background: var(--idle); border: 1px solid var(--line); }
-    .swatch.conflict { background: var(--danger); }
 
     .toolbar {
       display: flex;
@@ -174,15 +168,7 @@
       margin-bottom: 16px;
     }
 
-    .toolbar label {
-      font-size: 0.85rem;
-      color: var(--muted);
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    select, button {
+    button {
       font-family: var(--font);
       font-size: 0.9rem;
       border-radius: 10px;
@@ -194,10 +180,7 @@
       transition: border-color 0.2s, transform 0.15s, background 0.2s;
     }
 
-    button:hover, select:hover {
-      border-color: rgba(148, 178, 210, 0.45);
-    }
-
+    button:hover { border-color: rgba(148, 178, 210, 0.45); }
     button:active { transform: scale(0.98); }
 
     button.primary {
@@ -214,34 +197,41 @@
     }
 
     .chart {
-      min-width: 920px;
+      min-width: 960px;
       padding: 16px 16px 20px;
     }
 
-    .hours {
+    .days {
       display: grid;
-      grid-template-columns: 150px repeat(12, 1fr);
+      grid-template-columns: 168px repeat(5, 1fr);
       gap: 0;
       margin-bottom: 8px;
-      padding-left: 0;
     }
 
-    .hours .label { color: transparent; }
-    .hours span {
+    .days .spacer { color: transparent; }
+    .days span {
       font-family: var(--mono);
       font-size: 0.72rem;
       color: var(--muted);
       text-align: center;
-      padding: 4px 0;
+      padding: 6px 0 8px;
       border-left: 1px dashed rgba(148, 178, 210, 0.12);
+    }
+
+    .days span strong {
+      display: block;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.78rem;
+      margin-bottom: 2px;
     }
 
     .lane {
       display: grid;
-      grid-template-columns: 150px 1fr;
+      grid-template-columns: 168px 1fr;
       gap: 10px;
       align-items: stretch;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .lane-name {
@@ -253,46 +243,48 @@
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--line);
       font-weight: 600;
-      font-size: 0.92rem;
+      font-size: 0.88rem;
     }
 
     .lane-name small {
       font-weight: 500;
       color: var(--muted);
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       margin-top: 2px;
     }
 
     .lane-name.crane-a { border-left: 3px solid var(--crane-a); }
     .lane-name.crane-b { border-left: 3px solid var(--crane-b); }
-    .lane-name.zone { border-left: 3px solid var(--joint); }
+    .lane-name.column { border-left: 3px solid rgba(148, 178, 210, 0.45); }
 
     .track {
       position: relative;
-      height: 54px;
+      height: 48px;
       border-radius: 10px;
       background:
         repeating-linear-gradient(
           90deg,
           transparent 0,
-          transparent calc(100% / 12 - 1px),
-          rgba(148, 178, 210, 0.1) calc(100% / 12 - 1px),
-          rgba(148, 178, 210, 0.1) calc(100% / 12)
+          transparent calc(100% / 5 - 1px),
+          rgba(148, 178, 210, 0.1) calc(100% / 5 - 1px),
+          rgba(148, 178, 210, 0.1) calc(100% / 5)
         ),
         var(--idle);
       overflow: hidden;
     }
 
+    .track.tall { height: 42px; }
+
     .block {
       position: absolute;
-      top: 8px;
-      height: 38px;
+      top: 6px;
+      height: 36px;
       border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 0 8px;
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
@@ -313,27 +305,6 @@
     .block.a { background: linear-gradient(180deg, #3bb5a4, var(--crane-a)); color: #062821; }
     .block.b { background: linear-gradient(180deg, #e8924a, var(--crane-b)); color: #2a1405; }
     .block.joint { background: linear-gradient(180deg, #e0bf4a, var(--joint)); color: #2a2208; }
-    .block.conflict {
-      background: linear-gradient(180deg, #ef7a7a, var(--danger));
-      color: #2a0c0c;
-      animation: pulse 1.4s ease-in-out infinite;
-    }
-
-    .zone-bar {
-      position: absolute;
-      top: 14px;
-      height: 26px;
-      border-radius: 6px;
-      opacity: 0.85;
-      font-size: 0.68rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text);
-      border: 1px dashed rgba(255, 255, 255, 0.25);
-      background: rgba(201, 162, 39, 0.15);
-    }
 
     .now-line {
       position: absolute;
@@ -347,52 +318,16 @@
       transition: left 0.35s ease;
     }
 
-    .now-line::after {
-      content: "сейчас";
-      position: absolute;
-      top: -18px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-family: var(--mono);
-      font-size: 0.65rem;
-      color: #7ec8ff;
-      white-space: nowrap;
-    }
-
-    .details {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 14px;
-    }
-
-    .stat {
-      padding: 14px 16px;
-      border-radius: 12px;
-      background: rgba(12, 18, 25, 0.45);
-      border: 1px solid var(--line);
-    }
-
-    .stat .k {
-      font-size: 0.78rem;
+    .footnote {
+      margin-top: 14px;
+      font-size: 0.82rem;
       color: var(--muted);
-      margin-bottom: 4px;
     }
-
-    .stat .v {
-      font-size: 1.35rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      font-family: var(--mono);
-    }
-
-    .stat .v.ok { color: var(--ok); }
-    .stat .v.warn { color: var(--joint); }
-    .stat .v.bad { color: var(--danger); }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
     }
 
     th, td {
@@ -410,33 +345,104 @@
       letter-spacing: 0.04em;
     }
 
-    tr:last-child td { border-bottom: none; }
+    tbody tr {
+      transition: background 0.15s;
+    }
+
+    tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
 
     .tag {
       display: inline-block;
-      font-size: 0.72rem;
-      font-weight: 700;
-      padding: 3px 8px;
+      padding: 2px 8px;
       border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
       font-family: var(--mono);
     }
 
-    .tag.a { background: var(--crane-a-soft); color: #7ed6c8; }
-    .tag.b { background: var(--crane-b-soft); color: #f0b27a; }
-    .tag.joint { background: var(--joint-soft); color: #e8cf6a; }
-    .tag.conflict { background: rgba(224, 90, 90, 0.2); color: #f0a0a0; }
+    .tag.a { background: rgba(47, 158, 143, 0.22); color: #7ed6c8; }
+    .tag.b { background: rgba(217, 119, 47, 0.22); color: #f0b27a; }
+    .tag.joint { background: rgba(201, 162, 39, 0.28); color: #f0d878; }
+
+    .details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .stat {
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(12, 18, 25, 0.55);
+      border: 1px solid var(--line);
+    }
+
+    .stat .k {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat .v {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      font-family: var(--mono);
+    }
+
+    .stat .v.ok { color: var(--ok); }
+    .stat .v.warn { color: var(--joint); }
+
+    .scheme {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+
+    .col-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(12, 18, 25, 0.4);
+      animation: fadeUp 0.55s ease both;
+    }
+
+    .col-card .num {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+
+    .col-card .meta {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .col-card.a { border-top: 3px solid var(--crane-a); }
+    .col-card.b { border-top: 3px solid var(--crane-b); }
+    .col-card.joint { border-top: 3px solid var(--joint); }
+
+    footer {
+      margin-top: 28px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
 
     .tooltip {
       position: fixed;
       z-index: 50;
-      pointer-events: none;
       max-width: 280px;
       padding: 10px 12px;
       border-radius: 10px;
       background: #0f1722;
-      border: 1px solid rgba(148, 178, 210, 0.35);
+      border: 1px solid var(--line);
       box-shadow: var(--shadow);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
+      color: var(--text);
+      pointer-events: none;
       opacity: 0;
       transform: translateY(4px);
       transition: opacity 0.15s, transform 0.15s;
@@ -450,29 +456,12 @@
     .tooltip strong {
       display: block;
       margin-bottom: 4px;
-    }
-
-    .footnote {
-      margin-top: 18px;
-      color: var(--muted);
-      font-size: 0.82rem;
-    }
-
-    footer {
-      margin-top: 28px;
-      color: var(--muted);
-      font-size: 0.8rem;
-      text-align: center;
+      font-size: 0.85rem;
     }
 
     @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(14px); }
+      from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes blockIn {
-      from { opacity: 0; transform: scaleX(0.85); transform-origin: left center; }
-      to { opacity: 1; transform: scaleX(1); }
     }
 
     @keyframes sweep {
@@ -480,17 +469,17 @@
       to { transform: translateX(100%); }
     }
 
-    @keyframes pulse {
-      0%, 100% { filter: brightness(1); }
-      50% { filter: brightness(1.2); }
+    @keyframes blockIn {
+      from { opacity: 0; transform: scaleX(0.85); }
+      to { opacity: 1; transform: scaleX(1); }
     }
 
-    @media (max-width: 700px) {
-      .page { padding: 20px 14px 48px; }
-      header.hero { padding: 24px 20px; }
+    @media (max-width: 720px) {
+      .page { padding: 24px 14px 48px; }
+      header.hero { padding: 28px 20px; }
       .lane { grid-template-columns: 1fr; }
-      .hours { grid-template-columns: 1fr repeat(12, 1fr); }
-      .hours .label { display: none; }
+      .days { grid-template-columns: 1fr repeat(5, 1fr); }
+      .scheme { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
@@ -499,70 +488,74 @@
     <header class="hero">
       <div class="brand"><span>КранСинк</span></div>
       <p class="lede">
-        Пример графика совместной работы двух башенных кранов на одном объекте:
-        смены, зоны перекрытия и совместные подъёмы без столкновения стрел.
+        Календарный график совместной работы двух башенных кранов при монтаже
+        10 железобетонных колонн каркаса здания.
       </p>
       <div class="meta-row">
-        <div>Объект: <strong>ЖК «Северный квартал», уч. 3</strong></div>
-        <div>Дата: <strong>20.07.2026</strong></div>
-        <div>Смена: <strong>08:00–20:00</strong></div>
+        <div>Объект: <strong>ЖК «Северный квартал», уч. 3 · оси А–Д</strong></div>
+        <div>Период: <strong>20–24.07.2026</strong></div>
+        <div>Смена: <strong>08:00–17:00</strong></div>
       </div>
     </header>
 
     <div class="layout">
       <section class="panel">
-        <h2>Диаграмма Ганта · смена 12 часов</h2>
+        <h2>Схема распределения колонн</h2>
         <p class="hint">
-          Кран К1 (Liebherr 280 EC-H) и кран К2 (Potain MDT 259). Жёлтые блоки — совместные операции;
-          красный — конфликт зон (для демонстрации режима «с конфликтом»).
+          К1 обслуживает оси А–Б (нечётные), К2 — оси В–Д (чётные). Колонны К-5 и К-6 —
+          совместный подъём из‑за массы свыше 12 т и работы в зоне перекрытия радиусов.
+        </p>
+        <div class="scheme" id="scheme"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Диаграмма Ганта · 5 рабочих дней</h2>
+        <p class="hint">
+          Верхние дорожки — загрузка кранов К1 и К2. Ниже — монтаж каждой колонны
+          (зелёный — К1, оранжевый — К2, жёлтый — совместно).
         </p>
 
         <div class="toolbar">
-          <label>
-            Сценарий
-            <select id="scenario">
-              <option value="ok">Согласованный график</option>
-              <option value="conflict">С конфликтом зон</option>
-            </select>
-          </label>
-          <button type="button" class="primary" id="playBtn">Прокрутить смену</button>
+          <button type="button" class="primary" id="playBtn">Прокрутить период</button>
           <button type="button" id="resetBtn">Сброс</button>
         </div>
 
         <div class="legend">
-          <div class="legend-item"><span class="swatch a"></span> Кран К1 · одиночная работа</div>
-          <div class="legend-item"><span class="swatch b"></span> Кран К2 · одиночная работа</div>
-          <div class="legend-item"><span class="swatch joint"></span> Совместная операция</div>
-          <div class="legend-item"><span class="swatch idle"></span> Простой / ожидание</div>
-          <div class="legend-item"><span class="swatch conflict"></span> Конфликт зон</div>
+          <div class="legend-item"><span class="swatch a"></span> Кран К1 · одиночный монтаж</div>
+          <div class="legend-item"><span class="swatch b"></span> Кран К2 · одиночный монтаж</div>
+          <div class="legend-item"><span class="swatch joint"></span> Совместный подъём</div>
+          <div class="legend-item"><span class="swatch idle"></span> Простой / подготовка</div>
         </div>
 
         <div class="chart-wrap">
           <div class="chart" id="chart"></div>
         </div>
         <p class="footnote">
-          Правило: при совместной работе один кран — ведущий (подача груза), второй — страховочный
-          или работает в смежной зоне с ограничением угла поворота стрелы.
+          Правило синхронизации: при совместном подъёме К1 — ведущий (строповка и подача),
+          К2 — страховочный с ограничением угла поворота стрелы ≤ 35°. Одновременный монтаж
+          соседних колонн в зоне перекрытия радиусов запрещён без диспетчера.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Показатели смены</h2>
-        <p class="hint">Считаются по выбранному сценарию.</p>
+        <h2>Показатели графика</h2>
+        <p class="hint">Сводка по пятидневке монтажа 10 колонн.</p>
         <div class="details" id="stats"></div>
       </section>
 
       <section class="panel">
         <h2>Таблица операций</h2>
-        <p class="hint">Детализация блоков графика: время, зона, тип работы, ответственный кран.</p>
+        <p class="hint">Календарный перечень работ по колоннам: день, время, кран, зона, примечание.</p>
         <div style="overflow-x:auto">
           <table>
             <thead>
               <tr>
+                <th>День</th>
                 <th>Время</th>
+                <th>Колонна</th>
                 <th>Кран</th>
                 <th>Операция</th>
-                <th>Зона</th>
+                <th>Зона / ось</th>
                 <th>Тип</th>
               </tr>
             </thead>
@@ -573,105 +566,192 @@
     </div>
 
     <footer>
-      Учебный пример · график совместной работы двух кранов · не является ППР
+      Учебный пример · календарный график монтажа 10 колонн двумя кранами · не является ППР
     </footer>
   </div>
 
   <div class="tooltip" id="tooltip"></div>
 
   <script>
-    const HOURS = Array.from({ length: 12 }, (_, i) => 8 + i);
+    /**
+     * Календарь: день 0 = 20.07.2026 … день 4 = 24.07.2026
+     * Внутри дня смена 08:00–17:00 = 9 часов; позиция = day + (hour-8)/9
+     */
+    const DAYS = [
+      { label: "Пн", date: "20.07" },
+      { label: "Вт", date: "21.07" },
+      { label: "Ср", date: "22.07" },
+      { label: "Чт", date: "23.07" },
+      { label: "Пт", date: "24.07" },
+    ];
 
-    const scenarios = {
-      ok: {
-        zones: [
-          { start: 8, end: 12, label: "Зона А · секции 1–4" },
-          { start: 12, end: 16, label: "Зона Б · секции 5–8" },
-          { start: 16, end: 20, label: "Зона В · монтаж перекрытий" },
-        ],
-        k1: [
-          { start: 8, end: 10.5, label: "Подача панелей", type: "a", zone: "А", detail: "Монтаж стеновых панелей, радиус 28 м" },
-          { start: 10.5, end: 12, label: "Совм. подъём фермы", type: "joint", zone: "А/Б", detail: "К1 ведущий, К2 сопровождение" },
-          { start: 12.5, end: 15, label: "Опалубка", type: "a", zone: "Б", detail: "Подача щитов опалубки" },
-          { start: 15, end: 17, label: "Совм. плиты ПК", type: "joint", zone: "Б/В", detail: "Поочерёдная подача плит" },
-          { start: 17.5, end: 20, label: "Арматура", type: "a", zone: "В", detail: "Подача каркасов" },
-        ],
-        k2: [
-          { start: 8, end: 10.5, label: "Бетон в кузовах", type: "b", zone: "Б", detail: "Работа вне радиуса К1" },
-          { start: 10.5, end: 12, label: "Сопровождение", type: "joint", zone: "А/Б", detail: "Страховочный кран, угол ≤ 40°" },
-          { start: 12, end: 15, label: "Леса / подмости", type: "b", zone: "В", detail: "Монтаж подмостей" },
-          { start: 15, end: 17, label: "Совм. плиты ПК", type: "joint", zone: "Б/В", detail: "К2 ведущий на секциях 7–8" },
-          { start: 17, end: 19.5, label: "Металлоконструкции", type: "b", zone: "А", detail: "Подача балок" },
-        ],
-      },
-      conflict: {
-        zones: [
-          { start: 8, end: 14, label: "Перекрытие зон А∩Б" },
-          { start: 14, end: 20, label: "Разведение зон" },
-        ],
-        k1: [
-          { start: 8, end: 11, label: "Панели", type: "a", zone: "А", detail: "Радиус 32 м" },
-          { start: 11, end: 13.5, label: "Конфликт!", type: "conflict", zone: "А∩Б", detail: "Обе стрелы в одной зоне без приоритета" },
-          { start: 14, end: 17, label: "Опалубка", type: "a", zone: "А", detail: "После разведения" },
-          { start: 17, end: 20, label: "Совм. ферма", type: "joint", zone: "Б", detail: "Восстановленный порядок" },
-        ],
-        k2: [
-          { start: 8, end: 11, label: "Бетон", type: "b", zone: "Б", detail: "Радиус 30 м" },
-          { start: 11, end: 13.5, label: "Конфликт!", type: "conflict", zone: "А∩Б", detail: "Пересечение зон обслуживания" },
-          { start: 13.5, end: 17, label: "Ожидание / простой", type: "b", zone: "—", detail: "Ожидание разрешения диспетчера" },
-          { start: 17, end: 20, label: "Сопровождение", type: "joint", zone: "Б", detail: "Совместный подъём" },
-        ],
-      },
-    };
+    /** start/end в долях периода: 0 = пн 08:00, 5 = пт 17:00 */
+    function t(day, hour) {
+      return day + (hour - 8) / 9;
+    }
+
+    /**
+     * Монтаж 10 колонн:
+     * День 1: К-1, К-2 (параллельно) + подготовка К-3
+     * День 2: К-3, К-4
+     * День 3: К-5+К-6 совместно (тяжёлые), затем выверка
+     * День 4: К-7, К-8
+     * День 5: К-9, К-10 + закрепление связей
+     */
+    const columns = [
+      { id: "К-1", axis: "А/1", mass: "8,2 т", type: "a", day: 0, startH: 8.0, endH: 11.5, crane: "К1", op: "Монтаж колонны", detail: "Строповка, подъём, установка в стакан, временное раскрепление" },
+      { id: "К-2", axis: "В/1", mass: "8,0 т", type: "b", day: 0, startH: 8.5, endH: 12.0, crane: "К2", op: "Монтаж колонны", detail: "Параллельно с К-1; радиусы не пересекаются" },
+      { id: "К-3", axis: "А/2", mass: "8,4 т", type: "a", day: 1, startH: 8.0, endH: 11.5, crane: "К1", op: "Монтаж колонны", detail: "После набора прочности заделки К-1" },
+      { id: "К-4", axis: "В/2", mass: "8,1 т", type: "b", day: 1, startH: 8.5, endH: 12.0, crane: "К2", op: "Монтаж колонны", detail: "Синхронно с К-3, зона В" },
+      { id: "К-5", axis: "Б/3", mass: "13,5 т", type: "joint", day: 2, startH: 8.0, endH: 12.0, crane: "К1+К2", op: "Совместный подъём", detail: "К1 ведущий, К2 страховочный; зона перекрытия А∩В" },
+      { id: "К-6", axis: "Г/3", mass: "13,2 т", type: "joint", day: 2, startH: 12.5, endH: 16.5, crane: "К1+К2", op: "Совместный подъём", detail: "После К-5; та же схема синхронизации стрел" },
+      { id: "К-7", axis: "А/4", mass: "8,3 т", type: "a", day: 3, startH: 8.0, endH: 11.5, crane: "К1", op: "Монтаж колонны", detail: "Ось А, ряд 4" },
+      { id: "К-8", axis: "В/4", mass: "8,0 т", type: "b", day: 3, startH: 8.5, endH: 12.0, crane: "К2", op: "Монтаж колонны", detail: "Ось В, ряд 4" },
+      { id: "К-9", axis: "А/5", mass: "8,5 т", type: "a", day: 4, startH: 8.0, endH: 11.5, crane: "К1", op: "Монтаж колонны", detail: "Завершение оси А" },
+      { id: "К-10", axis: "В/5", mass: "8,2 т", type: "b", day: 4, startH: 8.5, endH: 12.0, crane: "К2", op: "Монтаж колонны", detail: "Завершение оси В; затем связи по ряду" },
+    ];
+
+    /** Дополнительные операции кранов (подготовка, связи) — для дорожек К1/К2 */
+    const extras = [
+      { crane: "К1", type: "a", day: 0, startH: 12.0, endH: 15.0, label: "Подготовка К-3", zone: "А/2", detail: "Разметка, проверка стакана, подача оснастки" },
+      { crane: "К2", type: "b", day: 0, startH: 12.5, endH: 15.5, label: "Подготовка К-4", zone: "В/2", detail: "Подача клиньев и подмостей" },
+      { crane: "К1", type: "a", day: 1, startH: 12.0, endH: 16.0, label: "Выверка К-1…К-4", zone: "А–В", detail: "Геодезическая выверка установленных колонн" },
+      { crane: "К2", type: "b", day: 1, startH: 12.5, endH: 16.0, label: "Раскрепление", zone: "В", detail: "Временные связи по ряду 1–2" },
+      { crane: "К1", type: "a", day: 3, startH: 12.5, endH: 16.0, label: "Подача связей", zone: "А/4", detail: "Монтаж распорок между К-7 и соседними" },
+      { crane: "К2", type: "b", day: 3, startH: 12.5, endH: 16.0, label: "Подача связей", zone: "В/4", detail: "Монтаж распорок между К-8 и соседними" },
+      { crane: "К1", type: "a", day: 4, startH: 12.5, endH: 16.5, label: "Закрепление связей", zone: "А–Б", detail: "Постоянные связи по осям А–Б" },
+      { crane: "К2", type: "b", day: 4, startH: 12.5, endH: 16.5, label: "Закрепление связей", zone: "В–Д", detail: "Постоянные связи по осям В–Д" },
+    ];
 
     const chart = document.getElementById("chart");
     const opsBody = document.getElementById("opsBody");
     const stats = document.getElementById("stats");
     const tooltip = document.getElementById("tooltip");
-    const scenarioSelect = document.getElementById("scenario");
+    const scheme = document.getElementById("scheme");
 
-    let nowHour = 8;
+    let nowPos = 0;
     let playTimer = null;
 
-    function pct(hour) {
-      return ((hour - 8) / 12) * 100;
+    function pct(pos) {
+      return (pos / 5) * 100;
     }
 
     function widthPct(start, end) {
-      return ((end - start) / 12) * 100;
+      return ((end - start) / 5) * 100;
     }
 
-    function fmt(h) {
-      const hh = Math.floor(h);
-      const mm = Math.round((h - hh) * 60);
-      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    function fmtDayHour(day, hour) {
+      const hh = Math.floor(hour);
+      const mm = Math.round((hour - hh) * 60);
+      return `${DAYS[day].date} ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+
+    function fmtRange(day, startH, endH) {
+      const sh = Math.floor(startH);
+      const sm = Math.round((startH - sh) * 60);
+      const eh = Math.floor(endH);
+      const em = Math.round((endH - eh) * 60);
+      return `${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}–${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+    }
+
+    function typeLabel(t) {
+      return ({ a: "К1", b: "К2", joint: "совместно" })[t] || t;
+    }
+
+    function renderScheme() {
+      scheme.innerHTML = columns.map((c, i) => `
+        <div class="col-card ${c.type}" style="animation-delay:${0.04 * i}s">
+          <div class="num">${c.id}</div>
+          <div class="meta">
+            ось ${c.axis}<br>
+            ${c.mass} · ${c.crane}<br>
+            ${DAYS[c.day].date}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function craneBlocks(craneId) {
+      const blocks = [];
+
+      columns.forEach((c) => {
+        const involves =
+          (craneId === "К1" && (c.type === "a" || c.type === "joint")) ||
+          (craneId === "К2" && (c.type === "b" || c.type === "joint"));
+        if (!involves) return;
+        blocks.push({
+          start: t(c.day, c.startH),
+          end: t(c.day, c.endH),
+          label: c.id,
+          type: c.type,
+          zone: c.axis,
+          detail: c.detail,
+          title: `${c.id} · ${c.op}`,
+        });
+      });
+
+      extras
+        .filter((e) => e.crane === craneId)
+        .forEach((e) => {
+          blocks.push({
+            start: t(e.day, e.startH),
+            end: t(e.day, e.endH),
+            label: e.label,
+            type: e.type,
+            zone: e.zone,
+            detail: e.detail,
+            title: e.label,
+          });
+        });
+
+      return blocks.sort((a, b) => a.start - b.start);
     }
 
     function render() {
-      const data = scenarios[scenarioSelect.value];
-      nowHour = Math.min(Math.max(nowHour, 8), 20);
-
+      nowPos = Math.min(Math.max(nowPos, 0), 5);
       chart.innerHTML = "";
 
-      const hoursRow = document.createElement("div");
-      hoursRow.className = "hours";
-      hoursRow.innerHTML = `<span class="label">.</span>` + HOURS.map((h) => `<span>${h}:00</span>`).join("");
-      chart.appendChild(hoursRow);
+      const daysRow = document.createElement("div");
+      daysRow.className = "days";
+      daysRow.innerHTML =
+        `<span class="spacer">.</span>` +
+        DAYS.map((d) => `<span><strong>${d.label}</strong>${d.date}</span>`).join("");
+      chart.appendChild(daysRow);
 
-      chart.appendChild(makeLane("Зоны", "перекрытие радиусов", "zone", data.zones.map((z) => ({
-        ...z,
-        type: "zone",
-        label: z.label,
-      })), true));
+      chart.appendChild(makeLane("Кран К1", "Liebherr 280 EC-H · оси А–Б", "crane-a", craneBlocks("К1")));
+      chart.appendChild(makeLane("Кран К2", "Potain MDT 259 · оси В–Д", "crane-b", craneBlocks("К2")));
 
-      chart.appendChild(makeLane("Кран К1", "Liebherr 280 EC-H", "crane-a", data.k1));
-      chart.appendChild(makeLane("Кран К2", "Potain MDT 259", "crane-b", data.k2));
+      const sep = document.createElement("div");
+      sep.style.cssText = "height:10px";
+      chart.appendChild(sep);
 
-      renderTable(data);
-      renderStats(data);
+      columns.forEach((c) => {
+        chart.appendChild(
+          makeLane(
+            c.id,
+            `${c.axis} · ${c.mass}`,
+            "column",
+            [
+              {
+                start: t(c.day, c.startH),
+                end: t(c.day, c.endH),
+                label: c.type === "joint" ? "совместно" : c.crane,
+                type: c.type,
+                zone: c.axis,
+                detail: c.detail,
+                title: `${c.id} · ${c.op}`,
+              },
+            ],
+            true
+          )
+        );
+      });
+
+      renderTable();
+      renderStats();
     }
 
-    function makeLane(title, subtitle, cls, blocks, isZone = false) {
+    function makeLane(title, subtitle, cls, blocks, compact = false) {
       const lane = document.createElement("div");
       lane.className = "lane";
 
@@ -680,37 +760,37 @@
       name.innerHTML = `${title}<small>${subtitle}</small>`;
 
       const track = document.createElement("div");
-      track.className = "track";
+      track.className = compact ? "track tall" : "track";
 
       blocks.forEach((b, i) => {
         const el = document.createElement("div");
-        if (isZone) {
-          el.className = "zone-bar";
-        } else {
-          el.className = `block ${b.type}`;
-          el.style.animationDelay = `${0.05 * i}s`;
-        }
+        el.className = `block ${b.type}`;
+        el.style.animationDelay = `${0.04 * i}s`;
         el.style.left = `${pct(b.start)}%`;
-        el.style.width = `calc(${widthPct(b.start, b.end)}% - 4px)`;
+        el.style.width = `calc(${widthPct(b.start, b.end)}% - 3px)`;
+        el.style.top = compact ? "4px" : "6px";
+        el.style.height = compact ? "34px" : "36px";
         el.textContent = b.label;
-        if (!isZone) {
-          el.addEventListener("mousemove", (e) => showTip(e, b, title));
-          el.addEventListener("mouseleave", hideTip);
-        }
+        el.addEventListener("mousemove", (e) => showTip(e, b, title));
+        el.addEventListener("mouseleave", hideTip);
         track.appendChild(el);
       });
 
       const now = document.createElement("div");
       now.className = "now-line";
-      now.style.left = `${pct(nowHour)}%`;
+      now.style.left = `${pct(nowPos)}%`;
       track.appendChild(now);
 
       lane.append(name, track);
       return lane;
     }
 
-    function showTip(e, b, crane) {
-      tooltip.innerHTML = `<strong>${crane} · ${b.label}</strong>${fmt(b.start)}–${fmt(b.end)} · зона ${b.zone}<br>${b.detail || ""}`;
+    function showTip(e, b, row) {
+      const day = Math.min(4, Math.floor(b.start));
+      const startH = 8 + (b.start - day) * 9;
+      const endDay = Math.min(4, Math.floor(b.end - 0.001));
+      const endH = 8 + (b.end - endDay) * 9;
+      tooltip.innerHTML = `<strong>${row} · ${b.title || b.label}</strong>${fmtRange(day, startH, endH)} · зона ${b.zone}<br>${b.detail || ""}`;
       tooltip.classList.add("visible");
       const x = Math.min(e.clientX + 14, window.innerWidth - 300);
       const y = Math.min(e.clientY + 14, window.innerHeight - 100);
@@ -722,46 +802,66 @@
       tooltip.classList.remove("visible");
     }
 
-    function renderTable(data) {
-      const rows = [];
-      data.k1.forEach((b) => rows.push({ ...b, crane: "К1", tag: b.type }));
-      data.k2.forEach((b) => rows.push({ ...b, crane: "К2", tag: b.type }));
-      rows.sort((a, b) => a.start - b.start || a.crane.localeCompare(b.crane));
+    function renderTable() {
+      const rows = columns.map((c) => ({
+        day: c.day,
+        dayLabel: `${DAYS[c.day].label} ${DAYS[c.day].date}`,
+        time: fmtRange(c.day, c.startH, c.endH),
+        column: c.id,
+        crane: c.crane,
+        op: c.op,
+        zone: c.axis,
+        type: c.type,
+        detail: c.detail,
+        sort: t(c.day, c.startH),
+      }));
 
-      opsBody.innerHTML = rows.map((r) => `
+      extras.forEach((e) => {
+        rows.push({
+          day: e.day,
+          dayLabel: `${DAYS[e.day].label} ${DAYS[e.day].date}`,
+          time: fmtRange(e.day, e.startH, e.endH),
+          column: "—",
+          crane: e.crane,
+          op: e.label,
+          zone: e.zone,
+          type: e.type,
+          detail: e.detail,
+          sort: t(e.day, e.startH),
+        });
+      });
+
+      rows.sort((a, b) => a.sort - b.sort || a.crane.localeCompare(b.crane));
+
+      opsBody.innerHTML = rows
+        .map(
+          (r) => `
         <tr>
-          <td>${fmt(r.start)}–${fmt(r.end)}</td>
+          <td>${r.dayLabel}</td>
+          <td>${r.time}</td>
+          <td>${r.column}</td>
           <td>${r.crane}</td>
-          <td>${r.label}</td>
+          <td>${r.op}<br><span style="color:var(--muted);font-size:0.78rem">${r.detail}</span></td>
           <td>${r.zone}</td>
-          <td><span class="tag ${r.tag}">${typeLabel(r.tag)}</span></td>
-        </tr>
-      `).join("");
+          <td><span class="tag ${r.type}">${typeLabel(r.type)}</span></td>
+        </tr>`
+        )
+        .join("");
     }
 
-    function typeLabel(t) {
-      return ({ a: "К1", b: "К2", joint: "совместно", conflict: "конфликт" })[t] || t;
-    }
-
-    function renderStats(data) {
-      const all = [...data.k1, ...data.k2];
-      const hours = (list, type) =>
-        list.filter((b) => b.type === type).reduce((s, b) => s + (b.end - b.start), 0);
-
-      const joint = hours(data.k1, "joint");
-      const conflict = hours(all, "conflict") / 2;
-      const work1 = data.k1.reduce((s, b) => s + (b.end - b.start), 0);
-      const work2 = data.k2.reduce((s, b) => s + (b.end - b.start), 0);
-      const util1 = ((work1 / 12) * 100).toFixed(0);
-      const util2 = ((work2 / 12) * 100).toFixed(0);
-      const status = conflict > 0 ? "есть конфликт" : "без конфликтов";
-      const statusCls = conflict > 0 ? "bad" : "ok";
+    function renderStats() {
+      const jointCols = columns.filter((c) => c.type === "joint").length;
+      const solo1 = columns.filter((c) => c.type === "a").length;
+      const solo2 = columns.filter((c) => c.type === "b").length;
+      const jointHours = columns
+        .filter((c) => c.type === "joint")
+        .reduce((s, c) => s + (c.endH - c.startH), 0);
 
       stats.innerHTML = `
-        <div class="stat"><div class="k">Совместная работа</div><div class="v warn">${joint.toFixed(1)} ч</div></div>
-        <div class="stat"><div class="k">Загрузка К1</div><div class="v">${util1}%</div></div>
-        <div class="stat"><div class="k">Загрузка К2</div><div class="v">${util2}%</div></div>
-        <div class="stat"><div class="k">Статус смены</div><div class="v ${statusCls}">${status}</div></div>
+        <div class="stat"><div class="k">Колонн всего</div><div class="v">10</div></div>
+        <div class="stat"><div class="k">К1 / К2 / совместно</div><div class="v">${solo1} / ${solo2} / ${jointCols}</div></div>
+        <div class="stat"><div class="k">Совместная работа</div><div class="v warn">${jointHours.toFixed(1)} ч</div></div>
+        <div class="stat"><div class="k">Срок монтажа</div><div class="v ok">5 дн.</div></div>
       `;
     }
 
@@ -769,37 +869,33 @@
       if (playTimer) {
         clearInterval(playTimer);
         playTimer = null;
-        document.getElementById("playBtn").textContent = "Прокрутить смену";
+        document.getElementById("playBtn").textContent = "Прокрутить период";
         return;
       }
       document.getElementById("playBtn").textContent = "Пауза";
       playTimer = setInterval(() => {
-        nowHour += 0.25;
-        if (nowHour > 20) {
-          nowHour = 8;
+        nowPos += 0.05;
+        if (nowPos > 5) {
+          nowPos = 0;
           clearInterval(playTimer);
           playTimer = null;
-          document.getElementById("playBtn").textContent = "Прокрутить смену";
+          document.getElementById("playBtn").textContent = "Прокрутить период";
         }
         render();
-      }, 180);
+      }, 120);
     });
 
     document.getElementById("resetBtn").addEventListener("click", () => {
       if (playTimer) {
         clearInterval(playTimer);
         playTimer = null;
-        document.getElementById("playBtn").textContent = "Прокрутить смену";
+        document.getElementById("playBtn").textContent = "Прокрутить период";
       }
-      nowHour = 8;
+      nowPos = 0;
       render();
     });
 
-    scenarioSelect.addEventListener("change", () => {
-      nowHour = 8;
-      render();
-    });
-
+    renderScheme();
     render();
   </script>
 </body>
