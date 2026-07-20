@@ -1,30 +1,25 @@
-# КП17 — семантический DWG/DXF (TEXT, DIMENSION, LINE)
+# КП17 — семантический DWG (как PDF: чёрный, TEXT / DIMENSION / LINE)
 
 ## Скачать
 
-**DWG:** https://github.com/advharvest-arch/my-first-project/raw/cursor/kp17-dwg-sheet-6d73/drawings/KP17.dwg
+https://github.com/advharvest-arch/my-first-project/raw/cursor/kp17-dwg-sheet-6d73/drawings/KP17.dwg
 
-**DXF:** https://github.com/advharvest-arch/my-first-project/raw/cursor/kp17-dwg-sheet-6d73/drawings/KP17.dxf
+## Состав объектов
 
-## Что внутри (объекты AutoCAD)
+| Тип | ~кол-во | Слой | Цвет |
+|-----|---------|------|------|
+| TEXT / MTEXT | ~1150 | TEXT | 7 (чёрный) |
+| DIMENSION | ~160 | DIMS | 7 |
+| LINE / LWPOLYLINE | ~8600 | GEOMETRY… | 7 |
 
-| Тип | Кол-во (ориентир) | Слой |
-|-----|-------------------|------|
-| `TEXT` | ~995 | `TEXT` |
-| `MTEXT` | ~15 | `TEXT` |
-| `DIMENSION` | ~196 | `DIMS` |
-| `LINE` | ~4210 | `GEOMETRY` / `_THIN` / `_THICK` |
-| `LWPOLYLINE` | ~4420 | `GEOMETRY`… |
+Все слои и объекты — **цвет 7**, как монохромный PDF.
 
-Текст редактируется как текст, размеры — как размеры (LINEAR DIMENSION с подписью из чертежа).
+- Подписи, спецификация, примечания → редактируемый **TEXT/MTEXT**
+- Числовые размеры (11700, 30950, 1900…) → **DIMENSION**
+- Линии чертежа → **LINE / LWPOLYLINE**
 
-Формат листа: **A0**, мм. Исходник: `reference/KP17_original.pdf`.
-
-## Пересобрать
+## Пересборка
 
 ```bash
-pip3 install -r requirements.txt
 python3 -m kp17.scripts.pdf_to_semantic_dwg
 ```
-
-Нужны: `pdfminer.six`, ODA File Converter (для DXF→DWG).
