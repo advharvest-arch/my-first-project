@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>График совместной работы двух кранов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-deep: #0c1219;
+      --bg: #121a24;
+      --bg-elevated: #1a2533;
+      --line: rgba(148, 178, 210, 0.18);
+      --text: #e8eef5;
+      --muted: #8fa3b8;
+      --crane-a: #2f9e8f;
+      --crane-a-soft: rgba(47, 158, 143, 0.22);
+      --crane-b: #d9772f;
+      --crane-b-soft: rgba(217, 119, 47, 0.22);
+      --joint: #c9a227;
+      --joint-soft: rgba(201, 162, 39, 0.28);
+      --idle: rgba(143, 163, 184, 0.12);
+      --danger: #e05a5a;
+      --ok: #3dbf7a;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      --radius: 14px;
+      --font: "Manrope", sans-serif;
+      --mono: "JetBrains Mono", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 90% 60% at 10% -10%, rgba(47, 158, 143, 0.18), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 95% 0%, rgba(217, 119, 47, 0.14), transparent 50%),
+        linear-gradient(165deg, #0a1017 0%, #121a24 45%, #0e1620 100%);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 40px 24px 72px;
+    }
+
+    header.hero {
+      position: relative;
+      margin-bottom: 36px;
+      overflow: hidden;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(120deg, rgba(18, 26, 36, 0.92), rgba(18, 26, 36, 0.75)),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%2394b2d2' stroke-opacity='0.08' stroke-width='1'%3E%3Cpath d='M0 60h120M60 0v120M0 0l120 120M120 0L0 120'/%3E%3C/g%3E%3C/svg%3E");
+      padding: 36px 40px 40px;
+      box-shadow: var(--shadow);
+      animation: fadeUp 0.7s ease both;
+    }
+
+    header.hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent 0%, rgba(47, 158, 143, 0.08) 50%, transparent 100%);
+      transform: translateX(-100%);
+      animation: sweep 2.8s ease-in-out 0.4s both;
+      pointer-events: none;
+    }
+
+    .brand {
+      font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 10px;
+    }
+
+    .brand span {
+      background: linear-gradient(90deg, var(--crane-a), #7ed6c8 40%, var(--crane-b));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .lede {
+      max-width: 52ch;
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin-bottom: 22px;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .meta-row strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .layout {
+      display: grid;
+      gap: 22px;
+    }
+
+    .panel {
+      background: rgba(26, 37, 51, 0.72);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px;
+      backdrop-filter: blur(8px);
+      animation: fadeUp 0.7s ease both;
+    }
+
+    .panel:nth-child(1) { animation-delay: 0.08s; }
+    .panel:nth-child(2) { animation-delay: 0.16s; }
+    .panel:nth-child(3) { animation-delay: 0.24s; }
+
+    .panel h2 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      letter-spacing: -0.02em;
+    }
+
+    .panel .hint {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin-bottom: 18px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 20px;
+      margin-bottom: 18px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .swatch {
+      width: 18px;
+      height: 10px;
+      border-radius: 3px;
+    }
+
+    .swatch.a { background: var(--crane-a); }
+    .swatch.b { background: var(--crane-b); }
+    .swatch.joint { background: var(--joint); }
+    .swatch.idle { background: var(--idle); border: 1px solid var(--line); }
+    .swatch.conflict { background: var(--danger); }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .toolbar label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    select, button {
+      font-family: var(--font);
+      font-size: 0.9rem;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--bg-deep);
+      color: var(--text);
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.15s, background 0.2s;
+    }
+
+    button:hover, select:hover {
+      border-color: rgba(148, 178, 210, 0.45);
+    }
+
+    button:active { transform: scale(0.98); }
+
+    button.primary {
+      background: linear-gradient(135deg, #2a8f82, #1f6f65);
+      border-color: transparent;
+      font-weight: 600;
+    }
+
+    .chart-wrap {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(12, 18, 25, 0.55);
+    }
+
+    .chart {
+      min-width: 920px;
+      padding: 16px 16px 20px;
+    }
+
+    .hours {
+      display: grid;
+      grid-template-columns: 150px repeat(12, 1fr);
+      gap: 0;
+      margin-bottom: 8px;
+      padding-left: 0;
+    }
+
+    .hours .label { color: transparent; }
+    .hours span {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: center;
+      padding: 4px 0;
+      border-left: 1px dashed rgba(148, 178, 210, 0.12);
+    }
+
+    .lane {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 10px;
+      align-items: stretch;
+      margin-bottom: 12px;
+    }
+
+    .lane-name {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--line);
+      font-weight: 600;
+      font-size: 0.92rem;
+    }
+
+    .lane-name small {
+      font-weight: 500;
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-top: 2px;
+    }
+
+    .lane-name.crane-a { border-left: 3px solid var(--crane-a); }
+    .lane-name.crane-b { border-left: 3px solid var(--crane-b); }
+    .lane-name.zone { border-left: 3px solid var(--joint); }
+
+    .track {
+      position: relative;
+      height: 54px;
+      border-radius: 10px;
+      background:
+        repeating-linear-gradient(
+          90deg,
+          transparent 0,
+          transparent calc(100% / 12 - 1px),
+          rgba(148, 178, 210, 0.1) calc(100% / 12 - 1px),
+          rgba(148, 178, 210, 0.1) calc(100% / 12)
+        ),
+        var(--idle);
+      overflow: hidden;
+    }
+
+    .block {
+      position: absolute;
+      top: 8px;
+      height: 38px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+      transition: transform 0.15s, filter 0.15s, box-shadow 0.15s;
+      animation: blockIn 0.55s ease both;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    }
+
+    .block:hover {
+      transform: translateY(-2px) scale(1.01);
+      filter: brightness(1.08);
+      z-index: 2;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+    }
+
+    .block.a { background: linear-gradient(180deg, #3bb5a4, var(--crane-a)); color: #062821; }
+    .block.b { background: linear-gradient(180deg, #e8924a, var(--crane-b)); color: #2a1405; }
+    .block.joint { background: linear-gradient(180deg, #e0bf4a, var(--joint)); color: #2a2208; }
+    .block.conflict {
+      background: linear-gradient(180deg, #ef7a7a, var(--danger));
+      color: #2a0c0c;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    .zone-bar {
+      position: absolute;
+      top: 14px;
+      height: 26px;
+      border-radius: 6px;
+      opacity: 0.85;
+      font-size: 0.68rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text);
+      border: 1px dashed rgba(255, 255, 255, 0.25);
+      background: rgba(201, 162, 39, 0.15);
+    }
+
+    .now-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #7ec8ff;
+      box-shadow: 0 0 12px rgba(126, 200, 255, 0.7);
+      z-index: 3;
+      pointer-events: none;
+      transition: left 0.35s ease;
+    }
+
+    .now-line::after {
+      content: "сейчас";
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: #7ec8ff;
+      white-space: nowrap;
+    }
+
+    .details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .stat {
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(12, 18, 25, 0.45);
+      border: 1px solid var(--line);
+    }
+
+    .stat .k {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat .v {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      font-family: var(--mono);
+    }
+
+    .stat .v.ok { color: var(--ok); }
+    .stat .v.warn { color: var(--joint); }
+    .stat .v.bad { color: var(--danger); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-family: var(--mono);
+    }
+
+    .tag.a { background: var(--crane-a-soft); color: #7ed6c8; }
+    .tag.b { background: var(--crane-b-soft); color: #f0b27a; }
+    .tag.joint { background: var(--joint-soft); color: #e8cf6a; }
+    .tag.conflict { background: rgba(224, 90, 90, 0.2); color: #f0a0a0; }
+
+    .tooltip {
+      position: fixed;
+      z-index: 50;
+      pointer-events: none;
+      max-width: 280px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #0f1722;
+      border: 1px solid rgba(148, 178, 210, 0.35);
+      box-shadow: var(--shadow);
+      font-size: 0.82rem;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.15s, transform 0.15s;
+    }
+
+    .tooltip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .tooltip strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .footnote {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    footer {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-align: center;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes blockIn {
+      from { opacity: 0; transform: scaleX(0.85); transform-origin: left center; }
+      to { opacity: 1; transform: scaleX(1); }
+    }
+
+    @keyframes sweep {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.2); }
+    }
+
+    @media (max-width: 700px) {
+      .page { padding: 20px 14px 48px; }
+      header.hero { padding: 24px 20px; }
+      .lane { grid-template-columns: 1fr; }
+      .hours { grid-template-columns: 1fr repeat(12, 1fr); }
+      .hours .label { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="brand"><span>КранСинк</span></div>
+      <p class="lede">
+        Пример графика совместной работы двух башенных кранов на одном объекте:
+        смены, зоны перекрытия и совместные подъёмы без столкновения стрел.
+      </p>
+      <div class="meta-row">
+        <div>Объект: <strong>ЖК «Северный квартал», уч. 3</strong></div>
+        <div>Дата: <strong>20.07.2026</strong></div>
+        <div>Смена: <strong>08:00–20:00</strong></div>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="panel">
+        <h2>Диаграмма Ганта · смена 12 часов</h2>
+        <p class="hint">
+          Кран К1 (Liebherr 280 EC-H) и кран К2 (Potain MDT 259). Жёлтые блоки — совместные операции;
+          красный — конфликт зон (для демонстрации режима «с конфликтом»).
+        </p>
+
+        <div class="toolbar">
+          <label>
+            Сценарий
+            <select id="scenario">
+              <option value="ok">Согласованный график</option>
+              <option value="conflict">С конфликтом зон</option>
+            </select>
+          </label>
+          <button type="button" class="primary" id="playBtn">Прокрутить смену</button>
+          <button type="button" id="resetBtn">Сброс</button>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><span class="swatch a"></span> Кран К1 · одиночная работа</div>
+          <div class="legend-item"><span class="swatch b"></span> Кран К2 · одиночная работа</div>
+          <div class="legend-item"><span class="swatch joint"></span> Совместная операция</div>
+          <div class="legend-item"><span class="swatch idle"></span> Простой / ожидание</div>
+          <div class="legend-item"><span class="swatch conflict"></span> Конфликт зон</div>
+        </div>
+
+        <div class="chart-wrap">
+          <div class="chart" id="chart"></div>
+        </div>
+        <p class="footnote">
+          Правило: при совместной работе один кран — ведущий (подача груза), второй — страховочный
+          или работает в смежной зоне с ограничением угла поворота стрелы.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Показатели смены</h2>
+        <p class="hint">Считаются по выбранному сценарию.</p>
+        <div class="details" id="stats"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Таблица операций</h2>
+        <p class="hint">Детализация блоков графика: время, зона, тип работы, ответственный кран.</p>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Время</th>
+                <th>Кран</th>
+                <th>Операция</th>
+                <th>Зона</th>
+                <th>Тип</th>
+              </tr>
+            </thead>
+            <tbody id="opsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      Учебный пример · график совместной работы двух кранов · не является ППР
+    </footer>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const HOURS = Array.from({ length: 12 }, (_, i) => 8 + i);
+
+    const scenarios = {
+      ok: {
+        zones: [
+          { start: 8, end: 12, label: "Зона А · секции 1–4" },
+          { start: 12, end: 16, label: "Зона Б · секции 5–8" },
+          { start: 16, end: 20, label: "Зона В · монтаж перекрытий" },
+        ],
+        k1: [
+          { start: 8, end: 10.5, label: "Подача панелей", type: "a", zone: "А", detail: "Монтаж стеновых панелей, радиус 28 м" },
+          { start: 10.5, end: 12, label: "Совм. подъём фермы", type: "joint", zone: "А/Б", detail: "К1 ведущий, К2 сопровождение" },
+          { start: 12.5, end: 15, label: "Опалубка", type: "a", zone: "Б", detail: "Подача щитов опалубки" },
+          { start: 15, end: 17, label: "Совм. плиты ПК", type: "joint", zone: "Б/В", detail: "Поочерёдная подача плит" },
+          { start: 17.5, end: 20, label: "Арматура", type: "a", zone: "В", detail: "Подача каркасов" },
+        ],
+        k2: [
+          { start: 8, end: 10.5, label: "Бетон в кузовах", type: "b", zone: "Б", detail: "Работа вне радиуса К1" },
+          { start: 10.5, end: 12, label: "Сопровождение", type: "joint", zone: "А/Б", detail: "Страховочный кран, угол ≤ 40°" },
+          { start: 12, end: 15, label: "Леса / подмости", type: "b", zone: "В", detail: "Монтаж подмостей" },
+          { start: 15, end: 17, label: "Совм. плиты ПК", type: "joint", zone: "Б/В", detail: "К2 ведущий на секциях 7–8" },
+          { start: 17, end: 19.5, label: "Металлоконструкции", type: "b", zone: "А", detail: "Подача балок" },
+        ],
+      },
+      conflict: {
+        zones: [
+          { start: 8, end: 14, label: "Перекрытие зон А∩Б" },
+          { start: 14, end: 20, label: "Разведение зон" },
+        ],
+        k1: [
+          { start: 8, end: 11, label: "Панели", type: "a", zone: "А", detail: "Радиус 32 м" },
+          { start: 11, end: 13.5, label: "Конфликт!", type: "conflict", zone: "А∩Б", detail: "Обе стрелы в одной зоне без приоритета" },
+          { start: 14, end: 17, label: "Опалубка", type: "a", zone: "А", detail: "После разведения" },
+          { start: 17, end: 20, label: "Совм. ферма", type: "joint", zone: "Б", detail: "Восстановленный порядок" },
+        ],
+        k2: [
+          { start: 8, end: 11, label: "Бетон", type: "b", zone: "Б", detail: "Радиус 30 м" },
+          { start: 11, end: 13.5, label: "Конфликт!", type: "conflict", zone: "А∩Б", detail: "Пересечение зон обслуживания" },
+          { start: 13.5, end: 17, label: "Ожидание / простой", type: "b", zone: "—", detail: "Ожидание разрешения диспетчера" },
+          { start: 17, end: 20, label: "Сопровождение", type: "joint", zone: "Б", detail: "Совместный подъём" },
+        ],
+      },
+    };
+
+    const chart = document.getElementById("chart");
+    const opsBody = document.getElementById("opsBody");
+    const stats = document.getElementById("stats");
+    const tooltip = document.getElementById("tooltip");
+    const scenarioSelect = document.getElementById("scenario");
+
+    let nowHour = 8;
+    let playTimer = null;
+
+    function pct(hour) {
+      return ((hour - 8) / 12) * 100;
+    }
+
+    function widthPct(start, end) {
+      return ((end - start) / 12) * 100;
+    }
+
+    function fmt(h) {
+      const hh = Math.floor(h);
+      const mm = Math.round((h - hh) * 60);
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+
+    function render() {
+      const data = scenarios[scenarioSelect.value];
+      nowHour = Math.min(Math.max(nowHour, 8), 20);
+
+      chart.innerHTML = "";
+
+      const hoursRow = document.createElement("div");
+      hoursRow.className = "hours";
+      hoursRow.innerHTML = `<span class="label">.</span>` + HOURS.map((h) => `<span>${h}:00</span>`).join("");
+      chart.appendChild(hoursRow);
+
+      chart.appendChild(makeLane("Зоны", "перекрытие радиусов", "zone", data.zones.map((z) => ({
+        ...z,
+        type: "zone",
+        label: z.label,
+      })), true));
+
+      chart.appendChild(makeLane("Кран К1", "Liebherr 280 EC-H", "crane-a", data.k1));
+      chart.appendChild(makeLane("Кран К2", "Potain MDT 259", "crane-b", data.k2));
+
+      renderTable(data);
+      renderStats(data);
+    }
+
+    function makeLane(title, subtitle, cls, blocks, isZone = false) {
+      const lane = document.createElement("div");
+      lane.className = "lane";
+
+      const name = document.createElement("div");
+      name.className = `lane-name ${cls}`;
+      name.innerHTML = `${title}<small>${subtitle}</small>`;
+
+      const track = document.createElement("div");
+      track.className = "track";
+
+      blocks.forEach((b, i) => {
+        const el = document.createElement("div");
+        if (isZone) {
+          el.className = "zone-bar";
+        } else {
+          el.className = `block ${b.type}`;
+          el.style.animationDelay = `${0.05 * i}s`;
+        }
+        el.style.left = `${pct(b.start)}%`;
+        el.style.width = `calc(${widthPct(b.start, b.end)}% - 4px)`;
+        el.textContent = b.label;
+        if (!isZone) {
+          el.addEventListener("mousemove", (e) => showTip(e, b, title));
+          el.addEventListener("mouseleave", hideTip);
+        }
+        track.appendChild(el);
+      });
+
+      const now = document.createElement("div");
+      now.className = "now-line";
+      now.style.left = `${pct(nowHour)}%`;
+      track.appendChild(now);
+
+      lane.append(name, track);
+      return lane;
+    }
+
+    function showTip(e, b, crane) {
+      tooltip.innerHTML = `<strong>${crane} · ${b.label}</strong>${fmt(b.start)}–${fmt(b.end)} · зона ${b.zone}<br>${b.detail || ""}`;
+      tooltip.classList.add("visible");
+      const x = Math.min(e.clientX + 14, window.innerWidth - 300);
+      const y = Math.min(e.clientY + 14, window.innerHeight - 100);
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `${y}px`;
+    }
+
+    function hideTip() {
+      tooltip.classList.remove("visible");
+    }
+
+    function renderTable(data) {
+      const rows = [];
+      data.k1.forEach((b) => rows.push({ ...b, crane: "К1", tag: b.type }));
+      data.k2.forEach((b) => rows.push({ ...b, crane: "К2", tag: b.type }));
+      rows.sort((a, b) => a.start - b.start || a.crane.localeCompare(b.crane));
+
+      opsBody.innerHTML = rows.map((r) => `
+        <tr>
+          <td>${fmt(r.start)}–${fmt(r.end)}</td>
+          <td>${r.crane}</td>
+          <td>${r.label}</td>
+          <td>${r.zone}</td>
+          <td><span class="tag ${r.tag}">${typeLabel(r.tag)}</span></td>
+        </tr>
+      `).join("");
+    }
+
+    function typeLabel(t) {
+      return ({ a: "К1", b: "К2", joint: "совместно", conflict: "конфликт" })[t] || t;
+    }
+
+    function renderStats(data) {
+      const all = [...data.k1, ...data.k2];
+      const hours = (list, type) =>
+        list.filter((b) => b.type === type).reduce((s, b) => s + (b.end - b.start), 0);
+
+      const joint = hours(data.k1, "joint");
+      const conflict = hours(all, "conflict") / 2;
+      const work1 = data.k1.reduce((s, b) => s + (b.end - b.start), 0);
+      const work2 = data.k2.reduce((s, b) => s + (b.end - b.start), 0);
+      const util1 = ((work1 / 12) * 100).toFixed(0);
+      const util2 = ((work2 / 12) * 100).toFixed(0);
+      const status = conflict > 0 ? "есть конфликт" : "без конфликтов";
+      const statusCls = conflict > 0 ? "bad" : "ok";
+
+      stats.innerHTML = `
+        <div class="stat"><div class="k">Совместная работа</div><div class="v warn">${joint.toFixed(1)} ч</div></div>
+        <div class="stat"><div class="k">Загрузка К1</div><div class="v">${util1}%</div></div>
+        <div class="stat"><div class="k">Загрузка К2</div><div class="v">${util2}%</div></div>
+        <div class="stat"><div class="k">Статус смены</div><div class="v ${statusCls}">${status}</div></div>
+      `;
+    }
+
+    document.getElementById("playBtn").addEventListener("click", () => {
+      if (playTimer) {
+        clearInterval(playTimer);
+        playTimer = null;
+        document.getElementById("playBtn").textContent = "Прокрутить смену";
+        return;
+      }
+      document.getElementById("playBtn").textContent = "Пауза";
+      playTimer = setInterval(() => {
+        nowHour += 0.25;
+        if (nowHour > 20) {
+          nowHour = 8;
+          clearInterval(playTimer);
+          playTimer = null;
+          document.getElementById("playBtn").textContent = "Прокрутить смену";
+        }
+        render();
+      }, 180);
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      if (playTimer) {
+        clearInterval(playTimer);
+        playTimer = null;
+        document.getElementById("playBtn").textContent = "Прокрутить смену";
+      }
+      nowHour = 8;
+      render();
+    });
+
+    scenarioSelect.addEventListener("change", () => {
+      nowHour = 8;
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
