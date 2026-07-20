@@ -310,6 +310,20 @@ def edit_doc(src: Path, dst: Path) -> None:
         e.dxf.text = "%%C25"
         if e.dxf.hasattr("actual_measurement"):
             e.dxf.actual_measurement = NEW_D
+        # Anonymous *D geometry block still holds visible MTEXT %%C22 — update it
+        gname = e.dxf.get("geometry") if e.dxf.hasattr("geometry") else None
+        if gname:
+            gblock = doc.blocks.get(gname)
+            if gblock is not None:
+                for ent in gblock.query("MTEXT TEXT"):
+                    gt = ent.dxf.text if ent.dxftype() == "TEXT" else ent.text
+                    if "%%C22" in gt:
+                        new_gt = gt.replace("%%C22", "%%C25")
+                        if ent.dxftype() == "TEXT":
+                            ent.dxf.text = new_gt
+                        else:
+                            ent.text = new_gt
+                        print("dim block", gname, "%%C22→%%C25")
         n_dim += 1
     print("schema Ø dims", n_dim)
 
