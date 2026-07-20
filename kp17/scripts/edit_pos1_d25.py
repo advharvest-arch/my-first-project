@@ -72,11 +72,13 @@ def ensure_source_dxf() -> Path:
 
 
 def is_pos1_callout(text: str) -> bool:
-    if "Пруток 22x5850" in text:
+    if "Пруток 22x5850" in text or "Пруток 25x5850" in text:
         return True
-    if "1 A500C %%C22" in text:
+    if "1 A500C %%C22" in text or "1 A500C %%C25" in text:
         return True
-    if re.search(r"\\C0;1\\PА500C", text) and "%%C" in text and "22" in text:
+    if re.search(r"\\C0;1\\PА500C", text) and "%%C" in text and (
+        "22" in text or "25" in text
+    ):
         return True
     return False
 
@@ -91,6 +93,86 @@ def fix_pos1_callout(text: str) -> str:
         count=1,
     )
     return text
+
+
+# UTF-16LE ∅22 / ∅25 inside MULTILEADER binary (DXF group 310)
+_BIN_DIAM_22 = b"\x05\x22\x32\x00\x32\x00"  # ∅22
+_BIN_DIAM_25 = b"\x05\x22\x32\x00\x35\x00"  # ∅25
+
+
+def patch_mleader_binary_diam(raw: str, handles: set[str]) -> tuple[str, int]:
+    """Patch embedded MLEADER binary so AutoCAD shows Ø25 (not stale Ø22)."""
+    import binascii
+
+    lines = raw.splitlines(keepends=True)
+    wanted = {h.upper() for h in handles}
+    n_patch = 0
+    i = 0
+    while i < len(lines) - 1:
+        if lines[i].strip() != "5":
+            i += 1
+            continue
+        h = lines[i + 1].strip().upper()
+        if h not in wanted:
+            i += 1
+            continue
+        start = i
+        while start > 0 and lines[start].strip() != "0":
+            start -= 1
+        end = i + 2
+        while end < len(lines) - 1:
+            if lines[end].strip() == "0":
+                nxt = lines[end + 1].strip()
+                if nxt in {
+                    "LINE",
+                    "LWPOLYLINE",
+                    "CIRCLE",
+                    "ARC",
+                    "DIMENSION",
+                    "MULTILEADER",
+                    "MTEXT",
+                    "TEXT",
+                    "INSERT",
+                    "HATCH",
+                    "WIPEOUT",
+                    "ATTDEF",
+                    "SOLID",
+                    "SPLINE",
+                    "ELLIPSE",
+                    "POINT",
+                    "ACAD_TABLE",
+                    "VIEWPORT",
+                    "3DFACE",
+                    "SEQEND",
+                }:
+                    break
+            end += 1
+        hex_idxs = [j + 1 for j in range(start, end) if lines[j].strip() == "310"]
+        if not hex_idxs:
+            i = end
+            continue
+        chunks = [lines[j].strip() for j in hex_idxs]
+        data = binascii.unhexlify("".join(chunks))
+        if _BIN_DIAM_22 not in data:
+            i = end
+            continue
+        data = data.replace(_BIN_DIAM_22, _BIN_DIAM_25, 1)
+        new_hex = binascii.hexlify(data).decode("ascii").upper()
+        pos = 0
+        for j, old in zip(hex_idxs, chunks):
+            n = len(old)
+            piece = new_hex[pos : pos + n]
+            pos += n
+            if lines[j].endswith("\r\n"):
+                ending = "\r\n"
+            elif lines[j].endswith("\n"):
+                ending = "\n"
+            else:
+                ending = ""
+            lines[j] = piece + ending
+        n_patch += 1
+        i = end
+    return "".join(lines), n_patch
 
 
 def widen_rect_poly(poly, *, keep_right: bool = False) -> float:
@@ -226,6 +308,8 @@ def edit_doc(src: Path, dst: Path) -> None:
             e.dxf.defpoint2 = (left, p2.y, p2.z)
             e.dxf.defpoint3 = (right, p3.y, p3.z)
         e.dxf.text = "%%C25"
+        if e.dxf.hasattr("actual_measurement"):
+            e.dxf.actual_measurement = NEW_D
         n_dim += 1
     print("schema Ø dims", n_dim)
 
@@ -255,7 +339,8 @@ def edit_doc(src: Path, dst: Path) -> None:
         elif t in ("6474.15", "6474,15") and abs(x - 23314.9) < 300:
             e.text = f"{NEW_TOTAL:.2f}" if t == "6474.15" else fmt_comma(NEW_TOTAL)
 
-    # 6) Callouts
+    # 6) Callouts (text + embedded binary — AutoCAD reads group 310)
+    pos1_leader_handles: set[str] = set()
     for e in msp.query("MULTILEADER"):
         ctx = getattr(e, "context", None)
         if not (ctx and getattr(ctx, "mtext", None)):
@@ -263,6 +348,7 @@ def edit_doc(src: Path, dst: Path) -> None:
         content = ctx.mtext.default_content or ""
         if is_pos1_callout(content):
             ctx.mtext.default_content = fix_pos1_callout(content)
+            pos1_leader_handles.add(e.dxf.handle)
     for e in msp.query("MTEXT"):
         if is_pos1_callout(e.text):
             e.text = fix_pos1_callout(e.text)
@@ -298,7 +384,10 @@ def edit_doc(src: Path, dst: Path) -> None:
         window_end = min(len(raw), j + 500)
         out.append(raw[j:window_end].replace("631.12", f"{NEW_D25:.2f}"))
         i = window_end
-    dst.write_text("".join(out), encoding="utf-8")
+    raw = "".join(out)
+    raw, n_bin = patch_mleader_binary_diam(raw, pos1_leader_handles)
+    print("mleader binary Ø22→Ø25", n_bin, "handles", sorted(pos1_leader_handles))
+    dst.write_text(raw, encoding="utf-8")
 
 
 def to_dwg(dxf: Path, dwg: Path) -> None:
