@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Change KP17 position 1 rebar diameter Ø22 → Ø25 and recalculate tables.
+"""Change KP17 position 1 rebar Ø22 → Ø25: redraw bars + recalc tables.
 
-Reads reference/KP17_original.dwg (via DXF), updates:
-  - callouts / MULTILEADER for поз. 1 only (поз. 2/6/8 stay Ø22)
-  - спецификация *T37 row 1 + Итого
-  - ведомость расхода стали *T39 (Ø22/Ø25 columns + totals)
-  - TABLECONTENT cell values
-
-Mass basis matches the drawing (Ø25 = 45.08 kg / 11.7 m).
+Updates on the original DWG:
+  - Geometry blocks *U24 / *U34 (22×5850 → 25×5850) + WIPEOUT fills
+  - MULTILEADER callouts for поз. 1 only (поз. 2/6/8 stay Ø22)
+  - Спецификация *T37 and ведомость расхода стали *T39
 """
 from __future__ import annotations
 
@@ -18,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 import ezdxf
+from ezdxf.math import Vec2
 
 ROOT = Path(__file__).resolve().parents[2]
 REF_DXF = Path("/tmp/oda_src_out/KP17_original.dxf")
@@ -29,11 +27,13 @@ ODA = Path("/tmp/squashfs-root/usr/bin/ODAFileConverter")
 OLD_ROW = 488.88
 NEW_UNIT = round((45.08 / 11.7) * 5.85, 2)  # 22.54
 NEW_ROW = round(NEW_UNIT * 28, 2)  # 631.12
-NEW_TOTAL = round(6474.15 - OLD_ROW + NEW_ROW, 2)  # 6616.39
-NEW_D22 = round(1666.76 - OLD_ROW, 2)  # 1177.88
-NEW_D25 = round(631.12 + NEW_ROW, 2)  # 1262.24
-NEW_A500 = round(6017.00 - OLD_ROW + NEW_ROW, 2)  # 6159.24
-NEW_ARM = round(6066.00 - OLD_ROW + NEW_ROW, 2)  # 6208.24
+NEW_TOTAL = round(6474.15 - OLD_ROW + NEW_ROW, 2)
+NEW_D22 = round(1666.76 - OLD_ROW, 2)
+NEW_D25 = round(631.12 + NEW_ROW, 2)
+NEW_A500 = round(6017.00 - OLD_ROW + NEW_ROW, 2)
+NEW_ARM = round(6066.00 - OLD_ROW + NEW_ROW, 2)
+NEW_D = 25.0
+BAR_LEN = 5850.0
 
 
 def fmt_comma(x: float) -> str:
@@ -85,11 +85,65 @@ def fix_pos1_callout(text: str) -> str:
     return text
 
 
+def redraw_pos1_bar_block(block) -> None:
+    """Widen 22×5850 bar rectangle + wipeout fill to Ø25."""
+    poly = next(e for e in block if e.dxftype() == "LWPOLYLINE")
+    pts = list(poly.get_points("xy"))
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    cx = (minx + maxx) / 2
+    new_pts = []
+    if abs(cx) < 1.0:
+        # centered (±11 → ±12.5), e.g. *U24
+        half = NEW_D / 2
+        for x, y in pts:
+            nx = half if x > 0 else (-half if x < 0 else 0.0)
+            new_pts.append((nx, y))
+    else:
+        # keep left edge, extend right to width 25 (like existing Ø25 *U22)
+        for x, y in pts:
+            if abs(x - minx) < 0.2:
+                nx = minx
+            elif abs(x - maxx) < 0.2:
+                nx = minx + NEW_D
+            else:
+                nx = x
+            new_pts.append((nx, y))
+    poly.set_points(new_pts)
+
+    wipe = next((e for e in block if e.dxftype() == "WIPEOUT"), None)
+    if wipe is None:
+        return
+    nxs = [p[0] for p in new_pts]
+    nys = [p[1] for p in new_pts]
+    insert_x, insert_y = min(nxs), min(nys)
+    wipe.dxf.insert = (insert_x, insert_y, 0)
+    wipe.dxf.u_pixel = (BAR_LEN, 0, 0)
+    wipe.dxf.v_pixel = (0, BAR_LEN, 0)
+    span = NEW_D / BAR_LEN
+    wipe.set_boundary_path(
+        [
+            Vec2(-0.5, -0.5),
+            Vec2(-0.5 + span, -0.5),
+            Vec2(-0.5 + span, 0.5),
+            Vec2(-0.5, 0.5),
+            Vec2(-0.5, -0.5),
+        ]
+    )
+
+
 def edit_doc(src: Path, dst: Path) -> None:
     shutil.copy(src, dst)
     doc = ezdxf.readfile(dst)
     msp = doc.modelspace()
 
+    # 1) Redraw bars on both cage views
+    for bname in ("*U24", "*U34"):
+        redraw_pos1_bar_block(doc.blocks.get(bname))
+        print("redrawn", bname)
+
+    # 2) Tables
     for e in doc.blocks.get("*T37").query("MTEXT"):
         t, y = e.text, e.dxf.insert.y
         if abs(y + 3750) < 5:
@@ -115,6 +169,7 @@ def edit_doc(src: Path, dst: Path) -> None:
         elif t in ("6474.15", "6474,15") and abs(x - 23314.9) < 300:
             e.text = f"{NEW_TOTAL:.2f}" if t == "6474.15" else fmt_comma(NEW_TOTAL)
 
+    # 3) Callouts
     for e in msp.query("MULTILEADER"):
         ctx = getattr(e, "context", None)
         if not (ctx and getattr(ctx, "mtext", None)):
@@ -122,7 +177,6 @@ def edit_doc(src: Path, dst: Path) -> None:
         content = ctx.mtext.default_content or ""
         if is_pos1_callout(content):
             ctx.mtext.default_content = fix_pos1_callout(content)
-
     for e in msp.query("MTEXT"):
         if is_pos1_callout(e.text):
             e.text = fix_pos1_callout(e.text)
@@ -130,7 +184,7 @@ def edit_doc(src: Path, dst: Path) -> None:
     doc.saveas(dst)
 
     raw = dst.read_text(encoding="utf-8", errors="ignore")
-    reps = [
+    for a, b in [
         ("Пруток 22x5850", "Пруток 25x5850"),
         ("1 A500C %%C22", "1 A500C %%C25"),
         ("17.46", f"{NEW_UNIT:.2f}"),
@@ -141,15 +195,13 @@ def edit_doc(src: Path, dst: Path) -> None:
         ("6066,00", fmt_comma(NEW_ARM)),
         ("6474,15", fmt_comma(NEW_TOTAL)),
         ("6474.15", f"{NEW_TOTAL:.2f}"),
-    ]
-    for a, b in reps:
+    ]:
         raw = raw.replace(a, b)
     raw = re.sub(
         r"(\{\\C0;1\\PА500C \\fISOCPEUR\|b0\|i0\|c204\|p34;%%C\\fISOCPEUR\|b0\|i0\|c0\|p34;)22( )",
         r"\g<1>25\2",
         raw,
     )
-    # Ø25 cell in steel table TABLECONTENT follows Ø22=1177.88
     out, i = [], 0
     while True:
         j = raw.find("1177.88", i)
@@ -158,8 +210,7 @@ def edit_doc(src: Path, dst: Path) -> None:
             break
         out.append(raw[i:j])
         window_end = min(len(raw), j + 500)
-        window = raw[j:window_end].replace("631.12", f"{NEW_D25:.2f}")
-        out.append(window)
+        out.append(raw[j:window_end].replace("631.12", f"{NEW_D25:.2f}"))
         i = window_end
     dst.write_text("".join(out), encoding="utf-8")
 
@@ -191,10 +242,17 @@ def to_dwg(dxf: Path, dwg: Path) -> None:
 def main():
     src = ensure_source_dxf()
     print("source", src)
-    print(f"pos.1: Ø22→Ø25, unit {NEW_UNIT}, row {NEW_ROW}, total {NEW_TOTAL}")
+    print(f"pos.1 geometry+text: Ø22→Ø25, unit {NEW_UNIT}, total {NEW_TOTAL}")
     edit_doc(src, OUT_DXF)
     shutil.copy(OUT_DXF, ROOT / "drawings" / "KP17.dxf")
     to_dwg(OUT_DXF, OUT_DWG)
+    # verify
+    doc = ezdxf.readfile(OUT_DXF)
+    for bname in ("*U24", "*U34"):
+        poly = next(e for e in doc.blocks.get(bname) if e.dxftype() == "LWPOLYLINE")
+        pts = list(poly.get_points("xy"))
+        xs = [p[0] for p in pts]
+        print(bname, "width", max(xs) - min(xs))
     print("done", OUT_DXF)
 
 
