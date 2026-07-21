@@ -1,4 +1,6 @@
 __pycache__/
+.deps_ok
+data/.installed
 *.py[cod]
 .venv/
 .env
