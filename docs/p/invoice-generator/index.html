@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice Generator — Бесплатный инструмент</title>
+  <meta name="description" content="Бесплатный онлайн-инструмент: invoice generator">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .wrap { max-width: 600px; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .ad { min-height: 90px; background: #1e293b; border: 1px dashed #475569; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.75rem; margin-bottom: 1.5rem; border-radius: 8px; }
+    textarea, input { width: 100%; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 0.75rem; border-radius: 8px; font-size: 1rem; margin-bottom: 1rem; }
+    .btn { background: hsl(209, 65%, 45%); color: #000; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%; font-size: 1rem; }
+    .result { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 1rem; margin-top: 1rem; word-break: break-all; font-family: monospace; min-height: 60px; }
+    .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 1rem; }
+    .tool-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+    .tool-btn.active { border-color: hsl(209, 65%, 45%); color: hsl(209, 65%, 45%); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="ad"><script>window.yaContextCb=window.yaContextCb||[]</script><script src="https://yandex.ru/ads/system/context.js" async></script><div id="yandex_rtb_R-A-TEST-123" style="min-height:90px"></div><script>window.yaContextCb.push(()=>{Ya.Context.AdvManager.render({"blockId":"R-A-TEST-123","renderTo":"yandex_rtb_R-A-TEST-123"})})</script></div>
+    <h1>🔧 Invoice Generator</h1>
+    <p class="sub">invoice generator — бесплатный онлайн-инструмент</p>
+
+    <div class="tools">
+      <button class="tool-btn active" onclick="setTool('text')">Анализ текста</button>
+      <button class="tool-btn" onclick="setTool('counter')">Счётчик слов</button>
+      <button class="tool-btn" onclick="setTool('case')">Регистр</button>
+      <button class="tool-btn" onclick="setTool('slug')">URL-slug</button>
+    </div>
+
+    <textarea id="input" rows="5" placeholder="Введите текст..." oninput="process()"></textarea>
+    <button class="btn" onclick="process()">Обработать</button>
+    <div class="result" id="result">Результат появится здесь</div>
+    <div class="ad" style="margin-top:1.5rem"><script>window.yaContextCb=window.yaContextCb||[]</script><script src="https://yandex.ru/ads/system/context.js" async></script><div id="yandex_rtb_R-A-TEST-123" style="min-height:90px"></div><script>window.yaContextCb.push(()=>{Ya.Context.AdvManager.render({"blockId":"R-A-TEST-123","renderTo":"yandex_rtb_R-A-TEST-123"})})</script></div>
+  </div>
+
+  <script>
+    const SLUG = "invoice-generator";
+    const TRACK = "http://localhost:8000/api/fleet/track";
+    let tool = "text";
+    function track(e) { fetch(TRACK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({slug:SLUG,event:e})}).catch(()=>{}); }
+    track("view");
+
+    function setTool(t) {
+      tool = t;
+      document.querySelectorAll(".tool-btn").forEach(b => b.classList.remove("active"));
+      event.target.classList.add("active");
+      process();
+    }
+
+    function process() {
+      const text = document.getElementById("input").value;
+      let out = "";
+      if (tool === "text") out = `Символов: ${text.length}\nСлов: ${text.trim().split(/\s+/).filter(Boolean).length}\nСтрок: ${text.split("\n").length}`;
+      else if (tool === "counter") out = `Слов: ${text.trim().split(/\s+/).filter(Boolean).length}`;
+      else if (tool === "case") out = `UPPER: ${text.toUpperCase()}\n\nlower: ${text.toLowerCase()}`;
+      else if (tool === "slug") out = text.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-|-$/g, "");
+      document.getElementById("result").textContent = out;
+      track("view");
+    }
+    setInterval(() => track("view"), 120000);
+  </script>
+  <script src="./static/launch-button.js"></script>
+</body>
+</html>

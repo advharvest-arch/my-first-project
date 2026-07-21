@@ -1,0 +1,8 @@
+{
+  "slug": "remote-work-tools",
+  "name": "Remote Work Tools",
+  "niche": "remote work tools",
+  "type": "micro_tool",
+  "public_url": "http://localhost:8000/p/remote-work-tools/",
+  "estimated_rub_per_day": 80.0
+}

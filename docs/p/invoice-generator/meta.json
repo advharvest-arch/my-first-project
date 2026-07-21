@@ -1,0 +1,8 @@
+{
+  "slug": "invoice-generator",
+  "name": "Invoice Generator",
+  "niche": "invoice generator",
+  "type": "micro_tool",
+  "public_url": "http://localhost:8000/p/invoice-generator/",
+  "estimated_rub_per_day": 80.0
+}

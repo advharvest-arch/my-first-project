@@ -1,0 +1,8 @@
+{
+  "slug": "freelance-tools",
+  "name": "Freelance Tools",
+  "niche": "freelance tools",
+  "type": "micro_tool",
+  "public_url": "http://localhost:8000/p/freelance-tools/",
+  "estimated_rub_per_day": 80.0
+}
