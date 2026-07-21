@@ -88,7 +88,7 @@ def generate_hub(static: bool = False) -> str:
     <p>Бесплатные онлайн-игры и утилиты — играй прямо в браузере</p>
     <div class="metrics">
       <div class="metric"><div class="val">{len(projects)}</div><div class="lbl">Игр и утилит</div></div>
-      <div class="metric"><div class="val">0 ₽</div><div class="lbl">Всё бесплатно</div></div>
+      <div class="metric"><div class="val">✓</div><div class="lbl">Без регистрации</div></div>
     </div>
   </div>
   <div class="grid">{''.join(cards) if cards else '<p style="color:#64748b;text-align:center;grid-column:1/-1">Скоро появятся новые игры</p>'}</div>

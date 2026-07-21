@@ -8,6 +8,21 @@ from src.fleet.hub import generate_hub, generate_robots, generate_sitemap
 from src.models import FleetProject, SessionLocal
 
 SITE_DIR = OUTPUT_DIR / "site"
+_PRIVATE_EXPORT_FILES = {"meta.json"}
+_PRIVATE_EXPORT_DIRS = {"static"}
+
+
+def _copy_public_project(src: Path, dst: Path) -> None:
+    """Copy fleet project files for public hosting — no owner metadata."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        if item.name in _PRIVATE_EXPORT_FILES or item.name in _PRIVATE_EXPORT_DIRS:
+            continue
+        target = dst / item.name
+        if item.is_dir():
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
 
 
 def export_static_site() -> dict:
@@ -30,7 +45,9 @@ def export_static_site() -> dict:
         if not src.exists():
             continue
         dst = fleet_site / project.slug
-        shutil.copytree(src, dst)
+        if dst.exists():
+            shutil.rmtree(dst)
+        _copy_public_project(src, dst)
         exported += 1
 
     hub = generate_hub(static=True)
@@ -46,7 +63,7 @@ def export_static_site() -> dict:
     (SITE_DIR / "_redirects").write_text(redirects + "\n", encoding="utf-8")
 
     # Zip archive for easy upload
-    zip_path = OUTPUT_DIR / "money-engine-site.zip"
+    zip_path = OUTPUT_DIR / "playbox-site.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in SITE_DIR.rglob("*"):
             if file.is_file():
@@ -66,7 +83,7 @@ def export_static_site() -> dict:
 def _upload_instructions() -> str:
     return f"""
 Статический сайт готов в: {SITE_DIR}
-Архив для загрузки: {OUTPUT_DIR / 'money-engine-site.zip'}
+Архив для загрузки: {OUTPUT_DIR / 'playbox-site.zip'}
 
 Варианты деплоя (бесплатно):
   1. Cloudflare Pages — перетащите папку site/ на dash.cloudflare.com
