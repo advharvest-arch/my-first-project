@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Money Engine CLI — scan niches, deploy fleet, run server."""
+"""Money Engine CLI — turnkey auto-income system."""
 
 import argparse
 import asyncio
@@ -13,42 +13,50 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Money Engine — Automated Income Fleet")
+    parser = argparse.ArgumentParser(description="Money Engine — Turnkey Auto Income")
     parser.add_argument(
         "command",
-        choices=["scan", "fleet", "serve", "start"],
-        help="scan=find niches, fleet=deploy projects, serve/start=API+scheduler",
+        choices=["turnkey", "scan", "fleet", "serve", "start"],
+        help="turnkey=full setup, scan/fleet=manual, serve/start=server",
     )
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--count", type=int, default=None, help="Fleet target size")
+    parser.add_argument("--no-serve", action="store_true", help="Turnkey without starting server")
+    parser.add_argument("--skip-scan", action="store_true", help="Skip niche scan if fleet exists")
     args = parser.parse_args()
 
-    if args.command == "scan":
+    if args.command == "turnkey":
+        from src.turnkey.setup import print_turnkey_report, run_turnkey
+
+        result = asyncio.run(
+            run_turnkey(fleet_size=args.count, skip_scan=args.skip_scan)
+        )
+        print_turnkey_report(result)
+        if not args.no_serve:
+            import uvicorn
+            from config import settings
+
+            port = args.port or settings.port
+            print(f"🚀 Запуск сервера на http://0.0.0.0:{port}")
+            uvicorn.run("src.api:app", host="0.0.0.0", port=port, reload=False)
+
+    elif args.command == "scan":
         from src.pipeline import run_full_pipeline
 
         result = asyncio.run(run_full_pipeline())
         print("\n✅ Scan complete!")
         print(f"   Signals: {result['raw_signals']}")
         print(f"   Opportunities: {result['opportunities_found']}")
-        print(f"   Reports: {result['reports_generated']}")
         if result.get("fleet"):
             f = result["fleet"]
-            print(f"   Fleet: {f.get('active_projects', 0)} active, deployed {f.get('deployed', 0)}")
+            print(f"   Fleet: {f.get('active_projects', 0)} active")
             print(f"   Projected: {f.get('projected_rub_per_day', 0):.0f} ₽/day")
-        print("\nTop opportunities:")
-        for i, opp in enumerate(result["top_opportunities"][:5], 1):
-            print(f"  {i}. [{opp['score']}] {opp['niche']} ({opp['type']})")
 
     elif args.command == "fleet":
         from src.fleet.scaler import scale_fleet
 
         result = scale_fleet(target_size=args.count)
-        print("\n🚀 Fleet scaled!")
-        print(f"   Active projects: {result['active_projects']}")
-        print(f"   Deployed now: {result.get('deployed', 0)}")
-        print(f"   Target: {result.get('target', '?')}")
-        print(f"   Projected: {result.get('projected_rub_per_day', 0):.0f} ₽/day")
-        print(f"   Formula: {result['active_projects']} projects × ~100₽ = {result.get('projected_rub_per_day', 0):.0f} ₽/day")
+        print(f"\n🚀 Fleet: {result['active_projects']} projects, {result.get('projected_rub_per_day', 0):.0f} ₽/day")
 
     elif args.command in ("serve", "start"):
         import uvicorn

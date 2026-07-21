@@ -20,7 +20,7 @@
   </style>
 </head>
 <body>
-  <div class="ad-top" id="adTop">{% if ad_yandex %}<!-- Yandex RTB: {{ ad_yandex }} -->{% elif ad_adsense %}<!-- AdSense: {{ ad_adsense }} -->{% else %}Рекламный блок{% endif %}</div>
+  <div class="ad-top" id="adTop">{{ ad_snippet | safe }}</div>
 
   <div class="game">
     <h1>🪙 {{ spec.name }}</h1>

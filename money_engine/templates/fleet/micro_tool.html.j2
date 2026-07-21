@@ -22,7 +22,7 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="ad">{% if ad_yandex %}Yandex RTB{% elif ad_adsense %}AdSense{% else %}Реклама{% endif %}</div>
+    <div class="ad">{{ ad_snippet | safe }}</div>
     <h1>🔧 {{ spec.name }}</h1>
     <p class="sub">{{ spec.niche }} — бесплатный онлайн-инструмент</p>
 
@@ -36,7 +36,7 @@
     <textarea id="input" rows="5" placeholder="Введите текст..." oninput="process()"></textarea>
     <button class="btn" onclick="process()">Обработать</button>
     <div class="result" id="result">Результат появится здесь</div>
-    <div class="ad" style="margin-top:1.5rem">Реклама</div>
+    <div class="ad" style="margin-top:1.5rem">{{ ad_snippet | safe }}</div>
   </div>
 
   <script>

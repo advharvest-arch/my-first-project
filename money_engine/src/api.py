@@ -2,6 +2,7 @@ from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import FLEET_DIR, LANDINGS_DIR, OUTPUT_DIR, settings
@@ -156,6 +157,28 @@ async def serve_fleet_project(slug: str):
     if path.exists():
         return FileResponse(path, media_type="text/html")
     return {"error": "project not found"}
+
+
+SITE_DIR = OUTPUT_DIR / "site"
+if SITE_DIR.exists():
+    app.mount("/site", StaticFiles(directory=str(SITE_DIR), html=True), name="site")
+
+
+@app.get("/hub")
+@app.get("/hub/")
+async def serve_hub():
+    hub = SITE_DIR / "index.html"
+    if hub.exists():
+        return FileResponse(hub, media_type="text/html")
+    from src.fleet.hub import generate_hub
+    generate_hub()
+    return FileResponse(SITE_DIR / "index.html", media_type="text/html")
+
+
+@app.post("/api/turnkey")
+async def api_turnkey(count: int | None = None):
+    from src.turnkey.setup import run_turnkey
+    return await run_turnkey(fleet_size=count)
 
 
 @app.get("/api/scans")

@@ -34,7 +34,7 @@
     <button class="btn" onclick="claimReward()">Забрать бонус (+5₽)</button>
     <button class="btn" onclick="watchAd()" style="background:#334155;color:#e2e8f0">Смотреть рекламу (+15₽)</button>
   </div>
-  <div class="ad">{% if ad_yandex %}Yandex RTB{% elif ad_adsense %}AdSense{% else %}Рекламный блок{% endif %}</div>
+  <div class="ad">{{ ad_snippet | safe }}</div>
 
   <script>
     const SLUG = "{{ project_slug }}";

@@ -1,126 +1,113 @@
-# Money Engine — Fleet Edition
+# Money Engine — под ключ
 
-Полностью автоматическая система заработка через флот микропроектов.
+Полностью автоматическая система заработка. Одна команда — всё работает.
 
-**Идея:** 50 проектов × 100₽/день = **5 000₽/день** без вашего участия.
+## Быстрый старт (3 способа)
 
-## Как это работает
+### Способ 1: Одна команда (рекомендуется)
 
+```bash
+cd money_engine
+chmod +x install.sh start.sh
+./install.sh          # установка + 50 проектов
+./start.sh            # запуск
 ```
-Сканирование ниш → Автодеплой проектов → Реклама/аффилиат → Доход
-        ↑                                                    ↓
-        └────────── Масштабирование победителей ─────────────┘
-```
 
-Система **сама**:
-1. Ищет ниши в Reddit, Hacker News, Google Trends
-2. Создаёт микропроекты: игры, утилиты, affiliate-страницы
-3. Размещает рекламные блоки (Yandex RTB / AdSense)
-4. Считает доход и масштабирует флот
-5. Отключает мёртвые проекты, клонирует прибыльные
-
-## Типы проектов
-
-| Тип | Что это | ₽/день (прогноз) |
-|-----|---------|------------------|
-| `ad_game` | Кликер-игра с рекламой | ~120₽ |
-| `reward_game` | Игра с виртуальными наградами + реклама | ~150₽ |
-| `micro_tool` | Онлайн-утилита (счётчик, конвертер) | ~80₽ |
-| `affiliate` | Страница с партнёрскими ссылками | ~100₽ |
-
-## Быстрый старт
+### Способ 2: Python
 
 ```bash
 cd money_engine
 pip install -r requirements.txt
-cp .env.example .env
-
-# 1. Найти ниши + задеплоить 50 проектов
-python3 main.py scan
-
-# 2. Или только масштабировать флот
-python3 main.py fleet --count 50
-
-# 3. Запустить сервер (раздаёт все проекты + дашборд)
-python3 main.py start
+python3 main.py turnkey --count 50
 ```
 
-Дашборд: **http://localhost:8000**  
-Проекты: **http://localhost:8000/p/{slug}/**
+### Способ 3: Docker
+
+```bash
+cd money_engine
+cp .env.example .env
+docker compose up -d
+```
+
+## Что происходит автоматически
+
+```
+./install.sh
+    │
+    ├─ Установка зависимостей
+    ├─ Создание .env
+    ├─ Сканирование ниш (Reddit, HN, Trends)
+    ├─ Деплой 50 микропроектов (игры, утилиты, affiliate)
+    ├─ Генерация главной страницы + SEO (sitemap, robots)
+    ├─ Экспорт статического сайта + ZIP-архив
+    └─ Готово к запуску
+```
+
+## После установки
+
+| URL | Что это |
+|-----|---------|
+| http://localhost:8000 | Дашборд управления |
+| http://localhost:8000/hub/ | Витрина всех проектов |
+| http://localhost:8000/p/{slug}/ | Отдельный микропроект |
+| http://localhost:8000/site/ | Статический сайт для хостинга |
+
+## Монетизация (один раз)
+
+Откройте `.env` и добавьте ID рекламной сети:
+
+```env
+AD_SLOT_YANDEX=R-A-123456-1
+# или
+AD_SLOT_ADSENSE=ca-pub-123456789
+```
+
+Перезапустите `./start.sh` — реклама появится во всех проектах.
+
+## Деплой в интернет (для реального трафика)
+
+После `./install.sh` готов архив `output/money-engine-site.zip`.
+
+Загрузите на любой бесплатный хостинг:
+
+1. **Cloudflare Pages** — перетащите папку `output/site/`
+2. **Vercel** — `npx vercel output/site`
+3. **GitHub Pages** — залейте содержимое `output/site/`
+
+Обновите в `.env`:
+```env
+PUBLIC_BASE_URL=https://ваш-домен.ru
+```
 
 ## Масштабирование
 
 ```bash
-# 10 проектов = ~1000₽/день
-python3 main.py fleet --count 10
-
-# 50 проектов = ~5000₽/день
-python3 main.py fleet --count 50
-
-# 100 проектов = ~10000₽/день
-python3 main.py fleet --count 100
+# 100 проектов = ~10 000 ₽/день
+python3 main.py turnkey --count 100 --skip-scan
 ```
 
-В `.env`:
-```
-FLEET_TARGET_SIZE=100
-FLEET_AUTO_SCALE=true
-```
+Или в `.env`: `FLEET_TARGET_SIZE=100`
 
-После каждого сканирования система автоматически доводит флот до целевого размера.
+## Продакшн на VPS
 
-## Монетизация
+```bash
+# Скопируйте на сервер
+scp -r money_engine/ user@server:/opt/money-engine
 
-1. **Реклама** — добавьте в `.env`:
-   ```
-   AD_SLOT_YANDEX=ваш-id
-   AD_SLOT_ADSENSE=ваш-id
-   ```
-
-2. **Аффилиат** — добавьте партнёрскую ссылку:
-   ```
-   AFFILIATE_BASE_URL=https://partner.example.com/ref=123
-   ```
-
-3. **Деплой в продакшн** — для реального трафика:
-   - Залейте `output/fleet/` на Cloudflare Pages / Vercel / GitHub Pages
-   - Или запустите сервер на VPS с доменом
-   - Обновите `PUBLIC_BASE_URL=https://yourdomain.com`
-
-## API
-
-| Endpoint | Описание |
-|----------|----------|
-| `POST /api/scan` | Скан + автодеплой |
-| `POST /api/fleet/scale` | Масштабировать флот |
-| `POST /api/fleet/clone` | Клонировать топ-проекты |
-| `POST /api/fleet/prune` | Отключить мёртвые |
-| `GET /api/fleet/projects` | Список проектов |
-| `POST /api/fleet/track` | Трекинг просмотров/кликов |
-| `GET /p/{slug}/` | Микропроект |
-
-## Архитектура
-
-```
-money_engine/
-├── src/
-│   ├── collectors/     # Источники ниш
-│   ├── analyzer/       # Скоринг
-│   ├── fleet/          # ★ Деплой, масштабирование, трекинг
-│   │   ├── deployer.py
-│   │   ├── scaler.py
-│   │   └── tracker.py
-│   ├── api.py          # API + дашборд
-│   └── scheduler.py    # Авто-цикл каждые 6ч
-├── templates/fleet/    # Шаблоны игр, утилит, affiliate
-└── output/fleet/       # Задеплоенные проекты
+# На сервере
+cd /opt/money-engine
+./install.sh 100
+sudo cp deploy/money-engine.service /etc/systemd/system/
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/money-engine
+sudo systemctl enable --now money-engine
 ```
 
 ## Формула дохода
 
 ```
-Доход = Количество проектов × Средний ₽/день × Uptime
-50 × 100₽ × 30 дней = 150 000₽/месяц
+Проекты × ₽/день = Доход
+50 × 100₽ = 5 000₽/день
+100 × 100₽ = 10 000₽/день
 ```
 
-Система полностью автоматическая после первого запуска.
+Система работает полностью автоматически после `./install.sh`.

@@ -29,6 +29,28 @@ ESTIMATED_RUB = {
 }
 
 
+def _ad_snippet(slot_id: str = "", network: str = "yandex") -> str:
+    if network == "yandex" and settings.ad_slot_yandex:
+        bid = settings.ad_slot_yandex
+        return (
+            '<script>window.yaContextCb=window.yaContextCb||[]</script>'
+            '<script src="https://yandex.ru/ads/system/context.js" async></script>'
+            f'<div id="yandex_rtb_{bid}" style="min-height:90px"></div>'
+            "<script>window.yaContextCb.push(()=>{Ya.Context.AdvManager.render({"
+            f'"blockId":"{bid}","renderTo":"yandex_rtb_{bid}"'
+            "})})</script>"
+        )
+    if settings.ad_slot_adsense:
+        return (
+            '<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client='
+            f'{settings.ad_slot_adsense}" crossorigin="anonymous"></script>'
+            '<ins class="adsbygoogle" style="display:block" data-ad-client="'
+            f'{settings.ad_slot_adsense}" data-ad-slot="auto" data-ad-format="auto"></ins>'
+            "<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>"
+        )
+    return '<div style="color:#64748b;font-size:0.8rem">Рекламный блок — добавьте AD_SLOT_YANDEX в .env</div>'
+
+
 def deploy_project(spec: FleetDeploySpec) -> tuple[str, str, float]:
     """Deploy a fleet project. Returns (deploy_path, public_url, estimated_rub_per_day)."""
     project_dir = FLEET_DIR / spec.slug
@@ -47,7 +69,8 @@ def deploy_project(spec: FleetDeploySpec) -> tuple[str, str, float]:
         theme=spec.theme_color or theme_color_for(spec.slug),
         ad_yandex=settings.ad_slot_yandex,
         ad_adsense=settings.ad_slot_adsense,
-        affiliate_url=settings.affiliate_base_url or "#",
+        ad_snippet=_ad_snippet(),
+        affiliate_url=settings.affiliate_base_url or "https://ya.ru",
         public_url=public_url,
         track_url=track_url,
         project_slug=spec.slug,

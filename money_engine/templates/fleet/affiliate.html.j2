@@ -28,7 +28,7 @@
     <a href="{{ affiliate_url }}" class="cta" onclick="trackClick('main')">Смотреть лучшее предложение →</a>
   </div>
 
-  <div class="ad">{% if ad_yandex %}Yandex RTB{% elif ad_adsense %}AdSense{% else %}Реклама{% endif %}</div>
+  <div class="ad">{{ ad_snippet | safe }}</div>
 
   <div class="offers">
     <div class="offer">
