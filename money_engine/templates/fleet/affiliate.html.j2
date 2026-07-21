@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ spec.name }} — Лучшие предложения</title>
-  <meta name="description" content="Топ предложения по теме {{ spec.niche }}">
+  <title>{{ spec.name }} — полезные советы</title>
+  <meta name="description" content="{{ spec.name }} — подборка полезных материалов">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
@@ -12,47 +12,38 @@
     h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
     .hero p { color: #cbd5e1; max-width: 500px; margin: 0 auto 1.5rem; }
     .cta { display: inline-block; background: #fff; color: #000; padding: 1rem 2.5rem; border-radius: 8px; font-weight: 800; text-decoration: none; font-size: 1.1rem; }
-    .cta:hover { transform: scale(1.02); }
     .offers { max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
     .offer { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
     .offer h3 { font-size: 1rem; }
     .offer p { color: #64748b; font-size: 0.85rem; margin-top: 0.25rem; }
     .offer a { background: {{ theme }}; color: #000; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 0.85rem; white-space: nowrap; }
-    .ad { max-width: 600px; margin: 1rem auto; min-height: 90px; background: #1e293b; border: 1px dashed #475569; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.75rem; border-radius: 8px; }
+    .ad { max-width: 600px; margin: 1rem auto; min-height: 90px; }
+    .back { display: block; text-align: center; margin: 1rem; color: #94a3b8; text-decoration: none; }
+    .back:hover { color: #e2e8f0; }
   </style>
 </head>
 <body>
   <div class="hero">
-    <h1>🏆 {{ spec.name }}</h1>
-    <p>Лучшие предложения и скидки по теме «{{ spec.niche }}». Обновляется автоматически.</p>
-    <a href="{{ affiliate_url }}" class="cta" onclick="trackClick('main')">Смотреть лучшее предложение →</a>
+    <h1>⭐ {{ spec.name }}</h1>
+    <p>Полезная подборка материалов и советов</p>
+    <a href="{{ affiliate_url }}" class="cta">Читать подробнее →</a>
   </div>
-
   <div class="ad">{{ ad_snippet | safe }}</div>
-
   <div class="offers">
     <div class="offer">
-      <div><h3>Топ выбор #1</h3><p>Проверенное предложение по {{ spec.niche }}</p></div>
-      <a href="{{ affiliate_url }}" onclick="trackClick('offer1')">Перейти</a>
+      <div><h3>Рекомендуем</h3><p>Проверенные материалы по теме</p></div>
+      <a href="{{ affiliate_url }}">Открыть</a>
     </div>
     <div class="offer">
-      <div><h3>Лучшая цена</h3><p>Экономия до 40% на {{ spec.niche }}</p></div>
-      <a href="{{ affiliate_url }}" onclick="trackClick('offer2')">Перейти</a>
+      <div><h3>Популярное</h3><p>То, что сейчас в тренде</p></div>
+      <a href="{{ affiliate_url }}">Открыть</a>
     </div>
     <div class="offer">
-      <div><h3>Новинка 2026</h3><p>Свежие предложения в нише {{ spec.niche }}</p></div>
-      <a href="{{ affiliate_url }}" onclick="trackClick('offer3')">Перейти</a>
+      <div><h3>Новое</h3><p>Свежие публикации</p></div>
+      <a href="{{ affiliate_url }}">Открыть</a>
     </div>
   </div>
-
-  <script>
-    const SLUG = "{{ project_slug }}";
-    const TRACK = "{{ track_url }}";
-    function track(e) { fetch(TRACK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({slug:SLUG,event:e})}).catch(()=>{}); }
-    function trackClick(id) { track("ad_click"); }
-    track("view");
-    setInterval(() => track("view"), 120000);
-  </script>
+  <a href="../../" class="back">← Все игры</a>
   {{ launch_button | safe }}
 </body>
 </html>

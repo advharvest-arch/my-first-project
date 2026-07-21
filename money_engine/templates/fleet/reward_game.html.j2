@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ spec.name }} — Заработок</title>
-  <meta name="description" content="{{ spec.name }}: играй и получай виртуальные награды">
+  <title>{{ spec.name }} — игра на память</title>
+  <meta name="description" content="{{ spec.name }} — бесплатная игра на память онлайн">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: linear-gradient(135deg, #0f172a, #1a1a2e); color: #e2e8f0; min-height: 100vh; }
@@ -18,21 +18,23 @@
     .card.matched { opacity: 0.3; pointer-events: none; }
     .actions { text-align: center; padding: 1rem; }
     .btn { background: {{ theme }}; color: #000; border: none; padding: 0.75rem 2rem; border-radius: 8px; font-weight: 700; cursor: pointer; margin: 0.5rem; }
-    .ad { max-width: 320px; margin: 1rem auto; min-height: 100px; background: #1e293b; border: 1px dashed #475569; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.75rem; }
+    .ad { max-width: 320px; margin: 1rem auto; min-height: 100px; }
     .msg { text-align: center; color: #94a3b8; font-size: 0.85rem; margin: 0.5rem; }
+    .back { position: fixed; top: 1rem; left: 1rem; color: #94a3b8; text-decoration: none; font-size: 0.9rem; }
+    .back:hover { color: #e2e8f0; }
   </style>
 </head>
 <body>
+  <a href="../../" class="back">← Все игры</a>
   <div class="header">
     <h1>🎮 {{ spec.name }}</h1>
-    <div class="balance"><span>Баланс:</span> <span id="balance">0</span> ₽</div>
-    <p class="msg">Собери пары — получай награды. Реклама = бонус.</p>
+    <div class="balance"><span>Очки:</span> <span id="balance">0</span></div>
+    <p class="msg">Найди все пары карточек</p>
   </div>
 
   <div class="grid" id="grid"></div>
   <div class="actions">
-    <button class="btn" onclick="claimReward()">Забрать бонус (+5₽)</button>
-    <button class="btn" onclick="watchAd()" style="background:#334155;color:#e2e8f0">Смотреть рекламу (+15₽)</button>
+    <button class="btn" onclick="claimReward()">Бонус +5 очков</button>
   </div>
   <div class="ad">{{ ad_snippet | safe }}</div>
 
@@ -40,10 +42,10 @@
     const SLUG = "{{ project_slug }}";
     const TRACK = "{{ track_url }}";
     let balance = 0;
-    const emojis = ["🪙","💎","⭐","🎯","🔥","💰"];
+    const emojis = ["🪙","💎","⭐","🎯","🔥","🌟"];
     let cards = [], flipped = [], matched = 0;
 
-    function track(e) { fetch(TRACK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({slug:SLUG,event:e})}).catch(()=>{}); }
+    function track(e) { if (!TRACK) return; fetch(TRACK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({slug:SLUG,event:e})}).catch(()=>{}); }
     track("view");
 
     function init() {
@@ -69,18 +71,15 @@
           if (flipped[0].dataset.emoji === flipped[1].dataset.emoji) {
             flipped.forEach(c => { c.classList.add("matched"); matched++; });
             balance += 2; document.getElementById("balance").textContent = balance;
-            if (matched === 6) { balance += 10; document.getElementById("balance").textContent = balance; track("reward"); setTimeout(init, 1000); matched = 0; }
+            if (matched === 6) { balance += 10; document.getElementById("balance").textContent = balance; setTimeout(init, 1000); matched = 0; }
           } else { flipped.forEach(c => { c.classList.remove("flipped"); c.textContent = "?"; }); }
           flipped = [];
         }, 600);
       }
     }
 
-    function claimReward() { balance += 5; document.getElementById("balance").textContent = balance; track("reward"); }
-    function watchAd() { balance += 15; document.getElementById("balance").textContent = balance; track("ad_click"); }
-
+    function claimReward() { balance += 5; document.getElementById("balance").textContent = balance; }
     init();
-    setInterval(() => track("view"), 90000);
   </script>
   {{ launch_button | safe }}
 </body>

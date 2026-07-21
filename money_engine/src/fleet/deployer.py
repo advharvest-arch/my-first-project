@@ -48,10 +48,10 @@ def _ad_snippet(slot_id: str = "", network: str = "yandex") -> str:
             f'{settings.ad_slot_adsense}" data-ad-slot="auto" data-ad-format="auto"></ins>'
             "<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>"
         )
-    return '<div style="color:#64748b;font-size:0.8rem">Рекламный блок — добавьте AD_SLOT_YANDEX в .env</div>'
+    return '<div style="min-height:90px"></div>'
 
 
-def deploy_project(spec: FleetDeploySpec) -> tuple[str, str, float]:
+def deploy_project(spec: FleetDeploySpec, *, owner_ui: bool = False) -> tuple[str, str, float]:
     """Deploy a fleet project. Returns (deploy_path, public_url, estimated_rub_per_day)."""
     project_dir = FLEET_DIR / spec.slug
     if project_dir.exists():
@@ -72,9 +72,9 @@ def deploy_project(spec: FleetDeploySpec) -> tuple[str, str, float]:
         ad_snippet=_ad_snippet(),
         affiliate_url=settings.affiliate_base_url or "https://ya.ru",
         public_url=public_url,
-        track_url=track_url,
+        track_url=track_url if owner_ui else "",
         project_slug=spec.slug,
-        launch_button='<script src="/static/launch-button.js"></script>',
+        launch_button='<script src="/static/launch-button.js"></script>' if owner_ui else '',
     )
     (project_dir / "index.html").write_text(html, encoding="utf-8")
 

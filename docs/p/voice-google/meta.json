@@ -3,6 +3,6 @@
   "name": "Voice Google",
   "niche": "voice google",
   "type": "ad_game",
-  "public_url": "http://localhost:8000/p/voice-google/",
+  "public_url": "https://advharvest-arch.github.io/my-first-project/p/voice-google/",
   "estimated_rub_per_day": 120.0
 }

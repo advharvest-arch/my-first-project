@@ -37,12 +37,6 @@ def export_static_site() -> dict:
     sitemap = generate_sitemap(static=False)
     robots = generate_robots()
 
-    static_src = BASE_DIR / "static" / "launch-button.js"
-    static_dst = SITE_DIR / "static"
-    static_dst.mkdir(parents=True, exist_ok=True)
-    if static_src.exists():
-        shutil.copy(static_src, static_dst / "launch-button.js")
-
     # Hosting configs
     vercel = {"rewrites": [{"source": "/p/:slug", "destination": "/p/:slug/index.html"}]}
     (SITE_DIR / "vercel.json").write_text(json.dumps(vercel, indent=2), encoding="utf-8")

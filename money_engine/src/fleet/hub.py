@@ -7,37 +7,51 @@ from src.models import FleetProject, SessionLocal
 
 SITE_DIR = OUTPUT_DIR / "site"
 
+TYPE_LABELS = {
+    "ad_game": "Игра",
+    "reward_game": "Игра",
+    "micro_tool": "Утилита",
+    "affiliate": "Подборка",
+}
+
+TYPE_SUBTITLE = {
+    "ad_game": "Бесплатная игра в браузере",
+    "reward_game": "Игра на память",
+    "micro_tool": "Полезный онлайн-инструмент",
+    "affiliate": "Лучшие предложения",
+}
+
 
 def generate_hub(static: bool = False) -> str:
-    """Generate main hub page listing all fleet projects."""
+    """Generate public-facing hub — no owner/money info."""
     SITE_DIR.mkdir(parents=True, exist_ok=True)
     session = SessionLocal()
     try:
         projects = (
             session.query(FleetProject)
             .filter(FleetProject.status == "active")
-            .order_by(FleetProject.estimated_rub_per_day.desc())
+            .order_by(FleetProject.name)
             .all()
         )
     finally:
         session.close()
 
     base = "." if static else settings.public_base_url.rstrip("/")
-    total_projected = sum(p.estimated_rub_per_day for p in projects)
 
     cards = []
     for p in projects:
         link = f"{base}/p/{p.slug}/" if not static else f"./p/{p.slug}/"
-        icon = {"ad_game": "🎮", "reward_game": "🏆", "micro_tool": "🔧", "affiliate": "💰"}.get(
-            p.project_type, "📦"
+        icon = {"ad_game": "🎮", "reward_game": "🎯", "micro_tool": "🔧", "affiliate": "⭐"}.get(
+            p.project_type, "🎮"
         )
+        label = TYPE_LABELS.get(p.project_type, "Игра")
+        subtitle = TYPE_SUBTITLE.get(p.project_type, "Бесплатно")
         cards.append(f"""
         <a href="{link}" class="card">
           <div class="card-icon">{icon}</div>
           <h3>{p.name}</h3>
-          <p>{p.niche}</p>
-          <span class="tag">{p.project_type}</span>
-          <span class="rev">~{p.estimated_rub_per_day:.0f} ₽/день</span>
+          <p>{subtitle}</p>
+          <span class="tag">{label}</span>
         </a>""")
 
     html = f"""<!DOCTYPE html>
@@ -45,8 +59,8 @@ def generate_hub(static: bool = False) -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Money Engine — Автоматический заработок</title>
-  <meta name="description" content="Флот из {len(projects)} автоматических микропроектов для заработка">
+  <title>PlayBox — бесплатные онлайн-игры и утилиты</title>
+  <meta name="description" content="PlayBox — бесплатные мини-игры и онлайн-утилиты. Играй в браузере без регистрации.">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: system-ui, sans-serif; background: #0b1120; color: #e2e8f0; }}
@@ -65,23 +79,20 @@ def generate_hub(static: bool = False) -> str:
     .card h3 {{ font-size: 1rem; margin-bottom: 0.25rem; }}
     .card p {{ color: #64748b; font-size: 0.85rem; margin-bottom: 0.75rem; }}
     .tag {{ display: inline-block; background: #1e3a5f; color: #93c5fd; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; }}
-    .rev {{ float: right; color: #22c55e; font-size: 0.8rem; font-weight: 700; }}
     .footer {{ text-align: center; color: #475569; font-size: 0.8rem; padding: 2rem; }}
   </style>
 </head>
 <body>
   <div class="hero">
-    <h1>💰 <span>Money</span> Engine</h1>
-    <p>Автоматический флот микропроектов — работает без вашего участия</p>
+    <h1>🎮 <span>Play</span>Box</h1>
+    <p>Бесплатные онлайн-игры и утилиты — играй прямо в браузере</p>
     <div class="metrics">
-      <div class="metric"><div class="val">{len(projects)}</div><div class="lbl">Проектов</div></div>
-      <div class="metric"><div class="val">{total_projected:.0f} ₽</div><div class="lbl">Прогноз / день</div></div>
-      <div class="metric"><div class="val">{datetime.utcnow().strftime('%d.%m.%Y')}</div><div class="lbl">Обновлено</div></div>
+      <div class="metric"><div class="val">{len(projects)}</div><div class="lbl">Игр и утилит</div></div>
+      <div class="metric"><div class="val">0 ₽</div><div class="lbl">Всё бесплатно</div></div>
     </div>
   </div>
-  <div class="grid">{''.join(cards) if cards else '<p style="color:#64748b;text-align:center;grid-column:1/-1">Проекты ещё не созданы</p>'}</div>
-  <p class="footer">Money Engine — turnkey auto-income system</p>
-  <script src="/static/launch-button.js"></script>
+  <div class="grid">{''.join(cards) if cards else '<p style="color:#64748b;text-align:center;grid-column:1/-1">Скоро появятся новые игры</p>'}</div>
+  <p class="footer">PlayBox — бесплатные онлайн-игры</p>
 </body>
 </html>"""
 
@@ -101,7 +112,7 @@ def generate_sitemap(static: bool = False) -> str:
 
     urls = [f"  <url><loc>{base}/</loc><priority>1.0</priority></url>"]
     for p in projects:
-        loc = f"{base}/p/{p.slug}/" if not static else f"{base}/p/{p.slug}/"
+        loc = f"{base}/p/{p.slug}/"
         urls.append(f"  <url><loc>{loc}</loc><priority>0.8</priority></url>")
 
     sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
