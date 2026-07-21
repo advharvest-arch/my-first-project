@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AdvHarvest Autopilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="top">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <p class="brand-name">AdvHarvest</p>
+        <p class="brand-sub">Autopilot</p>
+      </div>
+    </div>
+    <nav class="actions">
+      <button type="button" id="btn-cycle" class="btn btn-primary">Запустить цикл</button>
+      <button type="button" id="btn-reset" class="btn btn-ghost">Сброс</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="hero-kicker">Система автозаработка</p>
+      <h1 class="hero-title">Находим спрос.<br />Упаковываем. Монетизируем.</h1>
+      <p class="hero-lead">
+        Легальный цикл: сигналы рынка → скоринг → оффер → сделка.
+        Ниша: строительство, каркасы, проектирование.
+      </p>
+      <div class="hero-cta">
+        <button type="button" id="btn-cycle-hero" class="btn btn-primary">Запустить цикл</button>
+        <a class="btn btn-ghost" href="#pipeline">Смотреть пайплайн</a>
+      </div>
+    </section>
+
+    <section class="meters" aria-label="Показатели">
+      <div class="meter">
+        <p class="meter-label">Ожидаемая выручка</p>
+        <p class="meter-value" id="stat-expected">—</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Реализовано</p>
+        <p class="meter-value accent" id="stat-realized">—</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Циклов</p>
+        <p class="meter-value" id="stat-cycles">0</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Порог score</p>
+        <p class="meter-value" id="stat-threshold">55</p>
+      </div>
+    </section>
+
+    <section class="loop" aria-label="Денежный цикл">
+      <h2>Как зарабатывает система</h2>
+      <ol class="loop-steps">
+        <li>
+          <span class="step-num">01</span>
+          <strong>Scout</strong>
+          <span>Собирает сигналы спроса: тендеры, объявления, SEO, партнёры</span>
+        </li>
+        <li>
+          <span class="step-num">02</span>
+          <strong>Score</strong>
+          <span>Оценивает бюджет, срочность, fit ниши, конкуренцию</span>
+        </li>
+        <li>
+          <span class="step-num">03</span>
+          <strong>Package</strong>
+          <span>Готовит оффер: продажа лида, комиссия, своя услуга, контент</span>
+        </li>
+        <li>
+          <span class="step-num">04</span>
+          <strong>Monetize</strong>
+          <span>После вашего approve — закрытие и учёт денег в ledger</span>
+        </li>
+      </ol>
+    </section>
+
+    <section id="pipeline" class="pipeline">
+      <div class="section-head">
+        <h2>Пайплайн офферов</h2>
+        <p id="pipeline-meta">Запустите цикл, чтобы увидеть офферы</p>
+      </div>
+      <div id="offers" class="offers"></div>
+    </section>
+
+    <section class="ledger-section">
+      <div class="section-head">
+        <h2>Ledger</h2>
+        <p>Ожидаемые и реализованные суммы</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Тип</th>
+              <th>Канал</th>
+              <th>Сумма</th>
+              <th>Когда</th>
+              <th>Заметка</th>
+            </tr>
+          </thead>
+          <tbody id="ledger-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>AdvHarvest Autopilot · human-in-the-loop · без серых схем</p>
+  </footer>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

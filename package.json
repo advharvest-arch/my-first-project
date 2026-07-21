@@ -1,0 +1,14 @@
+{
+  "name": "advharvest-autopilot",
+  "version": "1.0.0",
+  "description": "Автоматическая система заработка: лидогенерация и монетизация в нише строительства/проектирования",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "demo": "node src/cli-demo.js",
+    "cycle": "node src/run-cycle.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

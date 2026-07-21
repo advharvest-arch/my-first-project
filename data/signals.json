@@ -1,0 +1,80 @@
+[
+  {
+    "id": "sig_001",
+    "sourceId": "tenders",
+    "title": "Проектирование каркаса производственного цеха",
+    "need": "КМ / КМД, расчёт металлокаркаса, 2400 м²",
+    "city": "Екатеринбург",
+    "budgetEstimate": 920000,
+    "urgency": 0.8,
+    "nicheFit": 0.95,
+    "competition": 0.4,
+    "preferOwnService": true,
+    "keywords": "проектирование металлокаркаса цех"
+  },
+  {
+    "id": "sig_002",
+    "sourceId": "classifieds",
+    "title": "Строительство каркасного дома 120 м²",
+    "need": "Под ключ: фундамент + каркас + кровля",
+    "city": "Новосибирск",
+    "budgetEstimate": 4500000,
+    "urgency": 0.7,
+    "nicheFit": 0.85,
+    "competition": 0.55,
+    "preferOwnService": false,
+    "keywords": "каркасный дом под ключ"
+  },
+  {
+    "id": "sig_003",
+    "sourceId": "seo_intent",
+    "title": "Как выбрать подрядчика на металлокаркас",
+    "need": "Информационный трафик → заявки",
+    "city": "РФ",
+    "budgetEstimate": 50000,
+    "urgency": 0.4,
+    "nicheFit": 0.7,
+    "competition": 0.6,
+    "preferOwnService": false,
+    "keywords": "подрядчик металлокаркас"
+  },
+  {
+    "id": "sig_004",
+    "sourceId": "partners",
+    "title": "Усиление существующего каркаса склада",
+    "need": "Обследование + проект усиления",
+    "city": "Казань",
+    "budgetEstimate": 680000,
+    "urgency": 0.9,
+    "nicheFit": 0.9,
+    "competition": 0.25,
+    "preferOwnService": true,
+    "keywords": "усиление металлокаркаса"
+  },
+  {
+    "id": "sig_005",
+    "sourceId": "classifieds",
+    "title": "Косметический ремонт кухни",
+    "need": "Покраска и замена плинтусов",
+    "city": "Москва",
+    "budgetEstimate": 35000,
+    "urgency": 0.3,
+    "nicheFit": 0.15,
+    "competition": 0.9,
+    "preferOwnService": false,
+    "keywords": "ремонт кухни"
+  },
+  {
+    "id": "sig_006",
+    "sourceId": "tenders",
+    "title": "Навес из ЛСТК для логистического комплекса",
+    "need": "Проект + поставка + монтаж 1800 м²",
+    "city": "Самара",
+    "budgetEstimate": 12000000,
+    "urgency": 0.65,
+    "nicheFit": 0.88,
+    "competition": 0.5,
+    "preferOwnService": false,
+    "keywords": "навес ЛСТК логистика"
+  }
+]
