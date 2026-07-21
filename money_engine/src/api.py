@@ -358,6 +358,150 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </html>"""
 
 
+@app.get("/api/launch")
+async def launch_status():
+    stats = fleet_stats()
+    return {
+        "ready": stats.get("active_projects", 0) > 0,
+        "active_projects": stats.get("active_projects", 0),
+        "projected_rub_per_day": stats.get("projected_rub_per_day", 0),
+    }
+
+
+@app.post("/api/launch")
+async def launch_system(count: int = 50):
+    from src.turnkey.setup import run_turnkey
+    result = await run_turnkey(fleet_size=count, skip_scan=False)
+    return {
+        "status": "ready",
+        "active_projects": result.get("stats", {}).get("active_projects", 0),
+        "projected_rub_per_day": result.get("stats", {}).get("projected_rub_per_day", 0),
+        "dashboard": "/dashboard",
+        "hub": "/hub/",
+    }
+
+
+LAUNCH_HTML = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Money Engine — Запуск</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, #1e293b, #0b1120 70%);
+      color: #e2e8f0; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 20px;
+      padding: 3rem 2.5rem; max-width: 480px; width: 100%; text-align: center;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+    }
+    .logo { font-size: 3rem; margin-bottom: 0.5rem; }
+    h1 { font-size: 1.6rem; font-weight: 800; margin-bottom: 0.5rem; }
+    h1 span { color: #22c55e; }
+    .sub { color: #94a3b8; font-size: 0.95rem; margin-bottom: 2rem; line-height: 1.5; }
+    .launch-btn {
+      display: block; width: 100%; background: #22c55e; color: #052e16;
+      border: none; padding: 1.2rem 2rem; border-radius: 12px;
+      font-size: 1.2rem; font-weight: 800; cursor: pointer;
+      transition: transform 0.15s, background 0.15s;
+      box-shadow: 0 4px 20px rgba(34,197,94,0.4);
+    }
+    .launch-btn:hover { background: #16a34a; transform: scale(1.02); }
+    .launch-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .links { margin-top: 1.5rem; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    .link-btn {
+      background: #334155; color: #e2e8f0; text-decoration: none;
+      padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600;
+    }
+    .link-btn:hover { background: #475569; }
+    .status { margin-top: 1.5rem; color: #94a3b8; font-size: 0.9rem; min-height: 1.5rem; }
+    .stats { display: none; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #334155; }
+    .stats.show { display: block; }
+    .stat-row { display: flex; justify-content: space-between; margin: 0.4rem 0; font-size: 0.9rem; }
+    .stat-val { color: #22c55e; font-weight: 700; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #334155;
+      border-top-color: #22c55e; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">💰</div>
+    <h1><span>Money</span> Engine</h1>
+    <p class="sub">Автоматический заработок.<br>Нажмите кнопку — система запустится сама.</p>
+
+    <button class="launch-btn" id="launchBtn" onclick="launch()">
+      🚀 Запустить систему
+    </button>
+
+    <div class="status" id="status"></div>
+
+    <div class="stats" id="stats">
+      <div class="stat-row"><span>Проектов</span><span class="stat-val" id="projects">—</span></div>
+      <div class="stat-row"><span>Прогноз дохода</span><span class="stat-val" id="revenue">—</span></div>
+    </div>
+
+    <div class="links" id="links" style="display:none">
+      <a href="/dashboard" class="link-btn">📊 Дашборд</a>
+      <a href="/hub/" class="link-btn">🎮 Витрина</a>
+    </div>
+  </div>
+  <script>
+    async function checkStatus() {
+      try {
+        const r = await fetch('/api/launch');
+        const d = await r.json();
+        if (d.ready) {
+          document.getElementById('stats').classList.add('show');
+          document.getElementById('projects').textContent = d.active_projects;
+          document.getElementById('revenue').textContent = d.projected_rub_per_day.toFixed(0) + ' ₽/день';
+          document.getElementById('links').style.display = 'flex';
+          document.getElementById('launchBtn').textContent = '✅ Система работает — перезапустить';
+          document.getElementById('status').textContent = 'Система уже запущена и зарабатывает';
+        }
+      } catch(e) {}
+    }
+
+    async function launch() {
+      const btn = document.getElementById('launchBtn');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> &nbsp; Запуск...';
+      status.textContent = 'Сканирование ниш, создание проектов... (1-2 мин)';
+
+      try {
+        const r = await fetch('/api/launch', { method: 'POST' });
+        const d = await r.json();
+        status.textContent = '✅ Готово! Перенаправление...';
+        document.getElementById('stats').classList.add('show');
+        document.getElementById('projects').textContent = d.active_projects;
+        document.getElementById('revenue').textContent = d.projected_rub_per_day.toFixed(0) + ' ₽/день';
+        document.getElementById('links').style.display = 'flex';
+        setTimeout(() => window.location.href = '/dashboard', 2000);
+      } catch(e) {
+        status.textContent = '❌ Ошибка: ' + e.message;
+        btn.disabled = false;
+        btn.textContent = '🚀 Запустить систему';
+      }
+    }
+
+    checkStatus();
+  </script>
+</body>
+</html>"""
+
+
 @app.get("/", response_class=HTMLResponse)
+async def launch_page():
+    return LAUNCH_HTML
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
     return DASHBOARD_HTML
