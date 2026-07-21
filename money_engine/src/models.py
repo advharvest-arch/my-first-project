@@ -43,6 +43,34 @@ class Opportunity(Base):
     )
 
 
+class ProjectType(str, Enum):
+    AD_GAME = "ad_game"
+    MICRO_TOOL = "micro_tool"
+    AFFILIATE = "affiliate"
+    REWARD_GAME = "reward_game"
+
+
+class FleetProject(Base):
+    __tablename__ = "fleet_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(300))
+    niche: Mapped[str] = mapped_column(String(200), index=True)
+    project_type: Mapped[str] = mapped_column(String(50), index=True)
+    deploy_path: Mapped[str] = mapped_column(String(500))
+    public_url: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True)
+    opportunity_score: Mapped[float] = mapped_column(Float, default=0.0)
+    page_views: Mapped[int] = mapped_column(Integer, default=0)
+    ad_clicks: Mapped[int] = mapped_column(Integer, default=0)
+    revenue_rub: Mapped[float] = mapped_column(Float, default=0.0)
+    revenue_rub_today: Mapped[float] = mapped_column(Float, default=0.0)
+    estimated_rub_per_day: Mapped[float] = mapped_column(Float, default=100.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_view_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class ScanRun(Base):
     __tablename__ = "scan_runs"
 

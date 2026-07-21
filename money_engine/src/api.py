@@ -2,10 +2,12 @@ from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from config import LANDINGS_DIR, OUTPUT_DIR, settings
-from src.models import Opportunity, ScanRun, SessionLocal, init_db
+from config import FLEET_DIR, LANDINGS_DIR, OUTPUT_DIR, settings
+from src.fleet.scaler import clone_top_performers, prune_fleet, scale_fleet
+from src.fleet.tracker import fleet_stats, track_event
+from src.models import FleetProject, Opportunity, ScanRun, SessionLocal, init_db
 from src.pipeline import run_full_pipeline
 
 app = FastAPI(title="Money Engine", version="1.0.0")
@@ -73,6 +75,7 @@ async def stats():
         total = session.query(Opportunity).count()
         high_value = session.query(Opportunity).filter(Opportunity.total_score >= 75).count()
         last_scan = session.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
+        fleet = fleet_stats()
         return {
             "total_opportunities": total,
             "high_value_opportunities": high_value,
@@ -83,9 +86,76 @@ async def stats():
                 "reports_generated": last_scan.reports_generated if last_scan else 0,
             },
             "scan_interval_hours": settings.scan_interval_hours,
+            "fleet": fleet,
         }
     finally:
         session.close()
+
+
+class TrackPayload(BaseModel):
+    slug: str
+    event: str = "view"
+
+
+@app.post("/api/fleet/track")
+async def fleet_track(payload: TrackPayload):
+    return track_event(payload.slug, payload.event)
+
+
+@app.post("/api/fleet/scale")
+async def fleet_scale(target: int | None = None):
+    return scale_fleet(target)
+
+
+@app.post("/api/fleet/prune")
+async def fleet_prune():
+    return prune_fleet()
+
+
+@app.post("/api/fleet/clone")
+async def fleet_clone(count: int = 3):
+    return clone_top_performers(count)
+
+
+@app.get("/api/fleet/projects")
+async def fleet_projects(limit: int = 50):
+    session = SessionLocal()
+    try:
+        items = (
+            session.query(FleetProject)
+            .order_by(FleetProject.revenue_rub.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": p.id,
+                "slug": p.slug,
+                "name": p.name,
+                "niche": p.niche,
+                "project_type": p.project_type,
+                "status": p.status,
+                "public_url": p.public_url,
+                "page_views": p.page_views,
+                "ad_clicks": p.ad_clicks,
+                "revenue_rub": p.revenue_rub,
+                "revenue_rub_today": p.revenue_rub_today,
+                "estimated_rub_per_day": p.estimated_rub_per_day,
+                "opportunity_score": p.opportunity_score,
+            }
+            for p in items
+        ]
+    finally:
+        session.close()
+
+
+@app.get("/p/{slug}")
+@app.get("/p/{slug}/")
+async def serve_fleet_project(slug: str):
+    path = FLEET_DIR / slug / "index.html"
+    if path.exists():
+        return FileResponse(path, media_type="text/html")
+    return {"error": "project not found"}
 
 
 @app.get("/api/scans")
@@ -132,120 +202,134 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Money Engine — Dashboard</title>
+  <title>Money Engine — Fleet Dashboard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0b1120; color: #e2e8f0; }
-    header { background: #1e293b; border-bottom: 1px solid #334155; padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    header { background: #1e293b; border-bottom: 1px solid #334155; padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
     header h1 { font-size: 1.25rem; font-weight: 700; }
     header h1 span { color: #22c55e; }
     .btn { background: #22c55e; color: #052e16; border: none; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
     .btn:hover { background: #16a34a; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.secondary { background: #334155; color: #e2e8f0; }
     main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    h2 { font-size: 1.1rem; margin: 2rem 0 1rem; color: #94a3b8; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
     .stat { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1.25rem; }
-    .stat .value { font-size: 2rem; font-weight: 800; color: #f8fafc; }
-    .stat .label { color: #64748b; font-size: 0.8rem; text-transform: uppercase; margin-top: 0.25rem; }
-    table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 10px; overflow: hidden; }
+    .stat .value { font-size: 1.8rem; font-weight: 800; color: #f8fafc; }
+    .stat .value.green { color: #22c55e; }
+    .stat .label { color: #64748b; font-size: 0.75rem; text-transform: uppercase; margin-top: 0.25rem; }
+    table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 10px; overflow: hidden; margin-bottom: 2rem; }
     th { background: #0f172a; color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; padding: 0.75rem 1rem; text-align: left; }
-    td { padding: 0.75rem 1rem; border-top: 1px solid #334155; font-size: 0.9rem; }
+    td { padding: 0.75rem 1rem; border-top: 1px solid #334155; font-size: 0.85rem; }
     tr:hover td { background: #263348; }
-    .score { font-weight: 700; }
-    .score.high { color: #22c55e; }
-    .score.mid { color: #eab308; }
-    .tag { display: inline-block; background: #1e3a5f; color: #93c5fd; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; }
+    .tag { display: inline-block; background: #1e3a5f; color: #93c5fd; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.7rem; }
+    .tag.game { background: #3b1f5f; color: #d8b4fe; }
+    .tag.tool { background: #1f3b2f; color: #86efac; }
     .link { color: #60a5fa; text-decoration: none; }
     .link:hover { text-decoration: underline; }
     #status { color: #94a3b8; font-size: 0.85rem; }
-    .empty { text-align: center; padding: 3rem; color: #64748b; }
+    .empty { text-align: center; padding: 2rem; color: #64748b; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .proj-active { color: #22c55e; }
+    .proj-paused { color: #64748b; }
   </style>
 </head>
 <body>
   <header>
-    <h1>💰 <span>Money</span> Engine</h1>
-    <div style="display:flex;gap:1rem;align-items:center;">
+    <h1>💰 <span>Money</span> Engine — Fleet</h1>
+    <div class="actions">
       <span id="status">Загрузка...</span>
-      <button class="btn" id="scanBtn" onclick="runScan()">Запустить сканирование</button>
+      <button class="btn secondary" id="scaleBtn" onclick="scaleFleet()">Масштабировать флот</button>
+      <button class="btn" id="scanBtn" onclick="runScan()">Скан + деплой</button>
     </div>
   </header>
   <main>
+    <h2>Флот проектов (автозаработок)</h2>
+    <div class="stats" id="fleetStats"></div>
+    <table>
+      <thead><tr>
+        <th>Проект</th><th>Тип</th><th>Статус</th><th>Просмотры</th><th>₽ сегодня</th><th>₽/день (прогноз)</th><th>Ссылка</th>
+      </tr></thead>
+      <tbody id="fleetBody"><tr><td colspan="7" class="empty">Флот пуст — нажмите «Масштабировать флот»</td></tr></tbody>
+    </table>
+
+    <h2>Найденные ниши</h2>
     <div class="stats" id="stats"></div>
     <table>
-      <thead>
-        <tr>
-          <th>Ниша</th>
-          <th>Тип</th>
-          <th>Оценка</th>
-          <th>Цена $</th>
-          <th>Источник</th>
-          <th>Действия</th>
-        </tr>
-      </thead>
-      <tbody id="tableBody">
-        <tr><td colspan="6" class="empty">Нет данных — нажмите «Запустить сканирование»</td></tr>
-      </tbody>
+      <thead><tr><th>Ниша</th><th>Тип</th><th>Оценка</th><th>Источник</th></tr></thead>
+      <tbody id="tableBody"><tr><td colspan="4" class="empty">Нет данных</td></tr></tbody>
     </table>
   </main>
   <script>
-    async function loadStats() {
-      const res = await fetch('/api/stats');
-      const data = await res.json();
+    async function loadAll() {
+      const [statsRes, fleetRes, projRes] = await Promise.all([
+        fetch('/api/stats'), fetch('/api/fleet/projects?limit=50'), fetch('/api/opportunities?limit=20')
+      ]);
+      const data = await statsRes.json();
+      const fleet = data.fleet || {};
+      document.getElementById('fleetStats').innerHTML = `
+        <div class="stat"><div class="value green">${fleet.active_projects||0}</div><div class="label">Активных проектов</div></div>
+        <div class="stat"><div class="value green">${(fleet.revenue_rub_today||0).toFixed(0)} ₽</div><div class="label">Доход сегодня</div></div>
+        <div class="stat"><div class="value">${(fleet.projected_rub_per_day||0).toFixed(0)} ₽</div><div class="label">Прогноз ₽/день</div></div>
+        <div class="stat"><div class="value">${fleet.total_page_views||0}</div><div class="label">Просмотров</div></div>
+        <div class="stat"><div class="value">${(fleet.avg_rub_per_project||0).toFixed(0)} ₽</div><div class="label">Среднее на проект</div></div>
+      `;
       document.getElementById('stats').innerHTML = `
-        <div class="stat"><div class="value">${data.total_opportunities}</div><div class="label">Ниш найдено</div></div>
+        <div class="stat"><div class="value">${data.total_opportunities}</div><div class="label">Ниш</div></div>
         <div class="stat"><div class="value">${data.high_value_opportunities}</div><div class="label">Высокий потенциал</div></div>
-        <div class="stat"><div class="value">${data.last_scan?.reports_generated ?? 0}</div><div class="label">Отчётов создано</div></div>
-        <div class="stat"><div class="value">${data.scan_interval_hours}ч</div><div class="label">Авто-сканирование</div></div>
       `;
       const ls = data.last_scan;
       document.getElementById('status').textContent = ls?.started_at
-        ? `Последний скан: ${new Date(ls.started_at).toLocaleString('ru')} — ${ls.status}`
-        : 'Сканирование ещё не запускалось';
+        ? `Скан: ${new Date(ls.started_at).toLocaleString('ru')} — ${ls.status} | ${fleet.active_projects||0} проектов`
+        : `${fleet.active_projects||0} проектов в флоте`;
+
+      const projects = await projRes.json();
+      const fb = document.getElementById('fleetBody');
+      if (!projects.length) {
+        fb.innerHTML = '<tr><td colspan="7" class="empty">Флот пуст — нажмите «Масштабировать флот»</td></tr>';
+      } else {
+        fb.innerHTML = projects.map(p => {
+          const tc = p.project_type.includes('game') ? 'game' : p.project_type === 'micro_tool' ? 'tool' : '';
+          return `<tr>
+            <td><strong>${p.name}</strong><br><small style="color:#64748b">${p.niche}</small></td>
+            <td><span class="tag ${tc}">${p.project_type}</span></td>
+            <td class="${p.status==='active'?'proj-active':'proj-paused'}">${p.status}</td>
+            <td>${p.page_views}</td>
+            <td>${p.revenue_rub_today.toFixed(1)} ₽</td>
+            <td>${p.estimated_rub_per_day.toFixed(0)} ₽</td>
+            <td><a class="link" href="/p/${p.slug}/" target="_blank">Открыть</a></td>
+          </tr>`;
+        }).join('');
+      }
+
+      const items = await (await fetch('/api/opportunities?limit=20')).json();
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = items.length ? items.map(o => `<tr>
+        <td><strong>${o.niche}</strong></td>
+        <td><span class="tag">${o.monetization_type}</span></td>
+        <td>${o.total_score}</td>
+        <td>${o.source}</td>
+      </tr>`).join('') : '<tr><td colspan="4" class="empty">Нет данных</td></tr>';
     }
 
-    async function loadOpportunities() {
-      const res = await fetch('/api/opportunities?limit=30');
-      const items = await res.json();
-      const tbody = document.getElementById('tableBody');
-      if (!items.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">Нет данных — нажмите «Запустить сканирование»</td></tr>';
-        return;
-      }
-      tbody.innerHTML = items.map(o => {
-        const scoreClass = o.total_score >= 75 ? 'high' : o.total_score >= 60 ? 'mid' : '';
-        const reportLink = o.report_path ? `<a class="link" href="/reports/${o.report_path.split('/').pop()}" target="_blank">Отчёт</a>` : '';
-        const landingLink = o.landing_path ? `<a class="link" href="/landings/${o.landing_path.split('/').pop()}" target="_blank">Лендинг</a>` : '';
-        return `<tr>
-          <td><strong>${o.niche}</strong><br><small style="color:#64748b">${o.title.substring(0,60)}...</small></td>
-          <td><span class="tag">${o.monetization_type}</span></td>
-          <td class="score ${scoreClass}">${o.total_score}</td>
-          <td>$${o.suggested_price_usd}</td>
-          <td>${o.source}</td>
-          <td>${reportLink} ${landingLink}</td>
-        </tr>`;
-      }).join('');
+    async function scaleFleet() {
+      const btn = document.getElementById('scaleBtn');
+      btn.disabled = true; btn.textContent = 'Деплой...';
+      try { await fetch('/api/fleet/scale', {method:'POST'}); await loadAll(); }
+      finally { btn.disabled = false; btn.textContent = 'Масштабировать флот'; }
     }
 
     async function runScan() {
       const btn = document.getElementById('scanBtn');
-      btn.disabled = true;
-      btn.textContent = 'Сканирование...';
-      document.getElementById('status').textContent = 'Сканирование запущено...';
-      try {
-        await fetch('/api/scan', { method: 'POST' });
-        await loadStats();
-        await loadOpportunities();
-      } catch(e) {
-        document.getElementById('status').textContent = 'Ошибка: ' + e.message;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Запустить сканирование';
-      }
+      btn.disabled = true; btn.textContent = 'Работаю...';
+      try { await fetch('/api/scan', {method:'POST'}); await loadAll(); }
+      finally { btn.disabled = false; btn.textContent = 'Скан + деплой'; }
     }
 
-    loadStats();
-    loadOpportunities();
-    setInterval(() => { loadStats(); loadOpportunities(); }, 30000);
+    loadAll();
+    setInterval(loadAll, 30000);
   </script>
 </body>
 </html>"""

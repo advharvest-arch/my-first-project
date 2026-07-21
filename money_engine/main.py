@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Money Engine CLI — run scans, start server, or both."""
+"""Money Engine CLI — scan niches, deploy fleet, run server."""
 
 import argparse
 import asyncio
@@ -13,22 +13,42 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Money Engine — Automated Niche Discovery")
-    parser.add_argument("command", choices=["scan", "serve", "start"], help="scan=one-time, serve=API only, start=API+scheduler")
+    parser = argparse.ArgumentParser(description="Money Engine — Automated Income Fleet")
+    parser.add_argument(
+        "command",
+        choices=["scan", "fleet", "serve", "start"],
+        help="scan=find niches, fleet=deploy projects, serve/start=API+scheduler",
+    )
     parser.add_argument("--port", type=int, default=None)
+    parser.add_argument("--count", type=int, default=None, help="Fleet target size")
     args = parser.parse_args()
 
     if args.command == "scan":
         from src.pipeline import run_full_pipeline
 
         result = asyncio.run(run_full_pipeline())
-        print(f"\n✅ Scan complete!")
+        print("\n✅ Scan complete!")
         print(f"   Signals: {result['raw_signals']}")
         print(f"   Opportunities: {result['opportunities_found']}")
         print(f"   Reports: {result['reports_generated']}")
+        if result.get("fleet"):
+            f = result["fleet"]
+            print(f"   Fleet: {f.get('active_projects', 0)} active, deployed {f.get('deployed', 0)}")
+            print(f"   Projected: {f.get('projected_rub_per_day', 0):.0f} ₽/day")
         print("\nTop opportunities:")
         for i, opp in enumerate(result["top_opportunities"][:5], 1):
-            print(f"  {i}. [{opp['score']}] {opp['niche']} — ${opp['price_usd']} ({opp['type']})")
+            print(f"  {i}. [{opp['score']}] {opp['niche']} ({opp['type']})")
+
+    elif args.command == "fleet":
+        from src.fleet.scaler import scale_fleet
+
+        result = scale_fleet(target_size=args.count)
+        print("\n🚀 Fleet scaled!")
+        print(f"   Active projects: {result['active_projects']}")
+        print(f"   Deployed now: {result.get('deployed', 0)}")
+        print(f"   Target: {result.get('target', '?')}")
+        print(f"   Projected: {result.get('projected_rub_per_day', 0):.0f} ₽/day")
+        print(f"   Formula: {result['active_projects']} projects × ~100₽ = {result.get('projected_rub_per_day', 0):.0f} ₽/day")
 
     elif args.command in ("serve", "start"):
         import uvicorn

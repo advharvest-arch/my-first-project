@@ -69,6 +69,12 @@ async def run_full_pipeline() -> dict:
         scan.finished_at = datetime.utcnow()
         session.commit()
 
+        fleet_result = None
+        if settings.fleet_auto_scale:
+            from src.fleet.scaler import scale_fleet
+
+            fleet_result = scale_fleet()
+
         top = (
             session.query(Opportunity)
             .order_by(Opportunity.total_score.desc())
@@ -81,6 +87,7 @@ async def run_full_pipeline() -> dict:
             "raw_signals": scan.raw_signals,
             "opportunities_found": scan.opportunities_found,
             "reports_generated": scan.reports_generated,
+            "fleet": fleet_result,
             "top_opportunities": [
                 {
                     "title": o.title,
