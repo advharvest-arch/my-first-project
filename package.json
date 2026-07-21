@@ -8,6 +8,8 @@
     "demo": "node src/cli-demo.js",
     "cycle": "node src/run-cycle.js",
     "scout": "node src/run-cycle.js --force",
+    "work": "node src/work.js",
+    "test": "node src/test.js",
     "autopilot": "node src/autopilot.js",
     "autopilot:once": "node src/autopilot.js --once"
   },

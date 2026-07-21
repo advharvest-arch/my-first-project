@@ -4,6 +4,8 @@
   "locale": "ru",
   "currency": "RUB",
   "minNeedScore": 45,
+  "minPaidBudget": 1000,
+  "paidOnly": false,
   "preferNiche": false,
   "scout": {
     "maxAgeMin": 20,
@@ -37,7 +39,10 @@
     "проект",
     "сайт",
     "бот",
-    "автоматиз"
+    "автоматиз",
+    "чертёж",
+    "1с",
+    "лендинг"
   ],
   "fulfillment": {
     "solutionsDir": "workspace/solutions",

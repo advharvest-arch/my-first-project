@@ -5,6 +5,8 @@
  * на полезном решении (не на обмане).
  */
 
+import { buildProposal } from "./proposal.js";
+
 export const FULFILL_MODES = {
   guide: {
     id: "guide",
@@ -250,6 +252,7 @@ export function planFulfillment(need, scored, mode, value) {
   };
 
   const replyDraft = buildReplyDraft(need, mode);
+  const proposal = buildProposal(need, mode, scored, value);
 
   return {
     id: `ful_${need.id}_${Date.now().toString(36)}`,
@@ -264,7 +267,8 @@ export function planFulfillment(need, scored, mode, value) {
     sourceLabel: need.sourceLabel,
     language: need.language,
     steps: stepsByMode[mode.id],
-    replyDraft,
+    replyDraft: proposal.message || replyDraft,
+    proposal,
     status: "ready", // ready → approved → fulfilled
     expectedRevenue: value.expected,
     currency: value.currency,

@@ -473,9 +473,68 @@ code {
   color: var(--accent);
 }
 
+.row-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.queue-section {
+  margin-bottom: 3rem;
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--line);
+  animation: rise 0.45s ease both;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  align-items: center;
+}
+
+.filters input[type="search"],
+.filters select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  padding: 0.55rem 0.75rem;
+  min-width: 9rem;
+}
+
+.filters input[type="search"] {
+  min-width: 14rem;
+  flex: 1;
+}
+
+.check {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 @media (max-width: 640px) {
   .need-row,
-  .solution-row {
+  .solution-row,
+  .queue-item {
     grid-template-columns: 1fr;
     gap: 0.2rem;
   }

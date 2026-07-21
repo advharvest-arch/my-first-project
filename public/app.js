@@ -11,6 +11,8 @@ const modeNames = {
   matchmaker: "Подбор исполнителя",
 };
 
+let cachedFulfillments = [];
+
 async function api(path, options = {}) {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -38,15 +40,130 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
-function renderFulfillments(items) {
-  const root = document.getElementById("offers");
+function renderQueue(queue) {
+  const root = document.getElementById("queue-list");
   root.innerHTML = "";
+  const items = queue?.items || [];
+  document.getElementById("queue-meta").textContent = items.length
+    ? `${items.length} задач · сначала approved и paid`
+    : "Очередь пуста — запустите цикл";
+
   if (!items.length) {
-    root.append(el("p", { className: "empty", text: "Пока пусто. Запустите цикл." }));
+    root.append(el("p", { className: "empty", text: "Пока нечего делать" }));
     return;
   }
 
   for (const item of items) {
+    const actions = el("div", { className: "offer-actions" });
+    if (item.status === "ready") {
+      actions.append(
+        el("button", {
+          className: "btn btn-small btn-primary",
+          text: "Approve",
+          type: "button",
+          onClick: async () => {
+            await api(`/api/offers/${encodeURIComponent(item.fulfillmentId)}/approve`, {
+              method: "POST",
+            });
+            await refresh();
+          },
+        })
+      );
+    }
+    if (item.status === "approved") {
+      actions.append(
+        el("button", {
+          className: "btn btn-small btn-primary",
+          text: "Fulfill",
+          type: "button",
+          onClick: async () => {
+            await api(`/api/offers/${encodeURIComponent(item.fulfillmentId)}/realize`, {
+              method: "POST",
+              body: JSON.stringify({}),
+            });
+            await refresh();
+          },
+        })
+      );
+    }
+    if (item.message) {
+      actions.append(
+        el("button", {
+          className: "btn btn-small btn-ghost",
+          text: "Copy msg",
+          type: "button",
+          onClick: async () => {
+            await navigator.clipboard.writeText(item.message);
+          },
+        })
+      );
+    }
+
+    root.append(
+      el("article", { className: "queue-item" }, [
+        el("div", {}, [
+          el("p", { className: "offer-title", text: item.title }),
+          el("p", {
+            className: "offer-meta",
+            text: `${modeNames[item.modeId] || item.modeId} · ${item.sourceLabel || ""} · score ${item.score}${
+              item.paid ? " · PAID" : ""
+            }`,
+          }),
+          el("p", { className: "offer-pitch", text: `→ ${item.nextAction}` }),
+          item.message ? el("p", { className: "offer-draft", text: item.message }) : null,
+          item.sourceUrl
+            ? el("a", {
+                className: "offer-link",
+                href: item.sourceUrl,
+                target: "_blank",
+                rel: "noopener noreferrer",
+                text: "Открыть заказ / тред",
+              })
+            : null,
+        ]),
+        el("div", { className: "offer-side" }, [
+          el("span", {
+            className: `badge ${item.status}`,
+            text: item.status,
+          }),
+          el("div", {
+            className: "offer-money",
+            text: money.format(item.expectedRevenue || 0),
+          }),
+          actions,
+        ]),
+      ])
+    );
+  }
+}
+
+function applyFilters(items) {
+  const q = document.getElementById("filter-q").value.trim().toLowerCase();
+  const status = document.getElementById("filter-status").value;
+  const mode = document.getElementById("filter-mode").value;
+  const paid = document.getElementById("filter-paid").checked;
+  return items.filter((item) => {
+    if (status && item.status !== status) return false;
+    if (mode && item.modeId !== mode) return false;
+    if (paid && !/fl\.ru/i.test(item.sourceLabel || "")) return false;
+    if (q) {
+      const blob = `${item.title} ${item.needSummary || ""} ${item.replyDraft || ""}`.toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderFulfillments(items) {
+  const root = document.getElementById("offers");
+  root.innerHTML = "";
+  const filtered = applyFilters(items);
+  if (!filtered.length) {
+    root.append(el("p", { className: "empty", text: "Нет планов по фильтру" }));
+    return;
+  }
+
+  for (const item of filtered) {
     const actions = el("div", { className: "offer-actions" });
     if (item.status === "ready") {
       actions.append(
@@ -87,15 +204,14 @@ function renderFulfillments(items) {
             text: `${modeNames[item.modeId] || item.modeId} · ${item.category?.label || ""} · score ${item.score} · ${item.sourceLabel || ""}`,
           }),
           el("p", { className: "offer-pitch", text: item.needSummary || "" }),
-          item.replyDraft
-            ? el("p", { className: "offer-draft", text: `Черновик: ${item.replyDraft}` })
+          item.proposal?.price
+            ? el("p", {
+                className: "offer-meta",
+                text: `КП: ${money.format(item.proposal.price.amount)} · срок ${item.proposal.timeline || "—"}`,
+              })
             : null,
-          item.steps?.length
-            ? el(
-                "ol",
-                { className: "offer-steps" },
-                item.steps.map((s) => el("li", { text: s }))
-              )
+          item.replyDraft
+            ? el("p", { className: "offer-draft", text: item.replyDraft })
             : null,
           item.solutionFile
             ? el("button", {
@@ -172,15 +288,19 @@ function renderSolutions(solutions) {
   }
   for (const s of solutions.slice(0, 20)) {
     root.append(
-      el("button", {
-        className: "solution-row",
-        type: "button",
-        onClick: () => openSolution(s.file),
-      }, [
-        el("span", { className: "need-src", text: s.mode }),
-        el("span", { className: "need-title", text: s.title }),
-        el("span", { className: "need-eng", text: s.status }),
-      ])
+      el(
+        "button",
+        {
+          className: "solution-row",
+          type: "button",
+          onClick: () => openSolution(s.file),
+        },
+        [
+          el("span", { className: "need-src", text: s.mode }),
+          el("span", { className: "need-title", text: s.title }),
+          el("span", { className: "need-eng", text: s.status }),
+        ]
+      )
     );
   }
 }
@@ -241,6 +361,7 @@ function renderLedger(ledger) {
 
 async function refresh() {
   const data = await api("/api/dashboard");
+  cachedFulfillments = data.fulfillments || [];
   document.getElementById("stat-needs").textContent = String(data.stats.needsSeen || 0);
   document.getElementById("stat-ready").textContent = String(data.stats.fulfillmentsReady || 0);
   document.getElementById("stat-packs").textContent = String(
@@ -260,7 +381,8 @@ async function refresh() {
     data.needs.length > 0 ? `${data.needs.length} из сети · ${data.niche}` : "Ждём скан";
 
   renderSources(data.cacheMeta?.bySource);
-  renderFulfillments(data.fulfillments);
+  renderQueue(data.queue);
+  renderFulfillments(cachedFulfillments);
   renderNeeds(data.needs);
   renderSolutions(data.solutions);
   renderLedger(data.ledger);
@@ -288,8 +410,18 @@ async function runCycle() {
   }
 }
 
+async function batchApprove(paidOnly) {
+  await api("/api/batch-approve", {
+    method: "POST",
+    body: JSON.stringify({ limit: paidOnly ? 3 : 5, paidOnly }),
+  });
+  await refresh();
+}
+
 document.getElementById("btn-cycle").addEventListener("click", runCycle);
 document.getElementById("btn-cycle-hero").addEventListener("click", runCycle);
+document.getElementById("btn-batch").addEventListener("click", () => batchApprove(false));
+document.getElementById("btn-batch-paid").addEventListener("click", () => batchApprove(true));
 document.getElementById("btn-reset").addEventListener("click", async () => {
   if (!confirm("Сбросить состояние?")) return;
   await api("/api/reset", { method: "POST" });
@@ -297,7 +429,11 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
   await refresh();
 });
 
+for (const id of ["filter-q", "filter-status", "filter-mode", "filter-paid"]) {
+  document.getElementById(id).addEventListener("input", () => renderFulfillments(cachedFulfillments));
+  document.getElementById(id).addEventListener("change", () => renderFulfillments(cachedFulfillments));
+}
+
 refresh().catch((err) => {
-  document.getElementById("offers").innerHTML =
-    `<p class="empty">Ошибка: ${err.message}</p>`;
+  document.getElementById("offers").innerHTML = `<p class="empty">Ошибка: ${err.message}</p>`;
 });

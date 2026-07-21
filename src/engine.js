@@ -20,6 +20,7 @@ import {
 } from "./needs.js";
 import { getConfig } from "./config.js";
 import { writeSolutionPack, listSolutionPacks } from "./solutions.js";
+import { passesQualityGates, buildWorkQueue, filterFulfillments } from "./queue.js";
 
 export { loadJson, saveJson };
 
@@ -303,6 +304,22 @@ export function runNeedsCycle(rawNeeds, options = {}) {
   for (const need of ordered) {
     if (state.processedNeedIds.includes(need.id)) continue;
 
+    const gate = passesQualityGates(need, {
+      minPaidBudget: fileCfg.minPaidBudget ?? 1000,
+      paidOnly: fileCfg.paidOnly ?? false,
+    });
+    if (!gate.ok) {
+      results.push({
+        needId: need.id,
+        action: "skip",
+        score: 0,
+        rationale: gate.reason,
+        title: need.title,
+      });
+      state.processedNeedIds.push(need.id);
+      continue;
+    }
+
     const scored = scoreNeed(need, config);
     if (!scored.pass) {
       results.push({
@@ -397,6 +414,41 @@ export function approveFulfillment(fulfillmentId) {
   return item;
 }
 
+export function batchApprove({ limit = 5, paidOnly = false, minScore = 0 } = {}) {
+  const state = loadJson("state.json", defaultState());
+  const needsById = Object.fromEntries(state.needs.map((n) => [n.id, n]));
+  let candidates = state.fulfillments.filter((f) => f.status === "ready" && f.score >= minScore);
+  if (paidOnly) {
+    candidates = candidates.filter((f) => {
+      const n = needsById[f.needId] || {};
+      return n.monetizable || n.sourceId === "flru" || n.budgetEstimate;
+    });
+  }
+  candidates = candidates
+    .slice()
+    .sort((a, b) => b.expectedRevenue - a.expectedRevenue || b.score - a.score)
+    .slice(0, limit);
+
+  const approved = [];
+  for (const item of candidates) {
+    item.status = "approved";
+    item.approvedAt = new Date().toISOString();
+    approved.push(item);
+  }
+  saveJson("state.json", state);
+  return { count: approved.length, approved };
+}
+
+export function getWorkQueue(limit = 20) {
+  const state = loadJson("state.json", defaultState());
+  return buildWorkQueue(state, { limit });
+}
+
+export function getFilteredFulfillments(query = {}) {
+  const state = loadJson("state.json", defaultState());
+  return filterFulfillments(state.fulfillments.slice().reverse(), query);
+}
+
 /** Отметить потребность удовлетворённой (и зафиксировать выручку) */
 export function fulfillNeed(fulfillmentId, amount) {
   const state = loadJson("state.json", defaultState());
@@ -480,6 +532,7 @@ export function getDashboard() {
   const cache = loadJson("needs-cache.json", { needs: [], fetchedAt: null, errors: [], bySource: {} });
   const cfg = getConfig();
   const solutions = listSolutionPacks().slice(0, 40);
+  const queue = buildWorkQueue(state, { limit: 12 });
   return {
     niche: state.config.niche || cfg.niche,
     stats: state.stats,
@@ -489,6 +542,7 @@ export function getDashboard() {
     needs: state.needs.slice().reverse().slice(0, 60),
     ledger: state.ledger.slice().reverse(),
     solutions,
+    queue,
     signals,
     channels: Object.values(MONETIZE_CHANNELS),
     fulfillModes: Object.values(FULFILL_MODES),

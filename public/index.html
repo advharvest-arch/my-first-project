@@ -37,7 +37,7 @@
       </p>
       <div class="hero-cta">
         <button type="button" id="btn-cycle-hero" class="btn btn-primary">Запустить сейчас</button>
-        <a class="btn btn-ghost" href="#plans">К планам</a>
+        <a class="btn btn-ghost" href="#queue">К очереди</a>
       </div>
     </section>
 
@@ -63,6 +63,20 @@
     <section class="sources-bar" aria-label="Источники">
       <h2 class="visually-hidden">Источники</h2>
       <div id="sources-breakdown" class="sources-breakdown"></div>
+    </section>
+
+    <section id="queue" class="queue-section">
+      <div class="section-head row-head">
+        <div>
+          <h2>Очередь работы</h2>
+          <p id="queue-meta">Что делать прямо сейчас</p>
+        </div>
+        <div class="actions">
+          <button type="button" id="btn-batch-paid" class="btn btn-primary">Approve топ-3 paid</button>
+          <button type="button" id="btn-batch" class="btn btn-ghost">Approve топ-5</button>
+        </div>
+      </div>
+      <div id="queue-list" class="queue-list"></div>
     </section>
 
     <section class="loop" aria-label="Цикл">
@@ -95,6 +109,25 @@
       <div class="section-head">
         <h2>Планы удовлетворения</h2>
         <p id="pipeline-meta">Запустите цикл</p>
+      </div>
+      <div class="filters">
+        <input id="filter-q" type="search" placeholder="Поиск…" />
+        <select id="filter-status">
+          <option value="">Все статусы</option>
+          <option value="ready">ready</option>
+          <option value="approved">approved</option>
+          <option value="fulfilled">fulfilled</option>
+        </select>
+        <select id="filter-mode">
+          <option value="">Все способы</option>
+          <option value="service">услуга</option>
+          <option value="matchmaker">matchmaker</option>
+          <option value="micro_tool">инструмент</option>
+          <option value="guide">гайд</option>
+        </select>
+        <label class="check">
+          <input id="filter-paid" type="checkbox" /> только paid
+        </label>
       </div>
       <div id="offers" class="offers"></div>
     </section>

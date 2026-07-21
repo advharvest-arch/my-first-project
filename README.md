@@ -1,55 +1,34 @@
 # AdvHarvest Autopilot
 
-Рабочая система: **находит насущные потребности людей в интернете** и готовит пакеты решений.
+Рабочая система: находит насущные потребности в интернете и готовит решения.
 
 ## Запуск
 
 ```bash
-npm run demo           # полный прогон: скан → планы → solution files → fulfill
-npm start              # дашборд http://localhost:3847
-npm run autopilot      # фоновый цикл каждые 15 мин
-npm run autopilot:once # один фоновый цикл
+npm run demo              # скан → планы → solution packs
+npm start                 # http://localhost:3847
+npm run work              # очередь: что делать сейчас
+npm run work -- --approve 3 --paid
+npm run autopilot         # фон каждые 15 мин
+npm test                  # smoke tests
 ```
-
-Node.js ≥ 18, без npm-зависимостей.
 
 ## Контур
 
 ```
-Scout → Score → Solution pack → Approve → Fulfill → Ledger
+Scout → Filter → Score → Proposal → Solution pack → Queue → Approve → Fulfill
 ```
 
 ### Источники
-| Источник | Что даёт |
-|---|---|
-| **FL.ru RSS** | Платные заказы с бюджетом (RU) |
-| **Hacker News Ask** | Живые просьбы «как / нужно / looking for» |
-| **Stack Overflow / RU** | Нерешённые технические боли |
-| **GitHub Issues** | Просьбы о помощи в коде |
-| **Lobsters** | Ask / активные обсуждения |
+FL.ru (платные заказы), Hacker News Ask, Stack Overflow / RU, GitHub, Lobsters.
 
-### Способы закрыть потребность
-- гайд / ответ
-- микро-инструмент
-- услуга под ключ
-- подбор исполнителя
+### Очередь работы
+`npm run work` показывает приоритетные задачи: сначала `approved` и paid (FL.ru), с готовым сообщением для копирования.
 
-Каждый план сохраняется в `workspace/solutions/*.md` с брифом, шагами и черновиком ответа.
+В дашборде: **Approve топ-3 paid**, фильтры планов, Copy msg.
+
+### Solution packs
+Каждый план → `workspace/solutions/*.md` с КП, ценой, сроком, scope и готовым текстом сообщения.
 
 ## Конфиг
-
-`config/default.json` — источники, порог score, интервал автопилота, ключевые слова.  
-Оверлей: `data/config.json` (через `POST /api/config`).
-
-## API
-
-- `GET /api/dashboard`
-- `POST /api/cycle?force=1`
-- `POST /api/scout?force=1`
-- `GET /api/solutions` · `GET /api/solutions/:file`
-- `POST /api/offers/:id/approve` · `POST /api/offers/:id/realize`
-- `GET|POST /api/config`
-
-## Принцип
-
-Сначала закрываем реальную боль человека. Деньги — следствие полезного решения.
+`config/default.json` — порог score, `minPaidBudget`, источники, ключевые слова.

@@ -53,10 +53,13 @@ function looksLikeNeed(text) {
 }
 
 function parseBudgetRub(text = "") {
-  const m = String(text).match(/(\d[\d\s]{1,12})\s*(₽|руб|rub|&#8381;)/i);
-  if (m) return Number(m[1].replace(/\s/g, ""));
-  const m2 = String(text).match(/бюджет[:\s]*(\d[\d\s]{2,12})/i);
-  if (m2) return Number(m2[1].replace(/\s/g, ""));
+  // Явный бюджет в заголовках FL: "Бюджет: 70 000 ₽"
+  const explicit = String(text).match(/бюджет\s*[:\-]?\s*(\d[\d\s]{1,12})\s*(₽|руб|rub|&#8381;)?/i);
+  if (explicit) return Number(explicit[1].replace(/\s/g, ""));
+
+  const withCurrency = String(text).match(/(\d[\d\s]{2,12})\s*(₽|руб\.?|rub|&#8381;)/i);
+  if (withCurrency) return Number(withCurrency[1].replace(/\s/g, ""));
+
   return 0;
 }
 

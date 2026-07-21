@@ -36,6 +36,12 @@ export function writeSolutionPack(plan, need = null) {
   const path = join(dir, file);
 
   const steps = (plan.steps || []).map((s, i) => `${i + 1}. ${s}`).join("\n");
+  const proposal = plan.proposal;
+  const scope = (proposal?.scope || []).map((s) => `- ${s}`).join("\n");
+  const priceLine = proposal?.price
+    ? `${proposal.price.amount} ${proposal.price.currency} (${proposal.price.note || ""})`
+    : "—";
+
   const md = `# ${plan.title}
 
 ## Мета
@@ -57,16 +63,27 @@ ${plan.needSummary || plan.title}
 ${need?.body ? `### Детали из источника\n${need.body}\n` : ""}
 ${need?.budgetEstimate ? `**Бюджет в источнике:** ~${need.budgetEstimate} ₽\n` : ""}
 
+## Коммерческое предложение
+- **Заголовок:** ${proposal?.headline || plan.title}
+- **Цена:** ${priceLine}
+- **Срок:** ${proposal?.timeline || "—"}
+- **Следующий шаг:** ${proposal?.nextAction || "—"}
+
+### Scope
+${scope || "- —"}
+
+### Готовое сообщение
+\`\`\`
+${proposal?.message || plan.replyDraft || "—"}
+\`\`\`
+
 ## План удовлетворения
 ${steps}
 
-## Черновик ответа человеку
-> ${plan.replyDraft || "—"}
-
 ## Чеклист исполнения
 - [ ] Изучить источник и уточнить scope
-- [ ] Выполнить шаги плана
-- [ ] Отправить ответ / оффер (после Approve)
+- [ ] Скопировать сообщение и отправить автору (после Approve)
+- [ ] Выполнить работу / передать исполнителю
 - [ ] Зафиксировать результат (Fulfill)
 - [ ] Собрать отзыв / кейс
 

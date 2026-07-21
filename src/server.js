@@ -10,6 +10,9 @@ import {
   realizeOffer,
   resetState,
   formatMoney,
+  batchApprove,
+  getWorkQueue,
+  getFilteredFulfillments,
 } from "./engine.js";
 import { getFreshNeeds } from "./scout.js";
 import { getConfig, saveConfigOverlay } from "./config.js";
@@ -76,6 +79,29 @@ async function handleApi(req, res, url) {
     const solMatch = url.pathname.match(/^\/api\/solutions\/([^/]+)$/);
     if (req.method === "GET" && solMatch) {
       return json(res, 200, readSolutionPack(decodeURIComponent(solMatch[1])));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/queue") {
+      const limit = Number(url.searchParams.get("limit") || 20);
+      return json(res, 200, getWorkQueue(limit));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/fulfillments") {
+      const query = Object.fromEntries(url.searchParams.entries());
+      return json(res, 200, { fulfillments: getFilteredFulfillments(query) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/batch-approve") {
+      const body = await readBody(req);
+      return json(
+        res,
+        200,
+        batchApprove({
+          limit: Number(body.limit || 5),
+          paidOnly: !!body.paidOnly,
+          minScore: Number(body.minScore || 0),
+        })
+      );
     }
 
     if (req.method === "POST" && url.pathname === "/api/scout") {
