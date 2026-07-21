@@ -5,13 +5,13 @@ import { join, dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   getDashboard,
-  loadJson,
-  runCycle,
+  runNeedsCycle,
   approveOffer,
   realizeOffer,
   resetState,
   formatMoney,
 } from "./engine.js";
+import { getFreshNeeds } from "./scout.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, "..", "public");
@@ -57,10 +57,23 @@ async function handleApi(req, res, url) {
       return json(res, 200, getDashboard());
     }
 
+    if (req.method === "POST" && url.pathname === "/api/scout") {
+      const force = url.searchParams.get("force") === "1";
+      const scout = await getFreshNeeds({ force, maxAgeMin: 15 });
+      return json(res, 200, scout);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/cycle") {
-      const signals = loadJson("signals.json", []);
-      const report = runCycle(signals);
+      const force = url.searchParams.get("force") !== "0";
+      const scout = await getFreshNeeds({ force, maxAgeMin: 15 });
+      const report = runNeedsCycle(scout.needs || []);
       return json(res, 200, {
+        scout: {
+          count: scout.count,
+          fromCache: scout.fromCache,
+          fetchedAt: scout.fetchedAt,
+          errors: scout.errors,
+        },
         ...report,
         expectedThisCycleLabel: formatMoney(report.expectedThisCycle),
       });

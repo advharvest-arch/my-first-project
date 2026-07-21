@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "demo": "node src/cli-demo.js",
-    "cycle": "node src/run-cycle.js"
+    "cycle": "node src/run-cycle.js",
+    "scout": "node src/run-cycle.js --force"
   },
   "engines": {
     "node": ">=18"

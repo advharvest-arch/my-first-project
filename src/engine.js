@@ -10,32 +10,16 @@
  * 3) Контент + партка услуг (SEO → заявки)
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadJson, saveJson } from "./store.js";
+import {
+  scoreNeed,
+  chooseFulfillment,
+  estimateFulfillmentValue,
+  planFulfillment,
+  FULFILL_MODES,
+} from "./needs.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
-const DATA = join(ROOT, "data");
-
-function ensureData() {
-  if (!existsSync(DATA)) mkdirSync(DATA, { recursive: true });
-}
-
-export function loadJson(name, fallback) {
-  ensureData();
-  const path = join(DATA, name);
-  if (!existsSync(path)) {
-    writeFileSync(path, JSON.stringify(fallback, null, 2), "utf8");
-    return structuredClone(fallback);
-  }
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-export function saveJson(name, value) {
-  ensureData();
-  writeFileSync(join(DATA, name), JSON.stringify(value, null, 2), "utf8");
-}
+export { loadJson, saveJson };
 
 /** Источники сигналов спроса (в проде — API тендеров, Avito, ЦИАН, RSS) */
 export const SIGNAL_SOURCES = [
@@ -282,21 +266,230 @@ export function runCycle(signals, options = {}) {
   };
 }
 
+/**
+ * Цикл по интернет-потребностям:
+ * найти боль → оценить → спланировать удовлетворение → (approve) → fulfill
+ */
+export function runNeedsCycle(rawNeeds, options = {}) {
+  const state = loadJson("state.json", defaultState());
+  const config = { ...state.config, ...options };
+  const results = [];
+  let expectedTotal = 0;
+
+  // сохраняем свежие потребности для дашборда
+  for (const need of rawNeeds) {
+    const existing = state.needs.find((n) => n.id === need.id);
+    if (!existing) state.needs.push(need);
+  }
+
+  for (const need of rawNeeds) {
+    if (state.processedNeedIds.includes(need.id)) continue;
+
+    const scored = scoreNeed(need, config);
+    if (!scored.pass) {
+      results.push({
+        needId: need.id,
+        action: "skip",
+        score: scored.score,
+        rationale: scored.rationale,
+        title: need.title,
+      });
+      state.processedNeedIds.push(need.id);
+      continue;
+    }
+
+    const mode = chooseFulfillment(need, scored);
+    const value = estimateFulfillmentValue(need, mode, scored);
+    const plan = planFulfillment(need, scored, mode, value);
+
+    state.fulfillments.push(plan);
+    state.ledger.push({
+      id: `led_${plan.id}`,
+      offerId: plan.id,
+      type: "expected",
+      amount: value.expected,
+      currency: "RUB",
+      channelId: mode.id,
+      at: new Date().toISOString(),
+      note: scored.rationale,
+    });
+
+    expectedTotal += value.expected;
+    state.processedNeedIds.push(need.id);
+
+    results.push({
+      needId: need.id,
+      action: "fulfill_plan",
+      score: scored.score,
+      mode: mode.id,
+      expectedRevenue: value.expected,
+      fulfillmentId: plan.id,
+      rationale: scored.rationale,
+      title: need.title,
+      url: need.url,
+    });
+  }
+
+  state.stats.cycles += 1;
+  state.stats.lastCycleAt = new Date().toISOString();
+  state.stats.needsSeen = state.needs.length;
+  state.stats.fulfillmentsReady = state.fulfillments.filter((f) => f.status === "ready").length;
+  recalcTotals(state);
+  saveJson("state.json", state);
+
+  return {
+    processed: results.length,
+    planned: results.filter((r) => r.action === "fulfill_plan").length,
+    skipped: results.filter((r) => r.action === "skip").length,
+    expectedThisCycle: expectedTotal,
+    results,
+    state,
+  };
+}
+
+export function approveFulfillment(fulfillmentId) {
+  const state = loadJson("state.json", defaultState());
+  const item = state.fulfillments.find((f) => f.id === fulfillmentId);
+  if (!item) throw new Error(`План не найден: ${fulfillmentId}`);
+  if (item.status !== "ready") throw new Error(`План уже в статусе ${item.status}`);
+  item.status = "approved";
+  item.approvedAt = new Date().toISOString();
+  saveJson("state.json", state);
+  return item;
+}
+
+/** Отметить потребность удовлетворённой (и зафиксировать выручку) */
+export function fulfillNeed(fulfillmentId, amount) {
+  const state = loadJson("state.json", defaultState());
+  const item = state.fulfillments.find((f) => f.id === fulfillmentId);
+  if (!item) throw new Error(`План не найден: ${fulfillmentId}`);
+
+  const realized = Number(amount ?? item.expectedRevenue);
+  item.status = "fulfilled";
+  item.fulfilledAt = new Date().toISOString();
+  item.realizedAmount = realized;
+
+  state.ledger.push({
+    id: `led_ful_${item.id}`,
+    offerId: item.id,
+    type: "realized",
+    amount: realized,
+    currency: "RUB",
+    channelId: item.modeId,
+    at: new Date().toISOString(),
+    note: "Потребность удовлетворена",
+  });
+
+  // Learn по конверсии fulfillments
+  const fulfilledCount = state.fulfillments.filter((f) => f.status === "fulfilled").length;
+  const approvedCount = state.fulfillments.filter((f) =>
+    ["approved", "fulfilled"].includes(f.status)
+  ).length;
+  if (approvedCount >= 3) {
+    const rate = fulfilledCount / approvedCount;
+    if (rate >= 0.4) state.config.minNeedScore = Math.max(35, state.config.minNeedScore - 2);
+    if (rate < 0.2) state.config.minNeedScore = Math.min(75, state.config.minNeedScore + 3);
+  }
+
+  recalcTotals(state);
+  saveJson("state.json", state);
+  return { fulfillment: item, realized };
+}
+
+function recalcTotals(state) {
+  state.stats.expectedRevenueTotal = state.ledger
+    .filter((l) => l.type === "expected")
+    .reduce((s, l) => s + l.amount, 0);
+  state.stats.realizedRevenueTotal = state.ledger
+    .filter((l) => l.type === "realized")
+    .reduce((s, l) => s + l.amount, 0);
+  state.stats.fulfillmentsReady = state.fulfillments.filter((f) => f.status === "ready").length;
+  state.stats.needsFulfilled = state.fulfillments.filter((f) => f.status === "fulfilled").length;
+}
+
+export function defaultState() {
+  return {
+    config: {
+      minScore: 55,
+      minNeedScore: 48,
+      niche: "насущные потребности людей → полезные решения",
+      preferNiche: false,
+      currency: "RUB",
+    },
+    processedSignalIds: [],
+    processedNeedIds: [],
+    needs: [],
+    fulfillments: [],
+    offers: [],
+    ledger: [],
+    stats: {
+      cycles: 0,
+      lastCycleAt: null,
+      expectedRevenueTotal: 0,
+      realizedRevenueTotal: 0,
+      needsSeen: 0,
+      fulfillmentsReady: 0,
+      needsFulfilled: 0,
+    },
+  };
+}
+
+export function getDashboard() {
+  const state = loadJson("state.json", defaultState());
+  const signals = loadJson("signals.json", []);
+  const cache = loadJson("needs-cache.json", { needs: [], fetchedAt: null, errors: [] });
+  return {
+    niche: state.config.niche,
+    stats: state.stats,
+    config: state.config,
+    offers: state.offers.slice().reverse(),
+    fulfillments: state.fulfillments.slice().reverse(),
+    needs: state.needs.slice().reverse().slice(0, 40),
+    ledger: state.ledger.slice().reverse(),
+    signals,
+    channels: Object.values(MONETIZE_CHANNELS),
+    fulfillModes: Object.values(FULFILL_MODES),
+    sources: [
+      ...SIGNAL_SOURCES,
+      { id: "hackernews", name: "Hacker News Ask", weight: 1.2 },
+      { id: "stackoverflow_ru", name: "Stack Overflow RU", weight: 1.1 },
+      { id: "stackoverflow", name: "Stack Overflow", weight: 1.0 },
+      { id: "github", name: "GitHub Issues", weight: 1.0 },
+    ],
+    cacheMeta: {
+      fetchedAt: cache.fetchedAt,
+      cachedCount: cache.needs?.length || 0,
+      errors: cache.errors || [],
+    },
+  };
+}
+
+export function resetState() {
+  saveJson("state.json", defaultState());
+  return defaultState();
+}
+
+// Совместимость: approve/realize для fulfillments через те же кнопки
 export function approveOffer(offerId) {
   const state = loadJson("state.json", defaultState());
+  if (state.fulfillments.some((f) => f.id === offerId)) {
+    return approveFulfillment(offerId);
+  }
   const offer = state.offers.find((o) => o.id === offerId);
   if (!offer) throw new Error(`Оффер не найден: ${offerId}`);
   if (offer.status !== "ready") throw new Error(`Оффер уже в статусе ${offer.status}`);
-
   offer.status = "approved";
   offer.approvedAt = new Date().toISOString();
   saveJson("state.json", state);
   return offer;
 }
 
-/** Симуляция закрытия сделки (в проде — вебхук CRM / платёжки) */
 export function realizeOffer(offerId, amount) {
   const state = loadJson("state.json", defaultState());
+  if (state.fulfillments.some((f) => f.id === offerId)) {
+    return fulfillNeed(offerId, amount);
+  }
+  // legacy path below uses original realize — inline
   const offer = state.offers.find((o) => o.id === offerId);
   if (!offer) throw new Error(`Оффер не найден: ${offerId}`);
 
@@ -316,60 +509,7 @@ export function realizeOffer(offerId, amount) {
     note: "Закрытие сделки",
   });
 
-  state.stats.realizedRevenueTotal = state.ledger
-    .filter((l) => l.type === "realized")
-    .reduce((s, l) => s + l.amount, 0);
-
-  // Learn: подкручиваем порог, если конверсия хорошая
-  const realizedCount = state.offers.filter((o) => o.status === "realized").length;
-  const approvedCount = state.offers.filter((o) =>
-    ["approved", "realized"].includes(o.status)
-  ).length;
-  if (approvedCount >= 3) {
-    const rate = realizedCount / approvedCount;
-    if (rate >= 0.4) state.config.minScore = Math.max(45, state.config.minScore - 2);
-    if (rate < 0.2) state.config.minScore = Math.min(80, state.config.minScore + 3);
-  }
-
+  recalcTotals(state);
   saveJson("state.json", state);
   return { offer, realized };
-}
-
-export function defaultState() {
-  return {
-    config: {
-      minScore: 55,
-      niche: "строительство / каркасы / проектирование",
-      currency: "RUB",
-    },
-    processedSignalIds: [],
-    offers: [],
-    ledger: [],
-    stats: {
-      cycles: 0,
-      lastCycleAt: null,
-      expectedRevenueTotal: 0,
-      realizedRevenueTotal: 0,
-    },
-  };
-}
-
-export function getDashboard() {
-  const state = loadJson("state.json", defaultState());
-  const signals = loadJson("signals.json", []);
-  return {
-    niche: state.config.niche,
-    stats: state.stats,
-    config: state.config,
-    offers: state.offers.slice().reverse(),
-    ledger: state.ledger.slice().reverse(),
-    signals,
-    channels: Object.values(MONETIZE_CHANNELS),
-    sources: SIGNAL_SOURCES,
-  };
-}
-
-export function resetState() {
-  saveJson("state.json", defaultState());
-  return defaultState();
 }

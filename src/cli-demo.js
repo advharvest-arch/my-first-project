@@ -1,66 +1,66 @@
 #!/usr/bin/env node
 /**
- * Демо полного денежного цикла без внешних API.
+ * Демо: интернет → потребности → планы → approve → fulfill
  */
+import { getFreshNeeds } from "./scout.js";
 import {
-  loadJson,
-  runCycle,
-  approveOffer,
-  realizeOffer,
+  runNeedsCycle,
+  approveFulfillment,
+  fulfillNeed,
   formatMoney,
   resetState,
   getDashboard,
 } from "./engine.js";
 
 resetState();
-const signals = loadJson("signals.json", []);
 
-console.log("╔══════════════════════════════════════════════╗");
-console.log("║     AdvHarvest Autopilot — DEMO ЗАРАБОТКА    ║");
-console.log("╚══════════════════════════════════════════════╝\n");
+console.log("╔══════════════════════════════════════════════════╗");
+console.log("║  AdvHarvest — потребности людей → решения        ║");
+console.log("╚══════════════════════════════════════════════════╝\n");
 
-console.log("① Scout + Score + Package\n");
-const cycle = runCycle(signals);
-for (const r of cycle.results) {
-  const mark = r.action === "package" ? "💰" : "·";
+console.log("① Сканируем интернет (HN / StackOverflow / GitHub)…\n");
+const scout = await getFreshNeeds({ force: true });
+console.log(`   найдено потребностей: ${scout.count}`);
+if (scout.errors?.length) {
+  for (const e of scout.errors) console.log(`   ! ${e.source}: ${e.error}`);
+}
+
+console.log("\n② Score + план удовлетворения\n");
+const cycle = runNeedsCycle(scout.needs || []);
+for (const r of cycle.results.slice(0, 12)) {
+  const mark = r.action === "fulfill_plan" ? "💡" : "·";
   console.log(
-    `  ${mark} ${r.signalId.padEnd(8)} ${String(r.action).padEnd(8)} score ${String(r.score).padStart(3)}  ${
-      r.expectedRevenue ? formatMoney(r.expectedRevenue) : "—"
-    }`
+    `  ${mark} ${String(r.score).padStart(3)}  ${(r.mode || "skip").padEnd(11)}  ${(r.title || "").slice(0, 64)}`
   );
 }
 
-const ready = cycle.state.offers.filter((o) => o.status === "ready");
-console.log(`\n② Approve топ-офферов (human-in-the-loop): ${ready.length} шт.\n`);
-
-const top = ready
-  .slice()
-  .sort((a, b) => b.expectedRevenue - a.expectedRevenue)
+const ready = cycle.state.fulfillments
+  .filter((f) => f.status === "ready")
+  .sort((a, b) => b.score - a.score)
   .slice(0, 3);
 
-for (const offer of top) {
-  approveOffer(offer.id);
-  console.log(`  ✓ approved  ${offer.title}`);
-  console.log(`    ${offer.pitch.slice(0, 100)}…`);
+console.log(`\n③ Approve топ-${ready.length} планов (human-in-the-loop)\n`);
+for (const plan of ready) {
+  approveFulfillment(plan.id);
+  console.log(`  ✓ ${plan.modeId} · ${plan.title.slice(0, 70)}`);
+  console.log(`    черновик ответа: ${plan.replyDraft.slice(0, 110)}…`);
 }
 
-console.log("\n③ Realize (симуляция закрытия сделок)\n");
+console.log("\n④ Fulfill — отмечаем потребности закрытыми\n");
 let earned = 0;
-for (const offer of top) {
-  // Консервативно: 60–100% от expected
-  const factor = 0.6 + Math.random() * 0.4;
-  const amount = Math.round(offer.expectedRevenue * factor);
-  const { realized } = realizeOffer(offer.id, amount);
+for (const plan of ready) {
+  const factor = 0.55 + Math.random() * 0.45;
+  const amount = Math.round(plan.expectedRevenue * factor);
+  const { realized } = fulfillNeed(plan.id, amount);
   earned += realized;
-  console.log(`  ✓ +${formatMoney(realized)}  ← ${offer.channelId} / ${offer.title}`);
+  console.log(`  ✓ +${formatMoney(realized)}  ← ${plan.modeId}`);
 }
 
 const dash = getDashboard();
 console.log("\n════════════════════════════════════════");
+console.log(`  Найдено потребностей:  ${dash.stats.needsSeen}`);
+console.log(`  Удовлетворено:         ${dash.stats.needsFulfilled}`);
 console.log(`  Заработано в демо:     ${formatMoney(earned)}`);
-console.log(`  Ожидаемый пайплайн:    ${formatMoney(dash.stats.expectedRevenueTotal)}`);
-console.log(`  Реализовано всего:     ${formatMoney(dash.stats.realizedRevenueTotal)}`);
-console.log(`  Порог score (learn):   ${dash.config.minScore}`);
+console.log(`  Пайплайн ожидания:     ${formatMoney(dash.stats.expectedRevenueTotal)}`);
 console.log("════════════════════════════════════════");
-console.log("\nЭто легальная модель: лиды → офферы → сделки / комиссии.");
-console.log("Запуск дашборда: npm start\n");
+console.log("\nПринцип: сначала закрываем боль человека, деньги — следствие.\n");

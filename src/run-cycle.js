@@ -1,33 +1,48 @@
 #!/usr/bin/env node
-import { loadJson, runCycle, formatMoney, resetState } from "./engine.js";
+/**
+ * Поиск насущных потребностей в интернете + планы их удовлетворения.
+ */
+import { getFreshNeeds } from "./scout.js";
+import { runNeedsCycle, resetState, formatMoney, getDashboard } from "./engine.js";
 
 const fresh = process.argv.includes("--fresh");
+const force = process.argv.includes("--force") || fresh;
+
 if (fresh) {
   resetState();
   console.log("Состояние сброшено.\n");
 }
 
-const signals = loadJson("signals.json", []);
-const report = runCycle(signals);
+console.log("═══ AdvHarvest — поиск потребностей в сети ═══\n");
 
-console.log("═══ AdvHarvest Autopilot — цикл ═══\n");
-console.log(`Обработано сигналов: ${report.processed}`);
-console.log(`Упаковано офферов:   ${report.packaged}`);
-console.log(`Пропущено:           ${report.skipped}`);
-console.log(`Ожидаемая выручка:   ${formatMoney(report.expectedThisCycle)}\n`);
+const scout = await getFreshNeeds({ force, maxAgeMin: 20 });
+console.log(
+  `Источник: ${scout.fromCache ? "кэш" : "живой интернет"} · найдено ${scout.count} · ${scout.fetchedAt}`
+);
+if (scout.errors?.length) {
+  for (const e of scout.errors) console.log(`  ! ${e.source}: ${e.error}`);
+}
 
-for (const r of report.results) {
+const report = runNeedsCycle(scout.needs || []);
+
+console.log(`\nОбработано: ${report.processed}`);
+console.log(`Планов удовлетворения: ${report.planned}`);
+console.log(`Пропущено: ${report.skipped}`);
+console.log(`Ожидаемая ценность: ${formatMoney(report.expectedThisCycle)}\n`);
+
+for (const r of report.results.slice(0, 15)) {
   if (r.action === "skip") {
-    console.log(`✗ ${r.signalId}  skip  score=${r.score}  (${r.rationale})`);
+    console.log(`· skip  ${r.score}  ${r.title?.slice(0, 70)}`);
   } else {
-    console.log(
-      `✓ ${r.signalId}  → ${r.channel}  score=${r.score}  ~${formatMoney(r.expectedRevenue)}`
-    );
-    console.log(`  ${r.rationale}`);
+    console.log(`✓ ${r.mode.padEnd(11)} ${String(r.score).padStart(3)}  ~${formatMoney(r.expectedRevenue)}`);
+    console.log(`  ${r.title?.slice(0, 78)}`);
+    console.log(`  ${r.url}`);
   }
 }
 
-console.log("\nИтого в системе:");
-console.log(`  Ожидаемо:  ${formatMoney(report.state.stats.expectedRevenueTotal)}`);
-console.log(`  Реализовано: ${formatMoney(report.state.stats.realizedRevenueTotal)}`);
-console.log("\nДальше: npm start  → дашборд http://localhost:3847");
+const dash = getDashboard();
+console.log("\nИтого:");
+console.log(`  Потребностей в базе: ${dash.stats.needsSeen}`);
+console.log(`  Планов ready:        ${dash.stats.fulfillmentsReady}`);
+console.log(`  Ожидаемо:            ${formatMoney(dash.stats.expectedRevenueTotal)}`);
+console.log("\nДашборд: npm start → http://localhost:3847");
