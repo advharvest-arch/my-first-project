@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
@@ -12,6 +13,10 @@ from src.models import FleetProject, Opportunity, ScanRun, SessionLocal, init_db
 from src.pipeline import run_full_pipeline
 
 app = FastAPI(title="Money Engine", version="1.0.0")
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 init_db()
 
@@ -374,6 +379,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     loadAll();
     setInterval(loadAll, 30000);
   </script>
+  <script src="/static/launch-button.js"></script>
 </body>
 </html>"""
 
@@ -567,6 +573,7 @@ LAUNCH_HTML = """<!DOCTYPE html>
 
     checkStatus();
   </script>
+  <script src="/static/launch-button.js"></script>
 </body>
 </html>"""
 

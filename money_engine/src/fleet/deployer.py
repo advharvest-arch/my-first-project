@@ -4,7 +4,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from config import FLEET_DIR, settings
+from config import BASE_DIR, FLEET_DIR, settings
 from src.fleet.types import FleetDeploySpec
 from src.fleet.utils import theme_color_for
 
@@ -74,6 +74,7 @@ def deploy_project(spec: FleetDeploySpec) -> tuple[str, str, float]:
         public_url=public_url,
         track_url=track_url,
         project_slug=spec.slug,
+        launch_button='<script src="/static/launch-button.js"></script>',
     )
     (project_dir / "index.html").write_text(html, encoding="utf-8")
 

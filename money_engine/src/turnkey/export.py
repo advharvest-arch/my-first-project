@@ -3,7 +3,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from config import FLEET_DIR, OUTPUT_DIR, settings
+from config import BASE_DIR, FLEET_DIR, OUTPUT_DIR, settings
 from src.fleet.hub import generate_hub, generate_robots, generate_sitemap
 from src.models import FleetProject, SessionLocal
 
@@ -36,6 +36,12 @@ def export_static_site() -> dict:
     hub = generate_hub(static=True)
     sitemap = generate_sitemap(static=False)
     robots = generate_robots()
+
+    static_src = BASE_DIR / "static" / "launch-button.js"
+    static_dst = SITE_DIR / "static"
+    static_dst.mkdir(parents=True, exist_ok=True)
+    if static_src.exists():
+        shutil.copy(static_src, static_dst / "launch-button.js")
 
     # Hosting configs
     vercel = {"rewrites": [{"source": "/p/:slug", "destination": "/p/:slug/index.html"}]}

@@ -81,6 +81,7 @@ def generate_hub(static: bool = False) -> str:
   </div>
   <div class="grid">{''.join(cards) if cards else '<p style="color:#64748b;text-align:center;grid-column:1/-1">Проекты ещё не созданы</p>'}</div>
   <p class="footer">Money Engine — turnkey auto-income system</p>
+  <script src="/static/launch-button.js"></script>
 </body>
 </html>"""
 
