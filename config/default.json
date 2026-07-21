@@ -1,0 +1,46 @@
+{
+  "name": "AdvHarvest Autopilot",
+  "niche": "насущные потребности людей → полезные решения",
+  "locale": "ru",
+  "currency": "RUB",
+  "minNeedScore": 45,
+  "preferNiche": false,
+  "scout": {
+    "maxAgeMin": 20,
+    "hnLimit": 16,
+    "sePageSize": 8,
+    "ghPerPage": 8,
+    "flLimit": 40,
+    "lobstersLimit": 15,
+    "enabled": {
+      "hackernews": true,
+      "stackoverflow": true,
+      "stackoverflow_ru": true,
+      "github": true,
+      "flru": true,
+      "lobsters": true
+    }
+  },
+  "autopilot": {
+    "intervalSec": 900,
+    "autoApproveBelow": 0,
+    "maxPlansPerCycle": 25
+  },
+  "keywordsBoost": [
+    "нужен",
+    "ищу",
+    "подскажите",
+    "как сделать",
+    "looking for",
+    "need help",
+    "каркас",
+    "проект",
+    "сайт",
+    "бот",
+    "автоматиз"
+  ],
+  "fulfillment": {
+    "solutionsDir": "workspace/solutions",
+    "includeReplyDraft": true
+  }
+}

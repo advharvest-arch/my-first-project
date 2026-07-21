@@ -12,6 +12,8 @@ import {
   formatMoney,
 } from "./engine.js";
 import { getFreshNeeds } from "./scout.js";
+import { getConfig, saveConfigOverlay } from "./config.js";
+import { listSolutionPacks, readSolutionPack } from "./solutions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, "..", "public");
@@ -22,6 +24,7 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
   ".svg": "image/svg+xml",
 };
 
@@ -57,6 +60,24 @@ async function handleApi(req, res, url) {
       return json(res, 200, getDashboard());
     }
 
+    if (req.method === "GET" && url.pathname === "/api/config") {
+      return json(res, 200, getConfig());
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/config") {
+      const body = await readBody(req);
+      return json(res, 200, saveConfigOverlay(body));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/solutions") {
+      return json(res, 200, { solutions: listSolutionPacks() });
+    }
+
+    const solMatch = url.pathname.match(/^\/api\/solutions\/([^/]+)$/);
+    if (req.method === "GET" && solMatch) {
+      return json(res, 200, readSolutionPack(decodeURIComponent(solMatch[1])));
+    }
+
     if (req.method === "POST" && url.pathname === "/api/scout") {
       const force = url.searchParams.get("force") === "1";
       const scout = await getFreshNeeds({ force, maxAgeMin: 15 });
@@ -72,6 +93,7 @@ async function handleApi(req, res, url) {
           count: scout.count,
           fromCache: scout.fromCache,
           fetchedAt: scout.fetchedAt,
+          bySource: scout.bySource,
           errors: scout.errors,
         },
         ...report,

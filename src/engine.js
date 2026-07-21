@@ -18,6 +18,8 @@ import {
   planFulfillment,
   FULFILL_MODES,
 } from "./needs.js";
+import { getConfig } from "./config.js";
+import { writeSolutionPack, listSolutionPacks } from "./solutions.js";
 
 export { loadJson, saveJson };
 
@@ -268,21 +270,37 @@ export function runCycle(signals, options = {}) {
 
 /**
  * Цикл по интернет-потребностям:
- * найти боль → оценить → спланировать удовлетворение → (approve) → fulfill
+ * найти боль → оценить → спланировать удовлетворение → файл решения → (approve) → fulfill
  */
 export function runNeedsCycle(rawNeeds, options = {}) {
+  const fileCfg = getConfig();
   const state = loadJson("state.json", defaultState());
-  const config = { ...state.config, ...options };
+  const config = {
+    ...state.config,
+    minNeedScore: fileCfg.minNeedScore ?? state.config.minNeedScore,
+    preferNiche: fileCfg.preferNiche ?? state.config.preferNiche,
+    niche: fileCfg.niche ?? state.config.niche,
+    ...options,
+  };
+  const maxPlans = options.maxPlansPerCycle ?? fileCfg.autopilot?.maxPlansPerCycle ?? 25;
   const results = [];
   let expectedTotal = 0;
+  let plannedCount = 0;
 
-  // сохраняем свежие потребности для дашборда
   for (const need of rawNeeds) {
     const existing = state.needs.find((n) => n.id === need.id);
     if (!existing) state.needs.push(need);
+    else Object.assign(existing, need);
   }
 
-  for (const need of rawNeeds) {
+  // Сначала платные / свежие
+  const ordered = [...rawNeeds].sort((a, b) => {
+    const pa = (a.monetizable ? 100 : 0) + Number(a.engagement || 0);
+    const pb = (b.monetizable ? 100 : 0) + Number(b.engagement || 0);
+    return pb - pa;
+  });
+
+  for (const need of ordered) {
     if (state.processedNeedIds.includes(need.id)) continue;
 
     const scored = scoreNeed(need, config);
@@ -298,9 +316,24 @@ export function runNeedsCycle(rawNeeds, options = {}) {
       continue;
     }
 
+    if (plannedCount >= maxPlans) {
+      results.push({
+        needId: need.id,
+        action: "deferred",
+        score: scored.score,
+        rationale: "лимит планов за цикл",
+        title: need.title,
+      });
+      continue;
+    }
+
     const mode = chooseFulfillment(need, scored);
     const value = estimateFulfillmentValue(need, mode, scored);
     const plan = planFulfillment(need, scored, mode, value);
+
+    const pack = writeSolutionPack(plan, need);
+    plan.solutionFile = pack.file;
+    plan.solutionPath = pack.relative;
 
     state.fulfillments.push(plan);
     state.ledger.push({
@@ -315,6 +348,7 @@ export function runNeedsCycle(rawNeeds, options = {}) {
     });
 
     expectedTotal += value.expected;
+    plannedCount += 1;
     state.processedNeedIds.push(need.id);
 
     results.push({
@@ -324,16 +358,20 @@ export function runNeedsCycle(rawNeeds, options = {}) {
       mode: mode.id,
       expectedRevenue: value.expected,
       fulfillmentId: plan.id,
+      solutionFile: pack.file,
       rationale: scored.rationale,
       title: need.title,
       url: need.url,
+      budgetEstimate: need.budgetEstimate || 0,
     });
   }
 
+  state.config = { ...state.config, ...config };
   state.stats.cycles += 1;
   state.stats.lastCycleAt = new Date().toISOString();
   state.stats.needsSeen = state.needs.length;
   state.stats.fulfillmentsReady = state.fulfillments.filter((f) => f.status === "ready").length;
+  state.stats.solutionPacks = listSolutionPacks().length;
   recalcTotals(state);
   saveJson("state.json", state);
 
@@ -341,6 +379,7 @@ export function runNeedsCycle(rawNeeds, options = {}) {
     processed: results.length,
     planned: results.filter((r) => r.action === "fulfill_plan").length,
     skipped: results.filter((r) => r.action === "skip").length,
+    deferred: results.filter((r) => r.action === "deferred").length,
     expectedThisCycle: expectedTotal,
     results,
     state,
@@ -430,6 +469,7 @@ export function defaultState() {
       needsSeen: 0,
       fulfillmentsReady: 0,
       needsFulfilled: 0,
+      solutionPacks: 0,
     },
   };
 }
@@ -437,28 +477,34 @@ export function defaultState() {
 export function getDashboard() {
   const state = loadJson("state.json", defaultState());
   const signals = loadJson("signals.json", []);
-  const cache = loadJson("needs-cache.json", { needs: [], fetchedAt: null, errors: [] });
+  const cache = loadJson("needs-cache.json", { needs: [], fetchedAt: null, errors: [], bySource: {} });
+  const cfg = getConfig();
+  const solutions = listSolutionPacks().slice(0, 40);
   return {
-    niche: state.config.niche,
+    niche: state.config.niche || cfg.niche,
     stats: state.stats,
-    config: state.config,
+    config: { ...cfg, ...state.config },
     offers: state.offers.slice().reverse(),
     fulfillments: state.fulfillments.slice().reverse(),
-    needs: state.needs.slice().reverse().slice(0, 40),
+    needs: state.needs.slice().reverse().slice(0, 60),
     ledger: state.ledger.slice().reverse(),
+    solutions,
     signals,
     channels: Object.values(MONETIZE_CHANNELS),
     fulfillModes: Object.values(FULFILL_MODES),
     sources: [
-      ...SIGNAL_SOURCES,
+      { id: "flru", name: "FL.ru заказы", weight: 1.4 },
       { id: "hackernews", name: "Hacker News Ask", weight: 1.2 },
       { id: "stackoverflow_ru", name: "Stack Overflow RU", weight: 1.1 },
       { id: "stackoverflow", name: "Stack Overflow", weight: 1.0 },
       { id: "github", name: "GitHub Issues", weight: 1.0 },
+      { id: "lobsters", name: "Lobsters", weight: 0.9 },
+      ...SIGNAL_SOURCES,
     ],
     cacheMeta: {
       fetchedAt: cache.fetchedAt,
       cachedCount: cache.needs?.length || 0,
+      bySource: cache.bySource || {},
       errors: cache.errors || [],
     },
   };

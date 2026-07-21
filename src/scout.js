@@ -1,21 +1,23 @@
 /**
  * Web Scout — поиск насущных потребностей людей в открытом интернете.
  *
- * Источники (публичные API, без обхода блокировок / без логинов):
+ * Источники:
+ * - FL.ru RSS (реальные заказы с бюджетом, RU)
  * - Hacker News Ask (Algolia)
- * - Stack Overflow / Stack Overflow на русском
- * - GitHub Issues (открытые просьбы о помощи)
- *
- * При сбое сети — fallback на локальный кэш data/needs-cache.json.
+ * - Stack Overflow / SO RU
+ * - GitHub Issues
+ * - Lobsters
  */
 
 import { createHash } from "node:crypto";
 import { loadJson, saveJson } from "./store.js";
+import { getConfig } from "./config.js";
+import { fetchRss } from "./rss.js";
 
 const UA = "AdvHarvestAutopilot/1.0 (+need-discovery; educational)";
 
 const NEED_HINT =
-  /\b(need|needs|looking for|how (do|can|to)|help|recommend|struggling|want|seeking|anyone know|is there a|ищет|нужен|нужна|нужно|помог|как сделать|подскажите|ищу|рекоменд|не могу|проблема)\b/i;
+  /\b(need|needs|looking for|how (do|can|to)|help|recommend|struggling|want|seeking|anyone know|is there a|ищет|нужен|нужна|нужно|помог|как сделать|подскажите|ищу|рекоменд|не могу|проблема|требуется|зака[зж])\b/i;
 
 async function fetchJson(url, { timeoutMs = 12000 } = {}) {
   const ctrl = new AbortController();
@@ -23,10 +25,7 @@ async function fetchJson(url, { timeoutMs = 12000 } = {}) {
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: {
-        Accept: "application/json",
-        "User-Agent": UA,
-      },
+      headers: { Accept: "application/json", "User-Agent": UA },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return await res.json();
@@ -53,8 +52,47 @@ function looksLikeNeed(text) {
   return NEED_HINT.test(text);
 }
 
-/** Hacker News Ask — живые вопросы «что нужно / как сделать» */
-export async function scoutHackerNews({ limit = 20 } = {}) {
+function parseBudgetRub(text = "") {
+  const m = String(text).match(/(\d[\d\s]{1,12})\s*(₽|руб|rub|&#8381;)/i);
+  if (m) return Number(m[1].replace(/\s/g, ""));
+  const m2 = String(text).match(/бюджет[:\s]*(\d[\d\s]{2,12})/i);
+  if (m2) return Number(m2[1].replace(/\s/g, ""));
+  return 0;
+}
+
+function keywordBoost(text, keywords = []) {
+  const lower = text.toLowerCase();
+  let boost = 0;
+  for (const kw of keywords) {
+    if (kw && lower.includes(String(kw).toLowerCase())) boost += 2;
+  }
+  return Math.min(20, boost);
+}
+
+/** FL.ru — живые заказы = прямые денежные потребности */
+export async function scoutFlRu({ limit = 40, keywords = [] } = {}) {
+  const items = await fetchRss("https://www.fl.ru/rss/all.xml", { userAgent: UA });
+  return items.slice(0, limit).map((it) => {
+    const blob = `${it.title} ${it.description}`;
+    const budget = parseBudgetRub(it.title) || parseBudgetRub(it.description);
+    return {
+      id: hashId("flru", it.guid || it.link || it.title),
+      sourceId: "flru",
+      sourceLabel: "FL.ru",
+      title: it.title.replace(/\s*\(Бюджет:.*?\)\s*$/i, "").trim(),
+      body: it.description.slice(0, 500),
+      url: it.link,
+      language: "ru",
+      engagement: 20 + keywordBoost(blob, keywords) + (budget ? Math.min(30, Math.log10(budget) * 4) : 0),
+      budgetEstimate: budget,
+      createdAt: it.pubDate ? new Date(it.pubDate).toISOString() : new Date().toISOString(),
+      rawTags: ["freelance", "paid_need"],
+      monetizable: true,
+    };
+  });
+}
+
+export async function scoutHackerNews({ limit = 20, keywords = [] } = {}) {
   const queries = [
     "need OR looking for OR struggling OR recommend",
     "how do I OR how can I OR is there a tool",
@@ -88,7 +126,11 @@ export async function scoutHackerNews({ limit = 20 } = {}) {
         body: text.slice(0, 500),
         url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
         language: "en",
-        engagement: Number(hit.points || 0) + Number(hit.num_comments || 0) * 1.5 + 12,
+        engagement:
+          Number(hit.points || 0) +
+          Number(hit.num_comments || 0) * 1.5 +
+          12 +
+          keywordBoost(blob, keywords),
         createdAt: hit.created_at || new Date().toISOString(),
         rawTags: ["ask_hn"],
       });
@@ -97,10 +139,10 @@ export async function scoutHackerNews({ limit = 20 } = {}) {
   return out.slice(0, limit);
 }
 
-/** Stack Exchange — свежие вопросы с болью + сильные unanswered */
 export async function scoutStackExchange({
   sites = ["ru.stackoverflow", "stackoverflow"],
   pagesize = 8,
+  keywords = [],
 } = {}) {
   const out = [];
   for (const site of sites) {
@@ -112,7 +154,9 @@ export async function scoutStackExchange({
           accepted: "False",
           site,
           pagesize: String(pagesize),
-          q: site.startsWith("ru.") ? "нужно OR подскажите OR ищу OR как" : "how do I OR looking for OR need OR recommend",
+          q: site.startsWith("ru.")
+            ? "нужно OR подскажите OR ищу OR как"
+            : "how do I OR looking for OR need OR recommend",
           filter: "default",
         }),
       `https://api.stackexchange.com/2.3/questions/unanswered?` +
@@ -125,17 +169,16 @@ export async function scoutStackExchange({
         }),
     ];
 
-    for (const unanswered of endpoints) {
-      const data = await fetchJson(unanswered);
+    for (const endpoint of endpoints) {
+      const data = await fetchJson(endpoint);
       for (const q of data.items || []) {
         const title = q.title || "";
         const ageDays = (Date.now() / 1000 - Number(q.creation_date || 0)) / 86400;
         const freshBoost = ageDays < 30 ? 8 : ageDays < 180 ? 3 : 0;
         if (!looksLikeNeed(title) && Number(q.score || 0) + freshBoost < 10) continue;
 
-        const id = hashId(site, String(q.question_id));
         out.push({
-          id,
+          id: hashId(site, String(q.question_id)),
           sourceId: site.startsWith("ru.") ? "stackoverflow_ru" : "stackoverflow",
           sourceLabel: site.startsWith("ru.") ? "Stack Overflow RU" : "Stack Overflow",
           title,
@@ -146,7 +189,8 @@ export async function scoutStackExchange({
             Number(q.score || 0) * 2 +
             Number(q.view_count || 0) / 80 +
             freshBoost +
-            (ageDays < 7 ? 10 : 0),
+            (ageDays < 7 ? 10 : 0) +
+            keywordBoost(title, keywords),
           createdAt: new Date((q.creation_date || 0) * 1000).toISOString(),
           rawTags: q.tags || [],
         });
@@ -154,7 +198,6 @@ export async function scoutStackExchange({
     }
   }
 
-  // дедуп внутри SE
   const seen = new Set();
   return out.filter((n) => {
     if (seen.has(n.id)) return false;
@@ -163,8 +206,7 @@ export async function scoutStackExchange({
   });
 }
 
-/** GitHub — открытые issues с просьбами о помощи / инструментах */
-export async function scoutGitHub({ perPage = 12 } = {}) {
+export async function scoutGitHub({ perPage = 12, keywords = [] } = {}) {
   const q =
     '("looking for" OR "need help with" OR "is there a way" OR "нужна помощь" OR "подскажите как") is:issue is:open -label:wontfix';
   const url =
@@ -184,7 +226,7 @@ export async function scoutGitHub({ perPage = 12 } = {}) {
         body,
         url: issue.html_url,
         language: /[а-яё]/i.test(blob) ? "ru" : "en",
-        engagement: Number(issue.comments || 0) * 2 + 1,
+        engagement: Number(issue.comments || 0) * 2 + 1 + keywordBoost(blob, keywords),
         createdAt: issue.created_at || new Date().toISOString(),
         rawTags: (issue.labels || []).map((l) => (typeof l === "string" ? l : l.name)).filter(Boolean),
         _blob: blob,
@@ -194,29 +236,64 @@ export async function scoutGitHub({ perPage = 12 } = {}) {
     .map(({ _blob, ...n }) => n);
 }
 
-/**
- * Полный проход по сети. Ошибки источников глотаем по одному —
- * система должна работать даже если 1–2 API недоступны.
- */
-export async function scoutWebNeeds(options = {}) {
-  const errors = [];
-  const batches = await Promise.allSettled([
-    scoutHackerNews({ limit: options.hnLimit ?? 18 }),
-    scoutStackExchange({
-      pagesize: options.sePageSize ?? 8,
-      sites: options.sites ?? ["ru.stackoverflow", "stackoverflow"],
-    }),
-    scoutGitHub({ perPage: options.ghPerPage ?? 10 }),
-  ]);
+export async function scoutLobsters({ limit = 15, keywords = [] } = {}) {
+  const data = await fetchJson("https://lobste.rs/active.json");
+  const list = Array.isArray(data) ? data : [];
+  return list
+    .filter((story) => {
+      const blob = `${story.title || ""} ${(story.tags || []).join(" ")}`;
+      return looksLikeNeed(blob) || (story.tags || []).includes("ask");
+    })
+    .slice(0, limit)
+    .map((story) => ({
+      id: hashId("lobsters", String(story.short_id || story.url)),
+      sourceId: "lobsters",
+      sourceLabel: "Lobsters",
+      title: story.title || "",
+      body: (story.tags || []).map((t) => `#${t}`).join(" "),
+      url: story.url || `https://lobste.rs/s/${story.short_id}`,
+      language: "en",
+      engagement: Number(story.score || 0) + Number(story.comment_count || 0) + keywordBoost(story.title || "", keywords),
+      createdAt: story.created_at || new Date().toISOString(),
+      rawTags: story.tags || [],
+    }));
+}
 
+export async function scoutWebNeeds(options = {}) {
+  const cfg = getConfig();
+  const scoutCfg = { ...cfg.scout, ...options };
+  const enabled = scoutCfg.enabled || {};
+  const keywords = cfg.keywordsBoost || [];
+  const errors = [];
+  const jobs = [];
+
+  if (enabled.flru !== false) {
+    jobs.push(["flru", scoutFlRu({ limit: scoutCfg.flLimit ?? 40, keywords })]);
+  }
+  if (enabled.hackernews !== false) {
+    jobs.push(["hackernews", scoutHackerNews({ limit: scoutCfg.hnLimit ?? 16, keywords })]);
+  }
+  if (enabled.stackoverflow !== false || enabled.stackoverflow_ru !== false) {
+    const sites = [];
+    if (enabled.stackoverflow_ru !== false) sites.push("ru.stackoverflow");
+    if (enabled.stackoverflow !== false) sites.push("stackoverflow");
+    jobs.push(["stackexchange", scoutStackExchange({ sites, pagesize: scoutCfg.sePageSize ?? 8, keywords })]);
+  }
+  if (enabled.github !== false) {
+    jobs.push(["github", scoutGitHub({ perPage: scoutCfg.ghPerPage ?? 8, keywords })]);
+  }
+  if (enabled.lobsters !== false) {
+    jobs.push(["lobsters", scoutLobsters({ limit: scoutCfg.lobstersLimit ?? 15, keywords })]);
+  }
+
+  const settled = await Promise.allSettled(jobs.map(([, p]) => p));
   const needs = [];
-  const labels = ["hackernews", "stackexchange", "github"];
-  batches.forEach((result, i) => {
+  settled.forEach((result, i) => {
+    const source = jobs[i][0];
     if (result.status === "fulfilled") needs.push(...result.value);
-    else errors.push({ source: labels[i], error: String(result.reason?.message || result.reason) });
+    else errors.push({ source, error: String(result.reason?.message || result.reason) });
   });
 
-  // дедуп по нормализованному title
   const uniq = [];
   const seenTitle = new Set();
   for (const n of needs) {
@@ -226,11 +303,19 @@ export async function scoutWebNeeds(options = {}) {
     uniq.push(n);
   }
 
-  uniq.sort((a, b) => b.engagement - a.engagement);
+  uniq.sort((a, b) => {
+    const pa = a.monetizable ? 50 : 0;
+    const pb = b.monetizable ? 50 : 0;
+    return pb + b.engagement - (pa + a.engagement);
+  });
+
+  const bySource = {};
+  for (const n of uniq) bySource[n.sourceId] = (bySource[n.sourceId] || 0) + 1;
 
   const payload = {
     fetchedAt: new Date().toISOString(),
     count: uniq.length,
+    bySource,
     errors,
     needs: uniq,
   };
@@ -238,13 +323,14 @@ export async function scoutWebNeeds(options = {}) {
   return payload;
 }
 
-/** Кэш или свежий scrape */
-export async function getFreshNeeds({ force = false, maxAgeMin = 30 } = {}) {
+export async function getFreshNeeds({ force = false, maxAgeMin } = {}) {
+  const cfg = getConfig();
+  const age = maxAgeMin ?? cfg.scout?.maxAgeMin ?? 20;
   const cache = loadJson("needs-cache.json", null);
   if (
     !force &&
     cache?.fetchedAt &&
-    Date.now() - new Date(cache.fetchedAt).getTime() < maxAgeMin * 60_000 &&
+    Date.now() - new Date(cache.fetchedAt).getTime() < age * 60_000 &&
     cache.needs?.length
   ) {
     return { ...cache, fromCache: true };
@@ -254,7 +340,11 @@ export async function getFreshNeeds({ force = false, maxAgeMin = 30 } = {}) {
     return { ...fresh, fromCache: false };
   } catch (err) {
     if (cache?.needs?.length) {
-      return { ...cache, fromCache: true, errors: [{ source: "scout", error: String(err.message || err) }] };
+      return {
+        ...cache,
+        fromCache: true,
+        errors: [{ source: "scout", error: String(err.message || err) }],
+      };
     }
     throw err;
   }

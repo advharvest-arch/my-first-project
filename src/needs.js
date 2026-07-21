@@ -54,9 +54,14 @@ const CATEGORY_RULES = [
     re: /\b(server|docker|kubernetes|aws|ci\/cd|nginx|hosting|сервер|хостинг|деплой)\b/i,
   },
   {
+    id: "web_design",
+    label: "Сайты / дизайн",
+    re: /\b(сайт|лендинг|landing|website|wordpress|bitrix|битрикс|вёрстк|верстк|дизайн|ui|ux)\b/i,
+  },
+  {
     id: "design_build",
     label: "Стройка / проектирование",
-    re: /\b(build|house|frame|construction|architect|каркас|строит|проект|чертёж|чертеж|металл)\b/i,
+    re: /\b(build|house|frame|construction|architect|каркас|строит|проект|чертёж|чертеж|металл|апс|соуэ|план дома)\b/i,
   },
   {
     id: "life_admin",
@@ -99,15 +104,24 @@ export function scoreNeed(need, config = {}) {
         ? 1.08
         : 1;
 
-  // HN Ask обычно = живая просьба человека «прямо сейчас»
-  const sourceBoost = need.sourceId === "hackernews" ? 1.12 : 1;
+  // FL.ru / платный заказ = сильный сигнал реальной потребности
+  const sourceBoost =
+    need.sourceId === "flru"
+      ? 1.25
+      : need.sourceId === "hackernews"
+        ? 1.12
+        : 1;
+
+  const budget = Number(need.budgetEstimate || 0);
+  const budgetScore = budget > 0 ? Math.min(1, Math.log10(Math.max(budget, 1000)) / 5.5) : 0;
 
   const raw =
-    (0.28 * urgency +
-      0.22 * engScore +
-      0.18 * actionable +
-      0.12 * clarity +
-      0.2 * freshness) *
+    (0.24 * urgency +
+      0.18 * engScore +
+      0.16 * actionable +
+      0.1 * clarity +
+      0.18 * freshness +
+      0.14 * budgetScore) *
     nicheBoost *
     sourceBoost;
   const score = Math.round(Math.min(100, raw * 100));
@@ -120,11 +134,15 @@ export function scoreNeed(need, config = {}) {
     category,
     rationale: [
       category.label,
+      need.sourceId === "flru" ? "платный заказ" : null,
+      budget ? `бюджет ~${budget}` : null,
       urgency >= 0.7 ? "высокая срочность" : "обычная срочность",
       freshness >= 0.85 ? "свежий запрос" : freshness <= 0.35 ? "старый запрос" : "средняя свежесть",
       `вовлечённость ${Math.round(engagement)}`,
       `score ${score}/100`,
-    ].join(" · "),
+    ]
+      .filter(Boolean)
+      .join(" · "),
   };
 }
 
@@ -139,19 +157,26 @@ export function categorize(text) {
 export function chooseFulfillment(need, scored) {
   const text = `${need.title} ${need.body || ""}`;
   const cat = scored.category.id;
+  const budget = Number(need.budgetEstimate || 0);
 
   const wantsTool =
     /\b(looking for (a )?(tool|app|library|service|script)|is there (a|an) (tool|app|way|library)|ищу (сервис|инструмент|программ|скрипт))\b/i.test(
       text
     );
   const wantsHire =
-    /\b(hire|freelancer|paid|budget|сделать|под ключ|нужен (специалист|подрядчик|разработчик)|looking for (a )?(dev|developer|designer|freelancer))\b/i.test(
+    /\b(hire|freelancer|paid|budget|сделать|под ключ|нужен (специалист|подрядчик|разработчик)|looking for (a )?(dev|developer|designer|freelancer)|требуется|зака[зж])\b/i.test(
       text
     );
   const isOpinion =
     /\b(what do you think|opinions?|worth(while)?|should I|почему|стоит ли|как вы считаете|wrong|dystopian)\b/i.test(
       text
     );
+
+  // Платные заказы с бирж — почти всегда услуга или matchmaker
+  if (need.monetizable || need.sourceId === "flru") {
+    if (budget >= 15000 || scored.score >= 65) return FULFILL_MODES.service;
+    return FULFILL_MODES.matchmaker;
+  }
 
   if (wantsTool) return FULFILL_MODES.micro_tool;
   if (wantsHire || cat === "design_build") {
@@ -161,7 +186,7 @@ export function chooseFulfillment(need, scored) {
   if (cat === "dev_tooling" && scored.urgency >= 0.7 && /\b(how|fix|error|fail|не работает|ошибк)\b/i.test(text)) {
     return FULFILL_MODES.service;
   }
-  if (wantsTool === false && scored.score >= 78 && engagementHigh(need) && cat === "dev_tooling") {
+  if (scored.score >= 78 && engagementHigh(need) && cat === "dev_tooling") {
     return FULFILL_MODES.micro_tool;
   }
   return FULFILL_MODES.guide;
@@ -172,6 +197,18 @@ function engagementHigh(need) {
 }
 
 export function estimateFulfillmentValue(need, mode, scored) {
+  const budget = Number(need.budgetEstimate || 0);
+  if (budget > 0 && (mode.id === "service" || mode.id === "matchmaker")) {
+    const rate = mode.id === "service" ? 0.55 : 0.12;
+    const closeProb = mode.id === "service" ? 0.22 : 0.35;
+    return {
+      expected: Math.round(budget * rate * closeProb * (0.8 + scored.score / 200)),
+      currency: "RUB",
+      unit: mode.name,
+      closeProb,
+    };
+  }
+
   const mult = 0.7 + scored.score / 100;
   const eng = 1 + Math.min(1.5, Math.log10(Number(need.engagement || 1) + 1) / 2);
   const expected = Math.round(mode.baseValue * mult * eng);

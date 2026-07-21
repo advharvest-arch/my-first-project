@@ -1,13 +1,15 @@
 {
   "name": "advharvest-autopilot",
-  "version": "1.0.0",
-  "description": "Автоматическая система заработка: лидогенерация и монетизация в нише строительства/проектирования",
+  "version": "1.1.0",
+  "description": "Система поиска насущных потребностей в интернете и их удовлетворения",
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
     "demo": "node src/cli-demo.js",
     "cycle": "node src/run-cycle.js",
-    "scout": "node src/run-cycle.js --force"
+    "scout": "node src/run-cycle.js --force",
+    "autopilot": "node src/autopilot.js",
+    "autopilot:once": "node src/autopilot.js --once"
   },
   "engines": {
     "node": ">=18"

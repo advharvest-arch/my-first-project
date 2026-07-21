@@ -9,10 +9,6 @@ const modeNames = {
   micro_tool: "Микро-инструмент",
   service: "Услуга под ключ",
   matchmaker: "Подбор исполнителя",
-  lead_sale: "Продажа лида",
-  rev_share: "Комиссия",
-  own_service: "Своя услуга",
-  content_ads: "Контент / CPA",
 };
 
 async function api(path, options = {}) {
@@ -30,9 +26,9 @@ function el(tag, attrs = {}, children = []) {
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "className") node.className = v;
     else if (k === "text") node.textContent = v;
-    else if (k === "html") node.innerHTML = v;
     else if (k.startsWith("on") && typeof v === "function")
       node.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (v === false || v == null) continue;
     else node.setAttribute(k, v);
   }
   for (const child of children) {
@@ -45,21 +41,13 @@ function el(tag, attrs = {}, children = []) {
 function renderFulfillments(items) {
   const root = document.getElementById("offers");
   root.innerHTML = "";
-
   if (!items.length) {
-    root.append(
-      el("p", {
-        className: "empty",
-        text: "Пока пусто. Нажмите «Найти потребности» — система сходит в интернет.",
-      })
-    );
+    root.append(el("p", { className: "empty", text: "Пока пусто. Запустите цикл." }));
     return;
   }
 
   for (const item of items) {
     const actions = el("div", { className: "offer-actions" });
-    const id = item.id;
-
     if (item.status === "ready") {
       actions.append(
         el("button", {
@@ -67,13 +55,12 @@ function renderFulfillments(items) {
           text: "Approve",
           type: "button",
           onClick: async () => {
-            await api(`/api/offers/${encodeURIComponent(id)}/approve`, { method: "POST" });
+            await api(`/api/offers/${encodeURIComponent(item.id)}/approve`, { method: "POST" });
             await refresh();
           },
         })
       );
     }
-
     if (item.status === "approved") {
       actions.append(
         el("button", {
@@ -81,7 +68,7 @@ function renderFulfillments(items) {
           text: "Fulfill",
           type: "button",
           onClick: async () => {
-            await api(`/api/offers/${encodeURIComponent(id)}/realize`, {
+            await api(`/api/offers/${encodeURIComponent(item.id)}/realize`, {
               method: "POST",
               body: JSON.stringify({}),
             });
@@ -91,8 +78,6 @@ function renderFulfillments(items) {
       );
     }
 
-    const steps = (item.steps || []).map((s) => el("li", { text: s }));
-
     root.append(
       el("article", { className: "offer" }, [
         el("div", {}, [
@@ -101,21 +86,32 @@ function renderFulfillments(items) {
             className: "offer-meta",
             text: `${modeNames[item.modeId] || item.modeId} · ${item.category?.label || ""} · score ${item.score} · ${item.sourceLabel || ""}`,
           }),
-          el("p", { className: "offer-pitch", text: item.needSummary || item.replyDraft }),
+          el("p", { className: "offer-pitch", text: item.needSummary || "" }),
           item.replyDraft
-            ? el("p", {
-                className: "offer-draft",
-                text: `Черновик ответа: ${item.replyDraft}`,
+            ? el("p", { className: "offer-draft", text: `Черновик: ${item.replyDraft}` })
+            : null,
+          item.steps?.length
+            ? el(
+                "ol",
+                { className: "offer-steps" },
+                item.steps.map((s) => el("li", { text: s }))
+              )
+            : null,
+          item.solutionFile
+            ? el("button", {
+                className: "offer-link btn-link",
+                type: "button",
+                text: `Solution: ${item.solutionFile}`,
+                onClick: () => openSolution(item.solutionFile),
               })
             : null,
-          steps.length ? el("ol", { className: "offer-steps" }, steps) : null,
           item.sourceUrl
             ? el("a", {
                 className: "offer-link",
                 href: item.sourceUrl,
                 target: "_blank",
                 rel: "noopener noreferrer",
-                text: "Открыть источник",
+                text: "Источник",
               })
             : null,
         ]),
@@ -139,45 +135,93 @@ function renderNeeds(needs) {
   const root = document.getElementById("needs-list");
   root.innerHTML = "";
   if (!needs.length) {
-    root.append(el("p", { className: "empty", text: "Ещё нет сохранённых потребностей" }));
+    root.append(el("p", { className: "empty", text: "Ещё нет потребностей" }));
     return;
   }
-  for (const n of needs.slice(0, 20)) {
+  for (const n of needs.slice(0, 30)) {
     root.append(
-      el("a", {
-        className: "need-row",
-        href: n.url || "#",
-        target: "_blank",
-        rel: "noopener noreferrer",
+      el(
+        "a",
+        {
+          className: "need-row",
+          href: n.url || "#",
+          target: "_blank",
+          rel: "noopener noreferrer",
+        },
+        [
+          el("span", { className: "need-src", text: n.sourceLabel || n.sourceId }),
+          el("span", { className: "need-title", text: n.title }),
+          el("span", {
+            className: "need-eng",
+            text: n.budgetEstimate
+              ? money.format(n.budgetEstimate)
+              : `♥ ${Math.round(n.engagement || 0)}`,
+          }),
+        ]
+      )
+    );
+  }
+}
+
+function renderSolutions(solutions) {
+  const root = document.getElementById("solutions-list");
+  root.innerHTML = "";
+  if (!solutions?.length) {
+    root.append(el("p", { className: "empty", text: "Пакетов пока нет" }));
+    return;
+  }
+  for (const s of solutions.slice(0, 20)) {
+    root.append(
+      el("button", {
+        className: "solution-row",
+        type: "button",
+        onClick: () => openSolution(s.file),
       }, [
-        el("span", { className: "need-src", text: n.sourceLabel || n.sourceId }),
-        el("span", { className: "need-title", text: n.title }),
-        el("span", {
-          className: "need-eng",
-          text: `♥ ${Math.round(n.engagement || 0)}`,
-        }),
+        el("span", { className: "need-src", text: s.mode }),
+        el("span", { className: "need-title", text: s.title }),
+        el("span", { className: "need-eng", text: s.status }),
       ])
     );
+  }
+}
+
+async function openSolution(file) {
+  const preview = document.getElementById("solution-preview");
+  preview.hidden = false;
+  preview.textContent = "Загрузка…";
+  try {
+    const data = await api(`/api/solutions/${encodeURIComponent(file)}`);
+    preview.textContent = data.content;
+    preview.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (err) {
+    preview.textContent = err.message;
+  }
+}
+
+function renderSources(bySource = {}) {
+  const root = document.getElementById("sources-breakdown");
+  root.innerHTML = "";
+  const entries = Object.entries(bySource);
+  if (!entries.length) {
+    root.append(el("span", { className: "source-chip", text: "источники появятся после скана" }));
+    return;
+  }
+  for (const [k, v] of entries) {
+    root.append(el("span", { className: "source-chip", text: `${k}: ${v}` }));
   }
 }
 
 function renderLedger(ledger) {
   const body = document.getElementById("ledger-body");
   body.innerHTML = "";
-
   if (!ledger.length) {
-    body.append(
-      el("tr", {}, [el("td", { colSpan: "5", className: "empty", text: "Записей пока нет" })])
-    );
+    body.append(el("tr", {}, [el("td", { colSpan: "5", className: "empty", text: "Пусто" })]));
     return;
   }
-
   for (const row of ledger.slice(0, 30)) {
     body.append(
       el("tr", {}, [
-        el("td", {
-          text: row.type === "realized" ? "реализовано" : "ожидаемо",
-        }),
+        el("td", { text: row.type === "realized" ? "реализовано" : "ожидаемо" }),
         el("td", { text: modeNames[row.channelId] || row.channelId }),
         el("td", { className: "mono", text: money.format(row.amount) }),
         el("td", {
@@ -199,27 +243,26 @@ async function refresh() {
   const data = await api("/api/dashboard");
   document.getElementById("stat-needs").textContent = String(data.stats.needsSeen || 0);
   document.getElementById("stat-ready").textContent = String(data.stats.fulfillmentsReady || 0);
-  document.getElementById("stat-fulfilled").textContent = String(data.stats.needsFulfilled || 0);
+  document.getElementById("stat-packs").textContent = String(
+    data.stats.solutionPacks || data.solutions?.length || 0
+  );
   document.getElementById("stat-expected").textContent = money.format(
     data.stats.expectedRevenueTotal || 0
   );
 
   const cacheHint = data.cacheMeta?.fetchedAt
-    ? `последний скаут: ${new Date(data.cacheMeta.fetchedAt).toLocaleString("ru-RU")}`
-    : "сканирование ещё не запускалось";
+    ? `скаут: ${new Date(data.cacheMeta.fetchedAt).toLocaleString("ru-RU")}`
+    : "ещё не сканировали";
 
   document.getElementById("pipeline-meta").textContent =
-    data.fulfillments.length > 0
-      ? `${data.fulfillments.length} планов · ${cacheHint}`
-      : `Нажмите «Найти потребности» · ${cacheHint}`;
-
+    `${data.fulfillments.length} планов · ${cacheHint}`;
   document.getElementById("needs-meta").textContent =
-    data.needs.length > 0
-      ? `${data.needs.length} из сети · ${data.niche}`
-      : "Появятся после сканирования";
+    data.needs.length > 0 ? `${data.needs.length} из сети · ${data.niche}` : "Ждём скан";
 
+  renderSources(data.cacheMeta?.bySource);
   renderFulfillments(data.fulfillments);
   renderNeeds(data.needs);
+  renderSolutions(data.solutions);
   renderLedger(data.ledger);
 }
 
@@ -227,22 +270,20 @@ async function runCycle() {
   const buttons = [document.getElementById("btn-cycle"), document.getElementById("btn-cycle-hero")];
   for (const b of buttons) {
     b.disabled = true;
-    b.textContent = "Сканируем…";
+    b.textContent = "Работаем…";
   }
   try {
     const report = await api("/api/cycle?force=1", { method: "POST" });
-    const err = report.scout?.errors?.length
-      ? ` (часть источников: ${report.scout.errors.map((e) => e.source).join(", ")})`
-      : "";
     document.getElementById("pipeline-meta").textContent =
-      `Найдено в сети: ${report.scout?.count ?? 0} · планов: ${report.planned}${err}`;
+      `Сеть: ${report.scout?.count ?? 0} · планов +${report.planned} · ${report.expectedThisCycleLabel}`;
+    renderSources(report.scout?.bySource);
     await refresh();
   } catch (err) {
     alert(err.message);
   } finally {
     for (const b of buttons) {
       b.disabled = false;
-      b.textContent = b.id === "btn-cycle-hero" ? "Сканировать интернет" : "Найти потребности";
+      b.textContent = b.id === "btn-cycle-hero" ? "Запустить сейчас" : "Сканировать + цикл";
     }
   }
 }
@@ -252,11 +293,11 @@ document.getElementById("btn-cycle-hero").addEventListener("click", runCycle);
 document.getElementById("btn-reset").addEventListener("click", async () => {
   if (!confirm("Сбросить состояние?")) return;
   await api("/api/reset", { method: "POST" });
+  document.getElementById("solution-preview").hidden = true;
   await refresh();
 });
 
 refresh().catch((err) => {
-  console.error(err);
   document.getElementById("offers").innerHTML =
-    `<p class="empty">Не удалось загрузить данные: ${err.message}</p>`;
+    `<p class="empty">Ошибка: ${err.message}</p>`;
 });

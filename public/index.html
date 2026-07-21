@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AdvHarvest — потребности → решения</title>
+  <title>AdvHarvest — система</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -17,33 +17,33 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <p class="brand-name">AdvHarvest</p>
-        <p class="brand-sub">Needs → Fulfill</p>
+        <p class="brand-sub">Operating System</p>
       </div>
     </div>
     <nav class="actions">
-      <button type="button" id="btn-cycle" class="btn btn-primary">Найти потребности</button>
+      <button type="button" id="btn-cycle" class="btn btn-primary">Сканировать + цикл</button>
       <button type="button" id="btn-reset" class="btn btn-ghost">Сброс</button>
     </nav>
   </header>
 
   <main>
     <section class="hero">
-      <p class="hero-kicker">Интернет · насущные нужды · полезные решения</p>
-      <h1 class="hero-title">Слушаем боль.<br />Закрываем потребность.</h1>
+      <p class="hero-kicker">Рабочая система · FL.ru · HN · Stack Overflow · GitHub</p>
+      <h1 class="hero-title">Находим нужды.<br />Готовим решения.</h1>
       <p class="hero-lead">
-        Система сканирует открытые источники (Hacker News, Stack Overflow, GitHub),
-        находит, что людям реально нужно прямо сейчас, и готовит план удовлетворения —
-        гайд, микро-инструмент, услугу или подбор исполнителя.
+        Автопилот сканирует открытый интернет, отбирает насущные потребности,
+        пишет план и сохраняет solution-пакет в <code>workspace/solutions</code>.
+        Вы подтверждаете — и закрываете боль человека.
       </p>
       <div class="hero-cta">
-        <button type="button" id="btn-cycle-hero" class="btn btn-primary">Сканировать интернет</button>
-        <a class="btn btn-ghost" href="#needs">К потребностям</a>
+        <button type="button" id="btn-cycle-hero" class="btn btn-primary">Запустить сейчас</button>
+        <a class="btn btn-ghost" href="#plans">К планам</a>
       </div>
     </section>
 
     <section class="meters" aria-label="Показатели">
       <div class="meter">
-        <p class="meter-label">Найдено нужд</p>
+        <p class="meter-label">Потребности</p>
         <p class="meter-value" id="stat-needs">0</p>
       </div>
       <div class="meter">
@@ -51,55 +51,69 @@
         <p class="meter-value" id="stat-ready">0</p>
       </div>
       <div class="meter">
-        <p class="meter-label">Удовлетворено</p>
-        <p class="meter-value accent" id="stat-fulfilled">0</p>
+        <p class="meter-label">Solution packs</p>
+        <p class="meter-value" id="stat-packs">0</p>
       </div>
       <div class="meter">
         <p class="meter-label">Ожидаемая ценность</p>
-        <p class="meter-value" id="stat-expected">—</p>
+        <p class="meter-value accent" id="stat-expected">—</p>
       </div>
     </section>
 
+    <section class="sources-bar" aria-label="Источники">
+      <h2 class="visually-hidden">Источники</h2>
+      <div id="sources-breakdown" class="sources-breakdown"></div>
+    </section>
+
     <section class="loop" aria-label="Цикл">
-      <h2>Как это работает</h2>
+      <h2>Контур системы</h2>
       <ol class="loop-steps">
         <li>
           <span class="step-num">01</span>
-          <strong>Discover</strong>
-          <span>Ищем живые просьбы о помощи в открытом интернете</span>
+          <strong>Scout</strong>
+          <span>FL.ru, HN Ask, SO/SO RU, GitHub, Lobsters</span>
         </li>
         <li>
           <span class="step-num">02</span>
           <strong>Score</strong>
-          <span>Оцениваем срочность, ясность и вовлечённость</span>
+          <span>Срочность, бюджет, свежесть, категория</span>
         </li>
         <li>
           <span class="step-num">03</span>
-          <strong>Fulfill</strong>
-          <span>Готовим способ закрыть боль + черновик ответа</span>
+          <strong>Solution</strong>
+          <span>План + markdown-пакет в workspace</span>
         </li>
         <li>
           <span class="step-num">04</span>
-          <strong>Earn</strong>
-          <span>Деньги — следствие полезного решения, не цель ради цели</span>
+          <strong>Fulfill</strong>
+          <span>Approve → выполнить → зафиксировать</span>
         </li>
       </ol>
     </section>
 
-    <section id="needs" class="pipeline">
+    <section id="plans" class="pipeline">
       <div class="section-head">
         <h2>Планы удовлетворения</h2>
-        <p id="pipeline-meta">Нажмите «Найти потребности», чтобы сканировать сеть</p>
+        <p id="pipeline-meta">Запустите цикл</p>
       </div>
       <div id="offers" class="offers"></div>
     </section>
 
     <section class="needs-feed">
       <div class="section-head">
-        <h2>Свежие потребности</h2>
+        <h2>Потребности из сети</h2>
         <p id="needs-meta">Появятся после сканирования</p>
       </div>
       <div id="needs-list" class="needs-list"></div>
+    </section>
+
+    <section class="solutions-section">
+      <div class="section-head">
+        <h2>Solution packs</h2>
+        <p>Файлы в workspace/solutions</p>
+      </div>
+      <div id="solutions-list" class="solutions-list"></div>
+      <pre id="solution-preview" class="solution-preview" hidden></pre>
     </section>
 
     <section class="ledger-section">
@@ -125,7 +139,7 @@
   </main>
 
   <footer class="foot">
-    <p>AdvHarvest · сначала польза человеку · источники: HN, Stack Overflow, GitHub</p>
+    <p>AdvHarvest OS · <code>npm run autopilot</code> для фонового цикла · сначала польза</p>
   </footer>
 
   <script src="/app.js" type="module"></script>
