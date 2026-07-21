@@ -22,11 +22,13 @@ class Settings(BaseSettings):
     port: int = 8000
     database_url: str = f"sqlite:///{DATA_DIR / 'opportunities.db'}"
 
-    # Fleet scaling
+    # Fleet scaling — solutions over games
     fleet_target_size: int = 50
     fleet_min_score: int = 55
     fleet_rub_per_day_target: float = 100.0
     fleet_auto_scale: bool = True
+    fleet_allow_games: bool = False
+    fleet_require_pain: bool = True
     ad_slot_yandex: str = ""
     ad_slot_adsense: str = ""
     affiliate_base_url: str = ""

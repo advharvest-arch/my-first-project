@@ -12,19 +12,24 @@ SUBREDDITS = [
     "Entrepreneur",
     "SaaS",
     "smallbusiness",
-    "sidehustle",
-    "passive_income",
     "startups",
-    "digitalnomad",
     "freelance",
+    "productivity",
+    "personalfinance",
+    "LifeProTips",
+    "sysadmin",
+    "excel",
+    "Notion",
+    "learnprogramming",
     "webdev",
     "marketing",
+    "AskProgramming",
 ]
 
 
 async def _fetch_rss(client: httpx.AsyncClient, subreddit: str, limit: int) -> list[RawSignal]:
     signals: list[RawSignal] = []
-    url = f"https://www.reddit.com/r/{subreddit}/hot.rss?limit={limit}"
+    url = f"https://www.reddit.com/r/{subreddit}/new.rss?limit={limit}"
     try:
         response = await client.get(url, headers=HEADERS, follow_redirects=True)
         response.raise_for_status()

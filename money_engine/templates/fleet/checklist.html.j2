@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ spec.name }} — пошаговый план</title>
+  <meta name="description" content="Пошаговое решение: {{ pain_point }}">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .wrap { max-width: 640px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .back { display: inline-block; margin-bottom: 1rem; color: #94a3b8; text-decoration: none; font-size: 0.9rem; }
+    .ad { min-height: 90px; margin: 1rem 0; }
+    h1 { font-size: 1.35rem; margin-bottom: 0.5rem; }
+    .sub { color: #94a3b8; margin-bottom: 1.5rem; }
+    .steps { list-style: none; }
+    .step { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1rem 1rem 1rem 3rem; margin-bottom: 0.75rem; position: relative; cursor: pointer; transition: border-color 0.2s; }
+    .step:hover { border-color: {{ theme }}; }
+    .step.done { opacity: 0.6; text-decoration: line-through; }
+    .step::before { content: attr(data-num); position: absolute; left: 1rem; top: 1rem; width: 1.5rem; height: 1.5rem; background: {{ theme }}; color: #000; border-radius: 50%; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+    .progress { background: #1e293b; border-radius: 8px; height: 8px; margin: 1rem 0 1.5rem; overflow: hidden; }
+    .progress-bar { background: {{ theme }}; height: 100%; width: 0%; transition: width 0.3s; }
+    .note { background: #1e293b; border: 1px dashed #334155; border-radius: 10px; padding: 1rem; color: #94a3b8; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a href="../../" class="back">← Все решения</a>
+    <div class="ad">{{ ad_snippet | safe }}</div>
+
+    <h1>📋 {{ spec.name }}</h1>
+    <p class="sub">{{ tagline }}</p>
+
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <ul class="steps" id="steps">
+      {% for item in checklist_items %}
+      <li class="step" data-num="{{ loop.index }}" onclick="toggleStep(this)">{{ item }}</li>
+      {% endfor %}
+    </ul>
+
+    <div class="note" style="margin-top:1.5rem">
+      <strong>Задача:</strong> {{ pain_point }}
+    </div>
+
+    <div class="ad" style="margin-top:1.5rem">{{ ad_snippet | safe }}</div>
+  </div>
+
+  <script>
+    function toggleStep(el) {
+      el.classList.toggle("done");
+      const total = document.querySelectorAll(".step").length;
+      const done = document.querySelectorAll(".step.done").length;
+      document.getElementById("progressBar").style.width = (done / total * 100) + "%";
+    }
+  </script>
+  {{ launch_button | safe }}
+</body>
+</html>

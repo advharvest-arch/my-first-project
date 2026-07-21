@@ -69,16 +69,32 @@ def _count_patterns(text: str, patterns: list[str]) -> int:
 
 def _extract_niche(title: str, text: str) -> str:
     combined = _normalize(f"{title} {text}")
+
+    how_match = re.search(r"how (?:to|do i|can i)\s+([a-z][a-z\s]{3,40})", combined, re.I)
+    if how_match:
+        return how_match.group(1).strip()[:60]
+
+    ask_match = re.search(r"(?:ask hn|show hn):\s*(.+)", combined, re.I)
+    if ask_match:
+        return ask_match.group(1).strip()[:60]
+
+    quoted = re.findall(r'"([^"]{4,50})"', combined)
+    if quoted:
+        return quoted[0][:60]
+
     words = re.findall(r"[a-z]{4,}", combined)
     stop = {
         "that", "this", "with", "from", "have", "what", "when", "your", "about",
         "would", "could", "should", "there", "their", "they", "them", "been",
         "just", "like", "some", "into", "more", "than", "also", "need", "want",
+        "year", "after", "before", "being", "first", "still", "over", "under",
     }
     filtered = [w for w in words if w not in stop]
-    if not filtered:
-        return "general online business"
-    return " ".join(filtered[:3])
+    if len(filtered) >= 2:
+        return " ".join(filtered[:4])
+    if filtered:
+        return filtered[0]
+    return "general problem"
 
 
 def _detect_monetization(text: str) -> tuple[str, float]:
@@ -152,10 +168,16 @@ def score_raw_signal(signal: RawSignal, trend_boost: dict[str, int]) -> ScoredOp
     if pain_hits == 0 and money_hits == 0 and signal.engagement < 20:
         return None
 
+    # Skip pure news headlines without user need signals
+    if pain_hits == 0 and money_hits == 0 and not re.search(
+        r"\b(tool|app|template|generator|calculator|how to|alternative)\b", combined, re.I
+    ):
+        return None
+
     niche = _extract_niche(signal.title, signal.text)
     niche_key = niche.replace(" ", "")
 
-    demand = min(100.0, 35.0 + pain_hits * 14 + min(signal.engagement, 300) / 3)
+    demand = min(100.0, 35.0 + pain_hits * 18 + min(signal.engagement, 300) / 3)
     demand += trend_boost.get(niche_key, 0) * 0.35
     demand = min(100.0, demand)
 
@@ -186,7 +208,18 @@ def score_raw_signal(signal: RawSignal, trend_boost: dict[str, int]) -> ScoredOp
     )
 
 
-def score_trend_signal(trend: TrendSignal) -> ScoredOpportunity:
+def score_trend_signal(trend: TrendSignal) -> ScoredOpportunity | None:
+    keyword = trend.keyword.lower()
+    if not any(
+        token in keyword
+        for token in (
+            "how", "tool", "app", "template", "generator", "calculator",
+            "converter", "builder", "planner", "tracker", "resume", "invoice",
+            "budget", "tax", "meal", "password",
+        )
+    ):
+        return None
+
     demand = min(100.0, 40.0 + trend.interest * 0.6 + (15 if trend.rising else 0))
     competition = 55.0 if trend.rising else 45.0
     monetization_type = MonetizationType.CONTENT_SEO.value
@@ -227,6 +260,8 @@ def analyze_signals(
 
     for trend in trend_signals[:15]:
         scored = score_trend_signal(trend)
+        if not scored:
+            continue
         key = scored.title.lower()
         if key not in seen_titles:
             seen_titles.add(key)

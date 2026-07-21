@@ -8,22 +8,26 @@ from src.models import FleetProject, SessionLocal
 SITE_DIR = OUTPUT_DIR / "site"
 
 TYPE_LABELS = {
+    "solution": "Решение",
+    "checklist": "План",
+    "micro_tool": "Инструмент",
+    "affiliate": "Подборка",
     "ad_game": "Игра",
     "reward_game": "Игра",
-    "micro_tool": "Утилита",
-    "affiliate": "Подборка",
 }
 
 TYPE_SUBTITLE = {
+    "solution": "Готовое решение под вашу задачу",
+    "checklist": "Пошаговый план действий",
+    "micro_tool": "Полезный онлайн-инструмент",
+    "affiliate": "Сравнение лучших вариантов",
     "ad_game": "Бесплатная игра в браузере",
     "reward_game": "Игра на память",
-    "micro_tool": "Полезный онлайн-инструмент",
-    "affiliate": "Лучшие предложения",
 }
 
 
 def generate_hub(static: bool = False) -> str:
-    """Generate public-facing hub — no owner/money info."""
+    """Generate public-facing hub — solutions for real user needs."""
     SITE_DIR.mkdir(parents=True, exist_ok=True)
     session = SessionLocal()
     try:
@@ -41,11 +45,16 @@ def generate_hub(static: bool = False) -> str:
     cards = []
     for p in projects:
         link = f"{base}/p/{p.slug}/" if not static else f"./p/{p.slug}/"
-        icon = {"ad_game": "🎮", "reward_game": "🎯", "micro_tool": "🔧", "affiliate": "⭐"}.get(
-            p.project_type, "🎮"
-        )
-        label = TYPE_LABELS.get(p.project_type, "Игра")
-        subtitle = TYPE_SUBTITLE.get(p.project_type, "Бесплатно")
+        icon = {
+            "solution": "✅",
+            "checklist": "📋",
+            "micro_tool": "🔧",
+            "affiliate": "⭐",
+            "ad_game": "🎮",
+            "reward_game": "🎯",
+        }.get(p.project_type, "✅")
+        label = TYPE_LABELS.get(p.project_type, "Решение")
+        subtitle = TYPE_SUBTITLE.get(p.project_type, "Полезное решение")
         cards.append(f"""
         <a href="{link}" class="card">
           <div class="card-icon">{icon}</div>
@@ -59,15 +68,15 @@ def generate_hub(static: bool = False) -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PlayBox — бесплатные онлайн-игры и утилиты</title>
-  <meta name="description" content="PlayBox — бесплатные мини-игры и онлайн-утилиты. Играй в браузере без регистрации.">
+  <title>SolveBox — решения для ваших задач</title>
+  <meta name="description" content="SolveBox — бесплатные онлайн-инструменты и пошаговые решения под реальные запросы людей.">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: system-ui, sans-serif; background: #0b1120; color: #e2e8f0; }}
     .hero {{ text-align: center; padding: 3rem 1.5rem 2rem; background: linear-gradient(180deg, #1e293b, #0b1120); }}
     .hero h1 {{ font-size: 2rem; font-weight: 900; }}
     .hero h1 span {{ color: #22c55e; }}
-    .hero p {{ color: #94a3b8; margin-top: 0.5rem; }}
+    .hero p {{ color: #94a3b8; margin-top: 0.5rem; max-width: 520px; margin-left: auto; margin-right: auto; }}
     .metrics {{ display: flex; justify-content: center; gap: 2rem; margin-top: 1.5rem; flex-wrap: wrap; }}
     .metric {{ text-align: center; }}
     .metric .val {{ font-size: 1.8rem; font-weight: 800; color: #22c55e; }}
@@ -84,15 +93,15 @@ def generate_hub(static: bool = False) -> str:
 </head>
 <body>
   <div class="hero">
-    <h1>🎮 <span>Play</span>Box</h1>
-    <p>Бесплатные онлайн-игры и утилиты — играй прямо в браузере</p>
+    <h1>✅ <span>Solve</span>Box</h1>
+    <p>Отслеживаем реальные запросы людей и создаём инструменты, которые решают их задачи</p>
     <div class="metrics">
-      <div class="metric"><div class="val">{len(projects)}</div><div class="lbl">Игр и утилит</div></div>
+      <div class="metric"><div class="val">{len(projects)}</div><div class="lbl">Решений</div></div>
       <div class="metric"><div class="val">✓</div><div class="lbl">Без регистрации</div></div>
     </div>
   </div>
-  <div class="grid">{''.join(cards) if cards else '<p style="color:#64748b;text-align:center;grid-column:1/-1">Скоро появятся новые игры</p>'}</div>
-  <p class="footer">PlayBox — бесплатные онлайн-игры</p>
+  <div class="grid">{''.join(cards) if cards else '<p style="color:#64748b;text-align:center;grid-column:1/-1">Сканируем потребности — скоро появятся новые решения</p>'}</div>
+  <p class="footer">SolveBox — полезные решения онлайн</p>
 </body>
 </html>"""
 

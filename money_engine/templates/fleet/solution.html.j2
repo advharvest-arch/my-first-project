@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ spec.name }} — {{ tagline }}</title>
+  <meta name="description" content="{{ pain_point }} — бесплатное решение онлайн">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .back { display: inline-block; margin-bottom: 1rem; color: #94a3b8; text-decoration: none; font-size: 0.9rem; }
+    .back:hover { color: #e2e8f0; }
+    .ad { min-height: 90px; margin: 1rem 0; }
+    .hero { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #334155; border-radius: 14px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.35rem; line-height: 1.35; margin-bottom: 0.5rem; }
+    .sub { color: #94a3b8; font-size: 0.95rem; }
+    .panel { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+    .panel h2 { font-size: 1rem; margin-bottom: 1rem; color: #cbd5e1; }
+    label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.35rem; }
+    input, textarea, select { width: 100%; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 0.7rem; border-radius: 8px; font-size: 1rem; margin-bottom: 0.75rem; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .btn { background: {{ theme }}; color: #000; border: none; padding: 0.8rem 1.25rem; border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%; font-size: 1rem; }
+    .result { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 1rem; margin-top: 1rem; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; min-height: 80px; }
+    .hint { color: #64748b; font-size: 0.8rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a href="../../" class="back">← Все решения</a>
+    <div class="ad">{{ ad_snippet | safe }}</div>
+
+    <div class="hero">
+      <h1>✅ {{ spec.name }}</h1>
+      <p class="sub">{{ tagline }}</p>
+    </div>
+
+    <div class="panel" id="toolPanel">
+      <h2 id="toolTitle">Инструмент</h2>
+      <div id="toolBody"></div>
+      <button class="btn" onclick="runTool()">Получить результат</button>
+      <div class="result" id="result">Заполните поля и нажмите «Получить результат»</div>
+      <p class="hint">Решение создано на основе реальных запросов пользователей</p>
+    </div>
+
+    <div class="ad">{{ ad_snippet | safe }}</div>
+  </div>
+
+  <script>
+    const TOOL_MODE = "{{ tool_mode }}";
+    const PAIN = {{ pain_point | tojson }};
+
+    const TOOLS = {
+      invoice: {
+        title: "Калькулятор счёта",
+        html: `
+          <label>Сумма без НДС</label><input type="number" id="amount" value="10000" min="0">
+          <label>НДС, %</label><input type="number" id="vat" value="20" min="0" max="100">
+          <label>Скидка, %</label><input type="number" id="discount" value="0" min="0" max="100">`,
+        run() {
+          const amount = +document.getElementById("amount").value || 0;
+          const vat = +document.getElementById("vat").value || 0;
+          const discount = +document.getElementById("discount").value || 0;
+          const discounted = amount * (1 - discount / 100);
+          const vatAmount = discounted * vat / 100;
+          const total = discounted + vatAmount;
+          return `Сумма: ${amount.toFixed(2)} ₽\nСкидка: ${discount}%\nНДС (${vat}%): ${vatAmount.toFixed(2)} ₽\nИтого к оплате: ${total.toFixed(2)} ₽`;
+        }
+      },
+      budget: {
+        title: "Планировщик бюджета",
+        html: `
+          <label>Доход в месяц</label><input type="number" id="income" value="80000">
+          <div class="row">
+            <div><label>Жильё, %</label><input type="number" id="housing" value="30"></div>
+            <div><label>Еда, %</label><input type="number" id="food" value="20"></div>
+          </div>
+          <div class="row">
+            <div><label>Транспорт, %</label><input type="number" id="transport" value="10"></div>
+            <div><label>Накопления, %</label><input type="number" id="savings" value="15"></div>
+          </div>`,
+        run() {
+          const income = +document.getElementById("income").value || 0;
+          const parts = [
+            ["Жильё", +document.getElementById("housing").value],
+            ["Еда", +document.getElementById("food").value],
+            ["Транспорт", +document.getElementById("transport").value],
+            ["Накопления", +document.getElementById("savings").value],
+          ];
+          let lines = [`Доход: ${income.toFixed(0)} ₽/мес\n`];
+          let used = 0;
+          for (const [name, pct] of parts) {
+            const val = income * pct / 100;
+            used += pct;
+            lines.push(`${name} (${pct}%): ${val.toFixed(0)} ₽`);
+          }
+          lines.push(`\nСвободно (${100 - used}%): ${(income * (100 - used) / 100).toFixed(0)} ₽`);
+          return lines.join("\n");
+        }
+      },
+      resume: {
+        title: "Конструктор резюме",
+        html: `
+          <label>Имя</label><input id="name" placeholder="Иван Иванов">
+          <label>Должность</label><input id="role" placeholder="Менеджер проектов">
+          <label>Ключевые навыки (через запятую)</label><input id="skills" placeholder="Python, управление, аналитика">
+          <label>Опыт (2-3 пункта)</label><textarea id="exp" rows="4" placeholder="2020–2024 — Компания X, результат..."></textarea>`,
+        run() {
+          const name = document.getElementById("name").value || "Кандидат";
+          const role = document.getElementById("role").value || "Специалист";
+          const skills = document.getElementById("skills").value || "—";
+          const exp = document.getElementById("exp").value || "Опыт будет добавлен";
+          return `${name}\n${role}\n\nНавыки: ${skills}\n\nОпыт:\n${exp}`;
+        }
+      },
+      password: {
+        title: "Генератор паролей",
+        html: `
+          <label>Длина</label><input type="number" id="len" value="16" min="8" max="64">
+          <label><input type="checkbox" id="symbols" checked> Спецсимволы</label>`,
+        run() {
+          const len = +document.getElementById("len").value || 16;
+          const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+          const sym = document.getElementById("symbols").checked ? "!@#$%^&*" : "";
+          const pool = chars + sym;
+          let pass = "";
+          for (let i = 0; i < len; i++) pass += pool[Math.floor(Math.random() * pool.length)];
+          return `Надёжный пароль:\n${pass}`;
+        }
+      },
+      json: {
+        title: "Форматтер JSON",
+        html: `<label>JSON</label><textarea id="json" rows="6" placeholder='{"key": "value"}'></textarea>`,
+        run() {
+          const raw = document.getElementById("json").value.trim();
+          if (!raw) return "Введите JSON";
+          try { return JSON.stringify(JSON.parse(raw), null, 2); }
+          catch (e) { return "Ошибка: " + e.message; }
+        }
+      },
+      convert: {
+        title: "Конвертер единиц",
+        html: `
+          <label>Значение</label><input type="number" id="val" value="100">
+          <label>Из</label><select id="from"><option value="km">км</option><option value="m">м</option><option value="kg">кг</option><option value="lb">фунты</option></select>
+          <label>В</label><select id="to"><option value="m">м</option><option value="km">км</option><option value="lb">фунты</option><option value="kg">кг</option></select>`,
+        run() {
+          const v = +document.getElementById("val").value || 0;
+          const from = document.getElementById("from").value;
+          const to = document.getElementById("to").value;
+          const map = { km: 1000, m: 1, kg: 1, lb: 0.453592 };
+          const base = v * (map[from] || 1);
+          const out = base / (map[to] || 1);
+          return `${v} ${from} = ${out.toFixed(4)} ${to}`;
+        }
+      },
+      meal: {
+        title: "Планировщик питания",
+        html: `
+          <label>Калорий в день</label><input type="number" id="cal" value="2000">
+          <label>Приёмов пищи</label><input type="number" id="meals" value="3" min="2" max="6">`,
+        run() {
+          const cal = +document.getElementById("cal").value || 2000;
+          const meals = +document.getElementById("meals").value || 3;
+          const per = Math.round(cal / meals);
+          let plan = `План на ${cal} ккал (${meals} приёма):\n`;
+          for (let i = 1; i <= meals; i++) plan += `Приём ${i}: ~${per} ккал\n`;
+          plan += "\nБелки ~25%, жиры ~30%, углеводы ~45%";
+          return plan;
+        }
+      },
+      tax: {
+        title: "Калькулятор налога",
+        html: `
+          <label>Доход</label><input type="number" id="income" value="100000">
+          <label>Ставка, %</label><input type="number" id="rate" value="13">`,
+        run() {
+          const income = +document.getElementById("income").value || 0;
+          const rate = +document.getElementById("rate").value || 13;
+          const tax = income * rate / 100;
+          return `Доход: ${income.toFixed(0)} ₽\nНалог (${rate}%): ${tax.toFixed(0)} ₽\nНа руки: ${(income - tax).toFixed(0)} ₽`;
+        }
+      },
+      quote: {
+        title: "Калькулятор сметы",
+        html: `
+          <label>Часов работы</label><input type="number" id="hours" value="10">
+          <label>Ставка ₽/час</label><input type="number" id="rate" value="2500">
+          <label>Материалы, ₽</label><input type="number" id="materials" value="0">`,
+        run() {
+          const h = +document.getElementById("hours").value || 0;
+          const r = +document.getElementById("rate").value || 0;
+          const m = +document.getElementById("materials").value || 0;
+          const labor = h * r;
+          return `Работа: ${labor.toFixed(0)} ₽\nМатериалы: ${m.toFixed(0)} ₽\nИтого: ${(labor + m).toFixed(0)} ₽`;
+        }
+      },
+      text: {
+        title: "Текстовый помощник",
+        html: `<label>Текст</label><textarea id="text" rows="6" placeholder="Вставьте текст..."></textarea>`,
+        run() {
+          const t = document.getElementById("text").value;
+          const words = t.trim().split(/\s+/).filter(Boolean).length;
+          return `Символов: ${t.length}\nСлов: ${words}\nСтрок: ${t.split("\n").length}`;
+        }
+      },
+      solver: {
+        title: "Помощник по задаче",
+        html: `
+          <label>Опишите задачу</label><textarea id="task" rows="4" placeholder="${PAIN.replace(/"/g, '')}"></textarea>
+          <label>Ограничения / вводные</label><textarea id="constraints" rows="3" placeholder="Бюджет, сроки, инструменты..."></textarea>`,
+        run() {
+          const task = document.getElementById("task").value || PAIN;
+          const constraints = document.getElementById("constraints").value || "не указаны";
+          return `Задача:\n${task}\n\nВводные:\n${constraints}\n\nРекомендации:\n1. Разбейте задачу на 3–5 шагов\n2. Начните с самого простого шага\n3. Зафиксируйте результат и скорректируйте план`;
+        }
+      }
+    };
+
+    const tool = TOOLS[TOOL_MODE] || TOOLS.solver;
+    document.getElementById("toolTitle").textContent = tool.title;
+    document.getElementById("toolBody").innerHTML = tool.html;
+
+    function runTool() {
+      document.getElementById("result").textContent = tool.run();
+    }
+  </script>
+  {{ launch_button | safe }}
+</body>
+</html>

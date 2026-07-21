@@ -3,26 +3,26 @@ from pytrends.request import TrendReq
 from src.collectors.base import TrendSignal
 
 SEED_KEYWORDS = [
-    "ai automation",
-    "side hustle",
-    "passive income",
-    "micro saas",
-    "freelance tools",
-    "notion templates",
-    "excel automation",
-    "chatgpt business",
-    "no code",
-    "remote work tools",
-    "budget app",
-    "productivity app",
     "invoice generator",
     "resume builder",
-    "meal prep",
-    "home workout",
-    "pet care",
-    "language learning",
-    "crypto tax",
-    "small business software",
+    "budget calculator",
+    "meal planner",
+    "password generator",
+    "json formatter",
+    "tax calculator",
+    "unit converter",
+    "project management tool",
+    "time tracker app",
+    "expense tracker",
+    "habit tracker",
+    "todo list app",
+    "pdf converter",
+    "image compressor",
+    "qr code generator",
+    "mortgage calculator",
+    "calorie calculator",
+    "pomodoro timer",
+    "note taking app",
 ]
 
 
@@ -54,7 +54,6 @@ def fetch_trend_signals() -> list[TrendSignal]:
     except Exception:
         pass
 
-    # Fallback: use seed keywords as baseline demand signals
     if not signals:
         for keyword in SEED_KEYWORDS:
             signals.append(

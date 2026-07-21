@@ -44,9 +44,11 @@ class Opportunity(Base):
 
 
 class ProjectType(str, Enum):
-    AD_GAME = "ad_game"
+    SOLUTION = "solution"
+    CHECKLIST = "checklist"
     MICRO_TOOL = "micro_tool"
     AFFILIATE = "affiliate"
+    AD_GAME = "ad_game"
     REWARD_GAME = "reward_game"
 
 

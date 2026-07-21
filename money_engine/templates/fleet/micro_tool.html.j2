@@ -24,10 +24,10 @@
 </head>
 <body>
   <div class="wrap">
-    <a href="../../" class="back">← Все игры</a>
+    <a href="../../" class="back">← Все решения</a>
     <div class="ad">{{ ad_snippet | safe }}</div>
     <h1>🔧 {{ spec.name }}</h1>
-    <p class="sub">Бесплатный онлайн-инструмент</p>
+    <p class="sub">{{ spec.tagline or "Бесплатный онлайн-инструмент" }}</p>
 
     <div class="tools">
       <button class="tool-btn active" onclick="setTool('text')">Анализ текста</button>
