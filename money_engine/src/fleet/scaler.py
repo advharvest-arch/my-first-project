@@ -17,6 +17,32 @@ def _unique_slug(base: str, session) -> str:
     return candidate
 
 
+def redeploy_fleet() -> dict:
+    """Rebuild all active project pages with current settings (e.g. new ad IDs)."""
+    init_db()
+    session = SessionLocal()
+    updated = 0
+    try:
+        for project in session.query(FleetProject).filter(FleetProject.status == "active").all():
+            spec = FleetDeploySpec(
+                slug=project.slug,
+                name=project.name,
+                niche=project.niche,
+                project_type=project.project_type,
+                opportunity_score=project.opportunity_score,
+                theme_color=theme_color_for(project.slug),
+            )
+            deploy_path, public_url, estimated = deploy_project(spec)
+            project.deploy_path = deploy_path
+            project.public_url = public_url
+            project.estimated_rub_per_day = estimated
+            updated += 1
+        session.commit()
+    finally:
+        session.close()
+    return {"updated": updated}
+
+
 def scale_fleet(target_size: int | None = None) -> dict:
     """Auto-deploy micro-projects from top opportunities until fleet reaches target."""
     init_db()

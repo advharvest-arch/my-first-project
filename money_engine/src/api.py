@@ -19,8 +19,12 @@ init_db()
 @app.on_event("startup")
 async def startup() -> None:
     from src.scheduler import start_scheduler
+    from src.settings_store import get_ad_settings
+    from src.fleet.scaler import redeploy_fleet
 
     start_scheduler()
+    if get_ad_settings()["configured"]:
+        redeploy_fleet()
 
 
 @app.get("/api/health")
@@ -96,6 +100,22 @@ async def stats():
 class TrackPayload(BaseModel):
     slug: str
     event: str = "view"
+
+
+class AdSettingsPayload(BaseModel):
+    ad_id: str
+
+
+@app.get("/api/settings/ads")
+async def get_ads_settings():
+    from src.settings_store import get_ad_settings
+    return get_ad_settings()
+
+
+@app.post("/api/settings/ads")
+async def save_ads_settings(payload: AdSettingsPayload):
+    from src.settings_store import save_ad_id
+    return save_ad_id(payload.ad_id)
 
 
 @app.post("/api/fleet/track")
@@ -360,11 +380,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 @app.get("/api/launch")
 async def launch_status():
+    from src.settings_store import get_ad_settings
+
     stats = fleet_stats()
+    ads = get_ad_settings()
     return {
         "ready": stats.get("active_projects", 0) > 0,
         "active_projects": stats.get("active_projects", 0),
         "projected_rub_per_day": stats.get("projected_rub_per_day", 0),
+        "ads_configured": ads["configured"],
     }
 
 
@@ -428,6 +452,17 @@ LAUNCH_HTML = """<!DOCTYPE html>
     .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #334155;
       border-top-color: #22c55e; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .ads-box { display: none; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #334155; text-align: left; }
+    .ads-box.show { display: block; }
+    .ads-box h3 { font-size: 0.95rem; margin-bottom: 0.5rem; color: #f8fafc; }
+    .ads-box p { font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.75rem; line-height: 1.4; }
+    .ads-box a { color: #60a5fa; }
+    .ads-input { width: 100%; background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+      padding: 0.75rem; border-radius: 8px; font-size: 0.95rem; margin-bottom: 0.75rem; }
+    .save-btn { width: 100%; background: #3b82f6; color: #fff; border: none; padding: 0.75rem;
+      border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.95rem; }
+    .save-btn:hover { background: #2563eb; }
+    .ads-ok { color: #22c55e; font-size: 0.85rem; margin-top: 0.5rem; display: none; }
   </style>
 </head>
 <body>
@@ -451,6 +486,16 @@ LAUNCH_HTML = """<!DOCTYPE html>
       <a href="/dashboard" class="link-btn">📊 Дашборд</a>
       <a href="/hub/" class="link-btn">🎮 Витрина</a>
     </div>
+
+    <div class="ads-box" id="adsBox">
+      <h3>💳 Шаг 2: Подключить рекламу</h3>
+      <p>1. <a href="https://partner.yandex.ru/v2/welcome/" target="_blank">Зарегистрируйтесь в Яндекс РСЯ</a> (бесплатно)<br>
+         2. Создайте рекламный блок → скопируйте ID (вида <code>R-A-123456-1</code>)<br>
+         3. Вставьте сюда и нажмите «Сохранить» — всё остальное сделаем сами</p>
+      <input class="ads-input" id="adId" placeholder="R-A-1234567-1" />
+      <button class="save-btn" id="saveBtn" onclick="saveAds()">Сохранить рекламу</button>
+      <div class="ads-ok" id="adsOk">✅ Реклама подключена во все проекты!</div>
+    </div>
   </div>
   <script>
     async function checkStatus() {
@@ -462,10 +507,39 @@ LAUNCH_HTML = """<!DOCTYPE html>
           document.getElementById('projects').textContent = d.active_projects;
           document.getElementById('revenue').textContent = d.projected_rub_per_day.toFixed(0) + ' ₽/день';
           document.getElementById('links').style.display = 'flex';
-          document.getElementById('launchBtn').textContent = '✅ Система работает — перезапустить';
-          document.getElementById('status').textContent = 'Система уже запущена и зарабатывает';
+          document.getElementById('adsBox').classList.add('show');
+          document.getElementById('launchBtn').textContent = '✅ Система работает';
+          document.getElementById('status').textContent = d.ads_configured
+            ? '✅ Реклама подключена — система зарабатывает'
+            : 'Система работает. Подключите рекламу ниже ↑';
+          if (d.ads_configured) {
+            document.getElementById('adsOk').style.display = 'block';
+            const ads = await (await fetch('/api/settings/ads')).json();
+            if (ads.active_id) document.getElementById('adId').value = ads.active_id;
+          }
         }
       } catch(e) {}
+    }
+
+    async function saveAds() {
+      const id = document.getElementById('adId').value.trim();
+      const btn = document.getElementById('saveBtn');
+      if (!id) { alert('Вставьте ID рекламы'); return; }
+      btn.disabled = true; btn.textContent = 'Сохраняем...';
+      try {
+        const r = await fetch('/api/settings/ads', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ad_id: id})
+        });
+        const d = await r.json();
+        if (d.ok) {
+          document.getElementById('adsOk').style.display = 'block';
+          document.getElementById('status').textContent = '✅ Реклама подключена в ' + d.projects_updated + ' проектов!';
+        } else {
+          alert(d.error || 'Ошибка');
+        }
+      } catch(e) { alert('Ошибка: ' + e.message); }
+      finally { btn.disabled = false; btn.textContent = 'Сохранить рекламу'; }
     }
 
     async function launch() {
