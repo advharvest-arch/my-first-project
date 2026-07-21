@@ -3,29 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Launch Bloomy Powered — Tap Game</title>
-  <meta name="description" content="Играй в Launch Bloomy Powered — кликай и зарабатывай монеты!">
+  <title>Launch Bloomy Powered — игра онлайн</title>
+  <meta name="description" content="Играй в Launch Bloomy Powered бесплатно прямо в браузере">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
-    .ad-top { width: 100%; max-width: 728px; min-height: 90px; background: #1e293b; border: 1px dashed #475569; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.8rem; margin: 1rem auto; }
+    .ad-top { width: 100%; max-width: 728px; min-height: 90px; margin: 1rem auto; }
     .game { text-align: center; padding: 2rem 1rem; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
     .coins { font-size: 2.5rem; font-weight: 900; color: hsl(171, 65%, 45%); margin: 1rem 0; }
     .tap-btn { width: 180px; height: 180px; border-radius: 50%; background: hsl(171, 65%, 45%); border: none; font-size: 3rem; cursor: pointer; box-shadow: 0 8px 32px rgba(0,0,0,0.4); transition: transform 0.1s; user-select: none; }
     .tap-btn:active { transform: scale(0.92); }
     .stats { display: flex; gap: 2rem; margin-top: 1.5rem; color: #94a3b8; font-size: 0.9rem; }
-    .ad-bottom { width: 100%; max-width: 320px; min-height: 100px; background: #1e293b; border: 1px dashed #475569; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 0.75rem; margin: 1rem auto 2rem; }
-    .level { color: #64748b; font-size: 0.85rem; margin-top: 0.5rem; }
+    .ad-bottom { width: 100%; max-width: 320px; min-height: 100px; margin: 1rem auto 2rem; }
+    .back { position: fixed; top: 1rem; left: 1rem; color: #94a3b8; text-decoration: none; font-size: 0.9rem; }
+    .back:hover { color: #e2e8f0; }
   </style>
 </head>
 <body>
+  <a href="../../" class="back">← Все игры</a>
   <div class="ad-top" id="adTop"><script>window.yaContextCb=window.yaContextCb||[]</script><script src="https://yandex.ru/ads/system/context.js" async></script><div id="yandex_rtb_R-A-TEST-123" style="min-height:90px"></div><script>window.yaContextCb.push(()=>{Ya.Context.AdvManager.render({"blockId":"R-A-TEST-123","renderTo":"yandex_rtb_R-A-TEST-123"})})</script></div>
 
   <div class="game">
     <h1>🪙 Launch Bloomy Powered</h1>
-    <p class="level">Ниша: launch bloomy powered</p>
     <div class="coins" id="coins">0</div>
+    <p style="color:#64748b;font-size:0.85rem;margin-bottom:1rem">монет</p>
     <button class="tap-btn" id="tapBtn">👆</button>
     <div class="stats">
       <span>Кликов: <strong id="taps">0</strong></span>
@@ -33,14 +35,15 @@
     </div>
   </div>
 
-  <div class="ad-bottom" id="adBottom">Реклама</div>
+  <div class="ad-bottom" id="adBottom"><script>window.yaContextCb=window.yaContextCb||[]</script><script src="https://yandex.ru/ads/system/context.js" async></script><div id="yandex_rtb_R-A-TEST-123" style="min-height:90px"></div><script>window.yaContextCb.push(()=>{Ya.Context.AdvManager.render({"blockId":"R-A-TEST-123","renderTo":"yandex_rtb_R-A-TEST-123"})})</script></div>
 
   <script>
     const SLUG = "launch-bloomy-powered";
-    const TRACK = "http://localhost:8000/api/fleet/track";
+    const TRACK = "";
     let coins = 0, taps = 0, level = 1;
 
     function track(event) {
+      if (!TRACK) return;
       fetch(TRACK, { method: "POST", headers: {"Content-Type":"application/json"},
         body: JSON.stringify({slug: SLUG, event}) }).catch(() => {});
     }
@@ -51,12 +54,9 @@
       coins += level;
       document.getElementById("coins").textContent = coins;
       document.getElementById("taps").textContent = taps;
-      if (taps % 50 === 0) { level++; document.getElementById("level").textContent = level; track("ad_click"); }
-      if (taps % 100 === 0) track("reward");
+      if (taps % 50 === 0) { level++; document.getElementById("level").textContent = level; }
     });
-
-    setInterval(() => track("view"), 60000);
   </script>
-  <script src="./static/launch-button.js"></script>
+  
 </body>
 </html>

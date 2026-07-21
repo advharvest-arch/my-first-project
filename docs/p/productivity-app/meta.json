@@ -3,6 +3,6 @@
   "name": "Productivity App",
   "niche": "productivity app",
   "type": "micro_tool",
-  "public_url": "http://localhost:8000/p/productivity-app/",
+  "public_url": "https://advharvest-arch.github.io/my-first-project/p/productivity-app/",
   "estimated_rub_per_day": 80.0
 }
