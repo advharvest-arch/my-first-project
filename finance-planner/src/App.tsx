@@ -218,8 +218,8 @@ export default function App() {
           <section className="panel panel-chart">
             <h2>Сравнение всех 4 сценариев</h2>
             <p className="hint">
-              Ставка вклада одна на все сценарии — из профиля. Net worth =
-              накопления + капитал в жилье − долги.
+              График — в сегодняшних рублях (с учётом инфляции). Ставка вклада
+              общая, из профиля.
             </p>
             <div className="verdict">{verdict.message}</div>
             {results.some((r) => r.meta?.boughtAtMonth !== undefined) && (
@@ -257,15 +257,17 @@ export default function App() {
             </div>
             <div className="delta-grid">
               {results.map((r) => {
-                const best = Math.max(...results.map((x) => x.finalNetWorth));
-                const delta = r.finalNetWorth - best;
+                const best = Math.max(
+                  ...results.map((x) => x.finalRealNetWorth),
+                );
+                const delta = r.finalRealNetWorth - best;
                 const cls =
                   delta === 0 ? 'delta-pos' : delta < 0 ? 'delta-neg' : '';
                 return (
                   <div className="delta-row" key={r.scenarioId}>
                     <span>{r.scenarioName}</span>
                     <span className={cls}>
-                      {formatRub(r.finalNetWorth)}
+                      {formatRub(r.finalRealNetWorth)}
                       {delta < 0 && <> (−{formatRub(Math.abs(delta))})</>}
                     </span>
                   </div>
@@ -273,10 +275,9 @@ export default function App() {
               })}
             </div>
             <p className="assumptions">
-              Допущения: доход чистый; свободные деньги во всех сценариях растут
-              по ставке вклада из профиля; новостройка — ипотека с 1-го месяца и
-              аренда до сдачи; вторичка под сдачу даёт арендный поток; накопление
-              покупает квартиру, когда вклад догоняет цену. Не финансовый совет.
+              Инфляция поднимает расходы и аренду каждый месяц и переводит итог
+              в сегодняшние рубли. Платёж по ипотеке фиксированный. Рост цены
+              жилья задаётся отдельно в сценарии. Не финансовый совет.
             </p>
           </section>
 

@@ -12,7 +12,7 @@ export function NetWorthChart({ results, colors }: Props) {
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
 
-  const allPoints = results.flatMap((r) => r.years.map((y) => y.netWorth));
+  const allPoints = results.flatMap((r) => r.years.map((y) => y.realNetWorth));
   const minY = Math.min(0, ...allPoints);
   const maxY = Math.max(...allPoints, 1);
   const spanY = maxY - minY || 1;
@@ -23,7 +23,10 @@ export function NetWorthChart({ results, colors }: Props) {
 
   function pathFor(result: ScenarioResult): string {
     return result.years
-      .map((pt, i) => `${i === 0 ? 'M' : 'L'} ${x(pt.year).toFixed(1)} ${y(pt.netWorth).toFixed(1)}`)
+      .map(
+        (pt, i) =>
+          `${i === 0 ? 'M' : 'L'} ${x(pt.year).toFixed(1)} ${y(pt.realNetWorth).toFixed(1)}`,
+      )
       .join(' ');
   }
 
@@ -34,7 +37,7 @@ export function NetWorthChart({ results, colors }: Props) {
       className="chart"
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="График капитала по годам — все сценарии"
+      aria-label="График реального капитала по годам — все сценарии"
     >
       {ticks.map((tick) => (
         <g key={tick}>
@@ -84,7 +87,7 @@ export function NetWorthChart({ results, colors }: Props) {
             <circle
               key={`${result.scenarioId}-${pt.year}`}
               cx={x(pt.year)}
-              cy={y(pt.netWorth)}
+              cy={y(pt.realNetWorth)}
               r="3.5"
               fill={colors[i % colors.length]}
             />

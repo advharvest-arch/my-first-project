@@ -139,6 +139,7 @@ export function projectScenario(
   const inflationMonth = monthRate(settings.annualInflationPercent);
 
   const income = profile.monthlyNetIncome;
+  let livingExpenses = profile.monthlyExpenses;
   let liquid = profile.liquidAssets;
   let otherDebt = Math.max(0, profile.existingDebtBalance);
   const otherDebtPayment = Math.max(0, profile.existingDebtMonthlyPayment);
@@ -251,18 +252,12 @@ export function projectScenario(
       if (mortgagePrincipal < 0.01) mortgagePrincipal = 0;
     }
 
+    // Mortgage payment stays nominal/fixed; living costs and rents rise with inflation.
     const surplus =
-      income +
-      rentIncome -
-      profile.monthlyExpenses -
-      rentExpense -
-      mPay -
-      debtPay;
+      income + rentIncome - livingExpenses - rentExpense - mPay - debtPay;
 
-    // Deposit interest applies to all leftover cash in every scenario.
     liquid = (liquid + surplus) * (1 + depositRate);
 
-    // Buy for cash after this month's saving/interest lands.
     if (
       saveThenBuyActive &&
       !ownedCashHome &&
@@ -286,6 +281,11 @@ export function projectScenario(
     if (saveThenBuyActive && !ownedCashHome && targetPrice > 0) {
       targetPrice *= 1 + targetPriceGrowth;
     }
+
+    // Inflate cash-flow items for the next month.
+    livingExpenses *= 1 + inflationMonth;
+    if (rentExpense > 0) rentExpense *= 1 + inflationMonth;
+    if (rentIncome > 0) rentIncome *= 1 + inflationMonth;
 
     const homeEquity =
       mortgageActive || ownedCashHome
@@ -345,16 +345,18 @@ export function compareScenarios(results: ScenarioResult[]): CompareVerdict {
     };
   }
 
-  const sorted = [...results].sort((a, b) => b.finalNetWorth - a.finalNetWorth);
+  const sorted = [...results].sort(
+    (a, b) => b.finalRealNetWorth - a.finalRealNetWorth,
+  );
   const winner = sorted[0];
   const second = sorted[1] ?? sorted[0];
-  const delta = winner.finalNetWorth - second.finalNetWorth;
+  const delta = winner.finalRealNetWorth - second.finalRealNetWorth;
   const horizon = winner.years[winner.years.length - 1]?.year ?? 0;
 
   const message =
     results.length === 1
-      ? `Через ${horizon} лет капитал ≈ ${formatRub(winner.finalNetWorth)}.`
-      : `Лучше «${winner.scenarioName}»: через ${horizon} лет капитал больше, чем у «${second.scenarioName}», на ${formatRub(delta)}.`;
+      ? `Через ${horizon} лет капитал ≈ ${formatRub(winner.finalRealNetWorth)} в сегодняшних рублях.`
+      : `Лучше «${winner.scenarioName}»: через ${horizon} лет реальный капитал больше, чем у «${second.scenarioName}», на ${formatRub(delta)}.`;
 
   return {
     winnerId: winner.scenarioId,

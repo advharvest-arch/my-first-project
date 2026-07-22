@@ -171,8 +171,27 @@ describe('has_home scenarios', () => {
   });
 });
 
+describe('inflation', () => {
+  it('lowers real net worth when inflation rises', () => {
+    const scenario = buildScenariosForMode('no_home').find((s) => s.id === 'rent_save')!;
+    const low = projectScenario(DEFAULT_PROFILE, scenario, {
+      ...DEFAULT_SETTINGS,
+      horizonYears: 5,
+      bankDepositAnnualRatePercent: 10,
+      annualInflationPercent: 0,
+    });
+    const high = projectScenario(DEFAULT_PROFILE, scenario, {
+      ...DEFAULT_SETTINGS,
+      horizonYears: 5,
+      bankDepositAnnualRatePercent: 10,
+      annualInflationPercent: 20,
+    });
+    expect(high.finalRealNetWorth).toBeLessThan(low.finalRealNetWorth);
+  });
+});
+
 describe('compareScenarios', () => {
-  it('picks the richer path', () => {
+  it('picks the richer path in real terms', () => {
     const scenarios = [
       ...buildScenariosForMode('no_home'),
       ...buildScenariosForMode('has_home'),
