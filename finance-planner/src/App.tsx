@@ -1,55 +1,65 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import {
-  buildDefaultScenarios,
+  buildScenariosForMode,
   compareScenarios,
   DEFAULT_PROFILE,
   DEFAULT_SETTINGS,
   projectScenario,
   type BaselineProfile,
-  type MortgageEvent,
+  type BuyToLetMortgageEvent,
+  type HousingMode,
+  type OffplanMortgageEvent,
   type ProjectionSettings,
   type RentAndSaveEvent,
+  type SaveThenBuyEvent,
   type Scenario,
+  type ScenarioEvent,
   type ScenarioResult,
 } from './engine/types';
 import { NetWorthChart } from './components/NetWorthChart';
 
-const STORAGE_KEY = 'esli-finance-mvp-v2';
+const STORAGE_KEY = 'esli-finance-mvp-v3';
 
 type StoredState = {
+  mode: HousingMode;
   profile: BaselineProfile;
   settings: ProjectionSettings;
-  scenarios: Scenario[];
+  scenariosByMode: Record<HousingMode, Scenario[]>;
 };
+
+function defaultStore(): StoredState {
+  return {
+    mode: 'no_home',
+    profile: DEFAULT_PROFILE,
+    settings: DEFAULT_SETTINGS,
+    scenariosByMode: {
+      no_home: buildScenariosForMode('no_home'),
+      has_home: buildScenariosForMode('has_home'),
+    },
+  };
+}
 
 function loadState(): StoredState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {
-        profile: DEFAULT_PROFILE,
-        settings: DEFAULT_SETTINGS,
-        scenarios: buildDefaultScenarios(),
-      };
-    }
-    const parsed = JSON.parse(raw) as StoredState;
-    const scenarios = parsed.scenarios?.length
-      ? parsed.scenarios
-      : buildDefaultScenarios();
-    const hasRent = scenarios.some((s) =>
-      s.events.some((e) => e.type === 'rent_and_save'),
-    );
+    if (!raw) return defaultStore();
+    const parsed = JSON.parse(raw) as Partial<StoredState>;
+    const base = defaultStore();
     return {
-      profile: { ...DEFAULT_PROFILE, ...parsed.profile },
-      settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
-      scenarios: hasRent ? scenarios : buildDefaultScenarios(),
+      mode: parsed.mode === 'has_home' ? 'has_home' : 'no_home',
+      profile: { ...base.profile, ...parsed.profile },
+      settings: { ...base.settings, ...parsed.settings },
+      scenariosByMode: {
+        no_home: parsed.scenariosByMode?.no_home?.length
+          ? parsed.scenariosByMode.no_home
+          : base.scenariosByMode.no_home,
+        has_home: parsed.scenariosByMode?.has_home?.length
+          ? parsed.scenariosByMode.has_home
+          : base.scenariosByMode.has_home,
+      },
     };
   } catch {
-    return {
-      profile: DEFAULT_PROFILE,
-      settings: DEFAULT_SETTINGS,
-      scenarios: buildDefaultScenarios(),
-    };
+    return defaultStore();
   }
 }
 
@@ -66,37 +76,36 @@ function numberFromInput(value: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-const COLORS = ['#e8c47a', '#7dcea0', '#7eb6e8'];
+const COLORS = ['#e8c47a', '#7dcea0', '#7eb6e8', '#d4a5e8'];
 
 export default function App() {
   const initial = useMemo(() => loadState(), []);
+  const [mode, setMode] = useState<HousingMode>(initial.mode);
   const [profile, setProfile] = useState<BaselineProfile>(initial.profile);
   const [settings, setSettings] = useState<ProjectionSettings>(initial.settings);
-  const [scenarios, setScenarios] = useState<Scenario[]>(initial.scenarios);
+  const [scenariosByMode, setScenariosByMode] = useState(initial.scenariosByMode);
   const [started, setStarted] = useState(false);
+
+  const scenarios = scenariosByMode[mode];
 
   const results: ScenarioResult[] = useMemo(
     () => scenarios.map((s) => projectScenario(profile, s, settings)),
     [profile, scenarios, settings],
   );
 
-  const verdict = useMemo(
-    () => compareScenarios(results, 'baseline'),
-    [results],
-  );
-
-  const baselineFinal =
-    results.find((r) => r.scenarioId === 'baseline')?.finalNetWorth ?? 0;
+  const verdict = useMemo(() => compareScenarios(results), [results]);
 
   function persist(
+    nextMode = mode,
     nextProfile = profile,
     nextSettings = settings,
-    nextScenarios = scenarios,
+    nextMap = scenariosByMode,
   ) {
     const payload: StoredState = {
+      mode: nextMode,
       profile: nextProfile,
       settings: nextSettings,
-      scenarios: nextScenarios,
+      scenariosByMode: nextMap,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }
@@ -107,7 +116,7 @@ export default function App() {
   ) {
     const next = { ...profile, [key]: value };
     setProfile(next);
-    persist(next, settings, scenarios);
+    persist(mode, next, settings, scenariosByMode);
   }
 
   function updateSettings<K extends keyof ProjectionSettings>(
@@ -116,51 +125,29 @@ export default function App() {
   ) {
     const next = { ...settings, [key]: value };
     setSettings(next);
-    persist(profile, next, scenarios);
+    persist(mode, profile, next, scenariosByMode);
   }
 
-  function updateRentAndSave(patch: Partial<RentAndSaveEvent>) {
-    const next = scenarios.map((s) => {
-      if (s.id !== 'rent_save') return s;
-      const current = s.events.find((e) => e.type === 'rent_and_save') as
-        | RentAndSaveEvent
-        | undefined;
-      const event: RentAndSaveEvent = {
-        type: 'rent_and_save',
-        startMonth: 0,
-        monthlyRent: 55_000,
-        bankDepositAnnualRatePercent: 16,
-        moveInCost: 0,
-        ...current,
-        ...patch,
-      };
-      return { ...s, events: [event] };
-    });
-    setScenarios(next);
-    persist(profile, settings, next);
+  function switchMode(nextMode: HousingMode) {
+    setMode(nextMode);
+    persist(nextMode, profile, settings, scenariosByMode);
   }
 
-  function updateMortgage(patch: Partial<MortgageEvent>) {
-    const next = scenarios.map((s) => {
-      if (s.id !== 'mortgage') return s;
-      const current = s.events.find((e) => e.type === 'mortgage') as
-        | MortgageEvent
-        | undefined;
-      const event: MortgageEvent = {
-        type: 'mortgage',
-        startMonth: 0,
-        propertyPrice: 12_000_000,
-        downPayment: 2_400_000,
-        annualRatePercent: 18,
-        termYears: 20,
-        annualAppreciationPercent: 5,
-        ...current,
-        ...patch,
-      };
-      return { ...s, events: [event] };
-    });
-    setScenarios(next);
-    persist(profile, settings, next);
+  function patchScenarioEvent(
+    scenarioId: string,
+    patch: Partial<ScenarioEvent> & { type: ScenarioEvent['type'] },
+  ) {
+    const nextMap = {
+      ...scenariosByMode,
+      [mode]: scenariosByMode[mode].map((s) => {
+        if (s.id !== scenarioId) return s;
+        const current = s.events[0];
+        if (!current || current.type !== patch.type) return s;
+        return { ...s, events: [{ ...current, ...patch } as ScenarioEvent] };
+      }),
+    };
+    setScenariosByMode(nextMap);
+    persist(mode, profile, settings, nextMap);
   }
 
   function onMoney(
@@ -169,14 +156,28 @@ export default function App() {
     return (e) => setter(numberFromInput(e.target.value));
   }
 
+  function resetExample() {
+    const next = defaultStore();
+    setMode(next.mode);
+    setProfile(next.profile);
+    setSettings(next.settings);
+    setScenariosByMode(next.scenariosByMode);
+    persist(next.mode, next.profile, next.settings, next.scenariosByMode);
+    setStarted(true);
+  }
+
+  const offplan = scenarios
+    .find((s) => s.id === 'offplan')
+    ?.events[0] as OffplanMortgageEvent | undefined;
   const rentSave = scenarios
     .find((s) => s.id === 'rent_save')
-    ?.events.find((e) => e.type === 'rent_and_save') as
-    | RentAndSaveEvent
-    | undefined;
-  const mortgage = scenarios
-    .find((s) => s.id === 'mortgage')
-    ?.events.find((e) => e.type === 'mortgage') as MortgageEvent | undefined;
+    ?.events[0] as RentAndSaveEvent | undefined;
+  const buyToLet = scenarios
+    .find((s) => s.id === 'buy_to_let')
+    ?.events[0] as BuyToLetMortgageEvent | undefined;
+  const saveThenBuy = scenarios
+    .find((s) => s.id === 'save_then_buy')
+    ?.events[0] as SaveThenBuyEvent | undefined;
 
   return (
     <div className="app">
@@ -185,8 +186,8 @@ export default function App() {
           Если<span>.</span>
         </h1>
         <p className="lede">
-          Снимать жильё и копить во вкладе — или взять ипотеку? Считаем капитал
-          на 5–10 лет рядом.
+          Сравните пути к жилью: новостройка с арендой до сдачи, вклад вместо
+          покупки, ипотека под сдачу или накопить и купить за наличные.
         </p>
         {!started && (
           <div className="cta-row">
@@ -197,21 +198,7 @@ export default function App() {
             >
               Смоделировать
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => {
-                setProfile(DEFAULT_PROFILE);
-                setSettings(DEFAULT_SETTINGS);
-                setScenarios(buildDefaultScenarios());
-                persist(
-                  DEFAULT_PROFILE,
-                  DEFAULT_SETTINGS,
-                  buildDefaultScenarios(),
-                );
-                setStarted(true);
-              }}
-            >
+            <button type="button" className="btn btn-ghost" onClick={resetExample}>
               Пример с цифрами
             </button>
           </div>
@@ -222,10 +209,30 @@ export default function App() {
         <div className="layout">
           <div className="stack">
             <section className="panel">
+              <h2>Ваша ситуация</h2>
+              <p className="hint">Сначала выберите, есть ли уже своё жильё.</p>
+              <div className="cta-row">
+                <button
+                  type="button"
+                  className={`btn ${mode === 'no_home' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => switchMode('no_home')}
+                >
+                  Своего жилья ещё нет
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${mode === 'has_home' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => switchMode('has_home')}
+                >
+                  Своё жильё уже есть
+                </button>
+              </div>
+            </section>
+
+            <section className="panel">
               <h2>Профиль</h2>
               <p className="hint">
-                Расходы — без аренды и ипотеки. Жильё задаётся в сценариях.
-                Доход — уже чистый после налогов.
+                Расходы — без аренды и ипотеки. Доход уже чистый после налогов.
               </p>
               <div className="fields two">
                 <label>
@@ -307,125 +314,321 @@ export default function App() {
             <section className="panel">
               <h2>Сценарии</h2>
               <p className="hint">
-                Три пути рядом. В сценарии вклада ставка банка перекрывает
-                общую доходность капитала.
+                {mode === 'no_home'
+                  ? 'Два пути без собственного жилья сейчас.'
+                  : 'Два пути, когда жить уже есть где — решаете про инвестицию.'}
               </p>
               <div className="scenario-list">
-                <article className="scenario">
-                  <header>
-                    <h3>Ничего не менять</h3>
-                    <span className="tag">база</span>
-                  </header>
-                  <p className="hint" style={{ margin: 0 }}>
-                    Без аренды и ипотеки в модели — только текущие расходы и рост
-                    капитала.
-                  </p>
-                </article>
+                {mode === 'no_home' && offplan && (
+                  <article className="scenario">
+                    <header>
+                      <h3>Ипотека на новостройку + аренда до сдачи</h3>
+                      <span className="tag">новостройка</span>
+                    </header>
+                    <div className="fields two">
+                      <label>
+                        Цена лота
+                        <input
+                          type="number"
+                          value={offplan.propertyPrice}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              propertyPrice: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Первый взнос
+                        <input
+                          type="number"
+                          value={offplan.downPayment}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              downPayment: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Ставка ипотеки % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={offplan.annualRatePercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              annualRatePercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Срок (лет)
+                        <input
+                          type="number"
+                          value={offplan.termYears}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              termYears: Math.max(1, Math.round(n)),
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Месяцев до сдачи дома
+                        <input
+                          type="number"
+                          value={offplan.monthsUntilHandover}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              monthsUntilHandover: Math.max(0, Math.round(n)),
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Аренда до переезда / мес
+                        <input
+                          type="number"
+                          value={offplan.monthlyRentUntilMoveIn}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              monthlyRentUntilMoveIn: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Рост цены жилья % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={offplan.annualAppreciationPercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              annualAppreciationPercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Разовый заезд в аренду
+                        <input
+                          type="number"
+                          value={offplan.moveInCost}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('offplan', {
+                              type: 'offplan_mortgage',
+                              moveInCost: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                    </div>
+                  </article>
+                )}
 
-                <article className="scenario">
-                  <header>
-                    <h3>Снимать и копить во вкладе</h3>
-                    <span className="tag">аренда</span>
-                  </header>
-                  <div className="fields two">
-                    <label>
-                      Аренда / мес
-                      <input
-                        type="number"
-                        value={rentSave?.monthlyRent ?? 0}
-                        onChange={onMoney((n) =>
-                          updateRentAndSave({ monthlyRent: n }),
-                        )}
-                      />
-                    </label>
-                    <label>
-                      Ставка вклада % / год
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={rentSave?.bankDepositAnnualRatePercent ?? 0}
-                        onChange={onMoney((n) =>
-                          updateRentAndSave({
-                            bankDepositAnnualRatePercent: n,
-                          }),
-                        )}
-                      />
-                    </label>
-                    <label>
-                      Разовый заезд (залог и т.п.)
-                      <input
-                        type="number"
-                        value={rentSave?.moveInCost ?? 0}
-                        onChange={onMoney((n) =>
-                          updateRentAndSave({ moveInCost: n }),
-                        )}
-                      />
-                    </label>
-                  </div>
-                </article>
+                {mode === 'no_home' && rentSave && (
+                  <article className="scenario">
+                    <header>
+                      <h3>Снимать и копить во вкладе</h3>
+                      <span className="tag">аренда</span>
+                    </header>
+                    <div className="fields two">
+                      <label>
+                        Аренда / мес
+                        <input
+                          type="number"
+                          value={rentSave.monthlyRent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('rent_save', {
+                              type: 'rent_and_save',
+                              monthlyRent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Ставка вклада % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={rentSave.bankDepositAnnualRatePercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('rent_save', {
+                              type: 'rent_and_save',
+                              bankDepositAnnualRatePercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Разовый заезд
+                        <input
+                          type="number"
+                          value={rentSave.moveInCost}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('rent_save', {
+                              type: 'rent_and_save',
+                              moveInCost: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                    </div>
+                  </article>
+                )}
 
-                <article className="scenario">
-                  <header>
-                    <h3>Взять ипотеку</h3>
-                    <span className="tag">покупка</span>
-                  </header>
-                  <div className="fields two">
-                    <label>
-                      Цена жилья
-                      <input
-                        type="number"
-                        value={mortgage?.propertyPrice ?? 0}
-                        onChange={onMoney((n) =>
-                          updateMortgage({ propertyPrice: n }),
-                        )}
-                      />
-                    </label>
-                    <label>
-                      Первый взнос
-                      <input
-                        type="number"
-                        value={mortgage?.downPayment ?? 0}
-                        onChange={onMoney((n) =>
-                          updateMortgage({ downPayment: n }),
-                        )}
-                      />
-                    </label>
-                    <label>
-                      Ставка ипотеки % / год
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={mortgage?.annualRatePercent ?? 0}
-                        onChange={onMoney((n) =>
-                          updateMortgage({ annualRatePercent: n }),
-                        )}
-                      />
-                    </label>
-                    <label>
-                      Срок (лет)
-                      <input
-                        type="number"
-                        value={mortgage?.termYears ?? 0}
-                        onChange={onMoney((n) =>
-                          updateMortgage({
-                            termYears: Math.max(1, Math.round(n)),
-                          }),
-                        )}
-                      />
-                    </label>
-                    <label>
-                      Рост цены жилья % / год
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={mortgage?.annualAppreciationPercent ?? 0}
-                        onChange={onMoney((n) =>
-                          updateMortgage({ annualAppreciationPercent: n }),
-                        )}
-                      />
-                    </label>
-                  </div>
-                </article>
+                {mode === 'has_home' && buyToLet && (
+                  <article className="scenario">
+                    <header>
+                      <h3>Ипотека на вторичку и сразу сдавать</h3>
+                      <span className="tag">сдача</span>
+                    </header>
+                    <div className="fields two">
+                      <label>
+                        Цена квартиры
+                        <input
+                          type="number"
+                          value={buyToLet.propertyPrice}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('buy_to_let', {
+                              type: 'buy_to_let_mortgage',
+                              propertyPrice: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Первый взнос
+                        <input
+                          type="number"
+                          value={buyToLet.downPayment}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('buy_to_let', {
+                              type: 'buy_to_let_mortgage',
+                              downPayment: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Ставка ипотеки % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={buyToLet.annualRatePercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('buy_to_let', {
+                              type: 'buy_to_let_mortgage',
+                              annualRatePercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Срок (лет)
+                        <input
+                          type="number"
+                          value={buyToLet.termYears}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('buy_to_let', {
+                              type: 'buy_to_let_mortgage',
+                              termYears: Math.max(1, Math.round(n)),
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Аренда от сдачи / мес
+                        <input
+                          type="number"
+                          value={buyToLet.monthlyRentIncome}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('buy_to_let', {
+                              type: 'buy_to_let_mortgage',
+                              monthlyRentIncome: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Рост цены жилья % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={buyToLet.annualAppreciationPercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('buy_to_let', {
+                              type: 'buy_to_let_mortgage',
+                              annualAppreciationPercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                    </div>
+                  </article>
+                )}
+
+                {mode === 'has_home' && saveThenBuy && (
+                  <article className="scenario">
+                    <header>
+                      <h3>Копить во вкладе, потом купить за наличные</h3>
+                      <span className="tag">накопление</span>
+                    </header>
+                    <div className="fields two">
+                      <label>
+                        Целевая цена квартиры
+                        <input
+                          type="number"
+                          value={saveThenBuy.targetPropertyPrice}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('save_then_buy', {
+                              type: 'save_then_buy',
+                              targetPropertyPrice: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Ставка вклада % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={saveThenBuy.bankDepositAnnualRatePercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('save_then_buy', {
+                              type: 'save_then_buy',
+                              bankDepositAnnualRatePercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                      <label>
+                        Рост цены жилья % / год
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={saveThenBuy.annualPriceGrowthPercent}
+                          onChange={onMoney((n) =>
+                            patchScenarioEvent('save_then_buy', {
+                              type: 'save_then_buy',
+                              annualPriceGrowthPercent: n,
+                            }),
+                          )}
+                        />
+                      </label>
+                    </div>
+                  </article>
+                )}
               </div>
             </section>
           </div>
@@ -436,6 +639,28 @@ export default function App() {
               Net worth = накопления + капитал в жилье − долги.
             </p>
             <div className="verdict">{verdict.message}</div>
+            {results.some((r) => r.meta?.boughtAtMonth !== undefined) && (
+              <p className="hint">
+                {results
+                  .filter((r) => r.meta?.boughtAtMonth !== undefined)
+                  .map(
+                    (r) =>
+                      `«${r.scenarioName}»: покупка за наличные около ${(r.meta!.boughtAtMonth! / 12).toFixed(1)} года.`,
+                  )
+                  .join(' ')}
+              </p>
+            )}
+            {results.some((r) => r.meta?.movedInAtMonth !== undefined) && (
+              <p className="hint">
+                {results
+                  .filter((r) => r.meta?.movedInAtMonth !== undefined)
+                  .map(
+                    (r) =>
+                      `«${r.scenarioName}»: переезд после сдачи на ${(r.meta!.movedInAtMonth! / 12).toFixed(1)} году.`,
+                  )
+                  .join(' ')}
+              </p>
+            )}
             <div className="chart-wrap">
               <NetWorthChart results={results} colors={COLORS} />
             </div>
@@ -449,34 +674,25 @@ export default function App() {
             </div>
             <div className="delta-grid">
               {results.map((r) => {
-                const delta = r.finalNetWorth - baselineFinal;
+                const best = Math.max(...results.map((x) => x.finalNetWorth));
+                const delta = r.finalNetWorth - best;
                 const cls =
-                  r.scenarioId === 'baseline'
-                    ? ''
-                    : delta >= 0
-                      ? 'delta-pos'
-                      : 'delta-neg';
+                  delta === 0 ? 'delta-pos' : delta < 0 ? 'delta-neg' : '';
                 return (
                   <div className="delta-row" key={r.scenarioId}>
                     <span>{r.scenarioName}</span>
                     <span className={cls}>
                       {formatRub(r.finalNetWorth)}
-                      {r.scenarioId !== 'baseline' && (
-                        <>
-                          {' '}
-                          (
-                          {delta >= 0 ? '+' : '−'}
-                          {formatRub(Math.abs(delta))})
-                        </>
-                      )}
+                      {delta < 0 && <> (−{formatRub(Math.abs(delta))})</>}
                     </span>
                   </div>
                 );
               })}
             </div>
             <p className="assumptions">
-              Допущения: доход чистый; в сценарии аренды деньги растут по ставке
-              вклада; ипотека — аннуитет; расходы профиля без жилья. Не
+              Допущения: доход чистый; новостройка — ипотека с первого месяца и
+              аренда до сдачи; вторичка под сдачу даёт арендный поток; накопление
+              покупает квартиру, когда вклад догоняет цену (цена тоже растёт). Не
               финансовый совет.
             </p>
           </section>
