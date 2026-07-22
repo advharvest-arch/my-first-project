@@ -18,7 +18,7 @@ import {
 } from './engine/types';
 import { NetWorthChart } from './components/NetWorthChart';
 
-const STORAGE_KEY = 'esli-finance-mvp-v4';
+const STORAGE_KEY = 'esli-finance-mvp-v5';
 
 type StoredState = {
   profile: BaselineProfile;
@@ -37,22 +37,45 @@ function defaultStore(): StoredState {
   };
 }
 
+function normalizeScenarios(
+  stored: Scenario[] | undefined,
+  mode: HousingMode,
+): Scenario[] {
+  const defaults = buildScenariosForMode(mode);
+  if (!stored?.length) return defaults;
+  return defaults.map((def) => {
+    const found = stored.find((s) => s.id === def.id);
+    const defEvent = def.events[0];
+    const foundEvent = found?.events[0];
+    if (!found || !foundEvent || foundEvent.type !== defEvent.type) return def;
+    return {
+      ...def,
+      events: [{ ...defEvent, ...foundEvent, type: defEvent.type } as ScenarioEvent],
+    };
+  });
+}
+
 function loadState(): StoredState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultStore();
-    const parsed = JSON.parse(raw) as Partial<StoredState>;
+    const parsed = JSON.parse(raw) as Partial<StoredState> & {
+      settings?: ProjectionSettings & { annualInvestmentReturnPercent?: number };
+    };
     const base = defaultStore();
     return {
       profile: { ...base.profile, ...parsed.profile },
-      settings: { ...base.settings, ...parsed.settings },
+      settings: {
+        ...base.settings,
+        ...parsed.settings,
+        bankDepositAnnualRatePercent:
+          parsed.settings?.bankDepositAnnualRatePercent ??
+          parsed.settings?.annualInvestmentReturnPercent ??
+          base.settings.bankDepositAnnualRatePercent,
+      },
       scenariosByMode: {
-        no_home: parsed.scenariosByMode?.no_home?.length
-          ? parsed.scenariosByMode.no_home
-          : base.scenariosByMode.no_home,
-        has_home: parsed.scenariosByMode?.has_home?.length
-          ? parsed.scenariosByMode.has_home
-          : base.scenariosByMode.has_home,
+        no_home: normalizeScenarios(parsed.scenariosByMode?.no_home, 'no_home'),
+        has_home: normalizeScenarios(parsed.scenariosByMode?.has_home, 'has_home'),
       },
     };
   } catch {
@@ -67,10 +90,9 @@ function formatRub(value: number): string {
   return rounded < 0 ? `−${formatted} ₽` : `${formatted} ₽`;
 }
 
-function numberFromInput(value: string): number {
-  const cleaned = value.replace(/\s/g, '').replace(',', '.');
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
+function readNumber(e: ChangeEvent<HTMLInputElement>): number | null {
+  const v = e.target.valueAsNumber;
+  return Number.isFinite(v) ? v : null;
 }
 
 const COLORS = ['#e8c47a', '#7dcea0', '#7eb6e8', '#d4a5e8'];
@@ -99,12 +121,14 @@ export default function App() {
     nextSettings = settings,
     nextMap = scenariosByMode,
   ) {
-    const payload: StoredState = {
-      profile: nextProfile,
-      settings: nextSettings,
-      scenariosByMode: nextMap,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        profile: nextProfile,
+        settings: nextSettings,
+        scenariosByMode: nextMap,
+      } satisfies StoredState),
+    );
   }
 
   function updateProfile<K extends keyof BaselineProfile>(
@@ -130,23 +154,19 @@ export default function App() {
     scenarioId: string,
     patch: Partial<ScenarioEvent> & { type: ScenarioEvent['type'] },
   ) {
-    const nextMap = {
-      ...scenariosByMode,
-      [mode]: scenariosByMode[mode].map((s) => {
-        if (s.id !== scenarioId) return s;
-        const current = s.events[0];
-        if (!current || current.type !== patch.type) return s;
-        return { ...s, events: [{ ...current, ...patch } as ScenarioEvent] };
-      }),
-    };
-    setScenariosByMode(nextMap);
-    persist(profile, settings, nextMap);
-  }
-
-  function onMoney(
-    setter: (n: number) => void,
-  ): (e: ChangeEvent<HTMLInputElement>) => void {
-    return (e) => setter(numberFromInput(e.target.value));
+    setScenariosByMode((prev) => {
+      const nextMap = {
+        ...prev,
+        [mode]: prev[mode].map((s) => {
+          if (s.id !== scenarioId) return s;
+          const current = s.events[0];
+          if (!current || current.type !== patch.type) return s;
+          return { ...s, events: [{ ...current, ...patch } as ScenarioEvent] };
+        }),
+      };
+      persist(profile, settings, nextMap);
+      return nextMap;
+    });
   }
 
   function resetExample() {
@@ -158,17 +178,13 @@ export default function App() {
     setStarted(true);
   }
 
-  const offplan = scenariosByMode.no_home
-    .find((s) => s.id === 'offplan')
+  const offplan = scenariosByMode.no_home.find((s) => s.id === 'offplan')
     ?.events[0] as OffplanMortgageEvent | undefined;
-  const rentSave = scenariosByMode.no_home
-    .find((s) => s.id === 'rent_save')
+  const rentSave = scenariosByMode.no_home.find((s) => s.id === 'rent_save')
     ?.events[0] as RentAndSaveEvent | undefined;
-  const buyToLet = scenariosByMode.has_home
-    .find((s) => s.id === 'buy_to_let')
+  const buyToLet = scenariosByMode.has_home.find((s) => s.id === 'buy_to_let')
     ?.events[0] as BuyToLetMortgageEvent | undefined;
-  const saveThenBuy = scenariosByMode.has_home
-    .find((s) => s.id === 'save_then_buy')
+  const saveThenBuy = scenariosByMode.has_home.find((s) => s.id === 'save_then_buy')
     ?.events[0] as SaveThenBuyEvent | undefined;
 
   return (
@@ -202,8 +218,8 @@ export default function App() {
           <section className="panel panel-chart">
             <h2>Сравнение всех 4 сценариев</h2>
             <p className="hint">
-              На графике сразу все пути. Net worth = накопления + капитал в жилье −
-              долги.
+              Ставка вклада одна на все сценарии — из профиля. Net worth =
+              накопления + капитал в жилье − долги.
             </p>
             <div className="verdict">{verdict.message}</div>
             {results.some((r) => r.meta?.boughtAtMonth !== undefined) && (
@@ -257,10 +273,10 @@ export default function App() {
               })}
             </div>
             <p className="assumptions">
-              Допущения: доход чистый; новостройка — ипотека с первого месяца и
+              Допущения: доход чистый; свободные деньги во всех сценариях растут
+              по ставке вклада из профиля; новостройка — ипотека с 1-го месяца и
               аренда до сдачи; вторичка под сдачу даёт арендный поток; накопление
-              покупает квартиру, когда вклад догоняет цену (цена тоже растёт). Не
-              финансовый совет.
+              покупает квартиру, когда вклад догоняет цену. Не финансовый совет.
             </p>
           </section>
 
@@ -268,25 +284,19 @@ export default function App() {
             <section className="panel">
               <h2>Профиль</h2>
               <p className="hint">
-                Расходы — без аренды и ипотеки. Доход уже чистый после налогов.
+                Расходы — без аренды и ипотеки. Ставка вклада общая для всех
+                сценариев.
               </p>
               <div className="fields two">
-                <label>
-                  Возраст
-                  <input
-                    type="number"
-                    value={profile.currentAge}
-                    onChange={onMoney((n) => updateProfile('currentAge', n))}
-                  />
-                </label>
                 <label>
                   Чистый доход / мес
                   <input
                     type="number"
                     value={profile.monthlyNetIncome}
-                    onChange={onMoney((n) =>
-                      updateProfile('monthlyNetIncome', n),
-                    )}
+                    onChange={(e) => {
+                      const n = readNumber(e);
+                      if (n !== null) updateProfile('monthlyNetIncome', n);
+                    }}
                   />
                 </label>
                 <label>
@@ -294,9 +304,10 @@ export default function App() {
                   <input
                     type="number"
                     value={profile.monthlyExpenses}
-                    onChange={onMoney((n) =>
-                      updateProfile('monthlyExpenses', n),
-                    )}
+                    onChange={(e) => {
+                      const n = readNumber(e);
+                      if (n !== null) updateProfile('monthlyExpenses', n);
+                    }}
                   />
                 </label>
                 <label>
@@ -304,7 +315,23 @@ export default function App() {
                   <input
                     type="number"
                     value={profile.liquidAssets}
-                    onChange={onMoney((n) => updateProfile('liquidAssets', n))}
+                    onChange={(e) => {
+                      const n = readNumber(e);
+                      if (n !== null) updateProfile('liquidAssets', n);
+                    }}
+                  />
+                </label>
+                <label>
+                  Ставка вклада % / год
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={settings.bankDepositAnnualRatePercent}
+                    onChange={(e) => {
+                      const n = readNumber(e);
+                      if (n !== null)
+                        updateSettings('bankDepositAnnualRatePercent', n);
+                    }}
                   />
                 </label>
                 <label>
@@ -314,23 +341,14 @@ export default function App() {
                     min={1}
                     max={30}
                     value={settings.horizonYears}
-                    onChange={onMoney((n) =>
-                      updateSettings(
-                        'horizonYears',
-                        Math.min(30, Math.max(1, Math.round(n))),
-                      ),
-                    )}
-                  />
-                </label>
-                <label>
-                  Доходность капитала % / год
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={settings.annualInvestmentReturnPercent}
-                    onChange={onMoney((n) =>
-                      updateSettings('annualInvestmentReturnPercent', n),
-                    )}
+                    onChange={(e) => {
+                      const n = readNumber(e);
+                      if (n !== null)
+                        updateSettings(
+                          'horizonYears',
+                          Math.min(30, Math.max(1, Math.round(n))),
+                        );
+                    }}
                   />
                 </label>
                 <label>
@@ -339,9 +357,10 @@ export default function App() {
                     type="number"
                     step="0.1"
                     value={settings.annualInflationPercent}
-                    onChange={onMoney((n) =>
-                      updateSettings('annualInflationPercent', n),
-                    )}
+                    onChange={(e) => {
+                      const n = readNumber(e);
+                      if (n !== null) updateSettings('annualInflationPercent', n);
+                    }}
                   />
                 </label>
               </div>
@@ -349,7 +368,10 @@ export default function App() {
 
             <section className="panel">
               <h2>Параметры сценариев</h2>
-              <p className="hint">Все четыре пути считаются одновременно.</p>
+              <p className="hint">
+                Меняйте цифры — график сверху пересчитается. Ставка вклада только
+                в профиле.
+              </p>
               <div className="scenario-list">
                 <p className="group-title">Своего жилья ещё нет</p>
                 {offplan && (
@@ -364,12 +386,14 @@ export default function App() {
                         <input
                           type="number"
                           value={offplan.propertyPrice}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              propertyPrice: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                propertyPrice: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -377,12 +401,14 @@ export default function App() {
                         <input
                           type="number"
                           value={offplan.downPayment}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              downPayment: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                downPayment: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -391,12 +417,14 @@ export default function App() {
                           type="number"
                           step="0.1"
                           value={offplan.annualRatePercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              annualRatePercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                annualRatePercent: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -404,12 +432,14 @@ export default function App() {
                         <input
                           type="number"
                           value={offplan.termYears}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              termYears: Math.max(1, Math.round(n)),
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                termYears: Math.max(1, Math.round(n)),
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -417,12 +447,14 @@ export default function App() {
                         <input
                           type="number"
                           value={offplan.monthsUntilHandover}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              monthsUntilHandover: Math.max(0, Math.round(n)),
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                monthsUntilHandover: Math.max(0, Math.round(n)),
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -430,12 +462,14 @@ export default function App() {
                         <input
                           type="number"
                           value={offplan.monthlyRentUntilMoveIn}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              monthlyRentUntilMoveIn: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                monthlyRentUntilMoveIn: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -444,12 +478,14 @@ export default function App() {
                           type="number"
                           step="0.1"
                           value={offplan.annualAppreciationPercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              annualAppreciationPercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                annualAppreciationPercent: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -457,12 +493,14 @@ export default function App() {
                         <input
                           type="number"
                           value={offplan.moveInCost}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'offplan', {
-                              type: 'offplan_mortgage',
-                              moveInCost: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                moveInCost: n,
+                              });
+                          }}
                         />
                       </label>
                     </div>
@@ -481,26 +519,14 @@ export default function App() {
                         <input
                           type="number"
                           value={rentSave.monthlyRent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'rent_save', {
-                              type: 'rent_and_save',
-                              monthlyRent: n,
-                            }),
-                          )}
-                        />
-                      </label>
-                      <label>
-                        Ставка вклада % / год
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={rentSave.bankDepositAnnualRatePercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'rent_save', {
-                              type: 'rent_and_save',
-                              bankDepositAnnualRatePercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'rent_save', {
+                                type: 'rent_and_save',
+                                monthlyRent: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -508,12 +534,14 @@ export default function App() {
                         <input
                           type="number"
                           value={rentSave.moveInCost}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('no_home', 'rent_save', {
-                              type: 'rent_and_save',
-                              moveInCost: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'rent_save', {
+                                type: 'rent_and_save',
+                                moveInCost: n,
+                              });
+                          }}
                         />
                       </label>
                     </div>
@@ -533,12 +561,14 @@ export default function App() {
                         <input
                           type="number"
                           value={buyToLet.propertyPrice}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'buy_to_let', {
-                              type: 'buy_to_let_mortgage',
-                              propertyPrice: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'buy_to_let', {
+                                type: 'buy_to_let_mortgage',
+                                propertyPrice: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -546,12 +576,14 @@ export default function App() {
                         <input
                           type="number"
                           value={buyToLet.downPayment}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'buy_to_let', {
-                              type: 'buy_to_let_mortgage',
-                              downPayment: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'buy_to_let', {
+                                type: 'buy_to_let_mortgage',
+                                downPayment: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -560,12 +592,14 @@ export default function App() {
                           type="number"
                           step="0.1"
                           value={buyToLet.annualRatePercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'buy_to_let', {
-                              type: 'buy_to_let_mortgage',
-                              annualRatePercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'buy_to_let', {
+                                type: 'buy_to_let_mortgage',
+                                annualRatePercent: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -573,12 +607,14 @@ export default function App() {
                         <input
                           type="number"
                           value={buyToLet.termYears}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'buy_to_let', {
-                              type: 'buy_to_let_mortgage',
-                              termYears: Math.max(1, Math.round(n)),
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'buy_to_let', {
+                                type: 'buy_to_let_mortgage',
+                                termYears: Math.max(1, Math.round(n)),
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -586,12 +622,14 @@ export default function App() {
                         <input
                           type="number"
                           value={buyToLet.monthlyRentIncome}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'buy_to_let', {
-                              type: 'buy_to_let_mortgage',
-                              monthlyRentIncome: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'buy_to_let', {
+                                type: 'buy_to_let_mortgage',
+                                monthlyRentIncome: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -600,12 +638,14 @@ export default function App() {
                           type="number"
                           step="0.1"
                           value={buyToLet.annualAppreciationPercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'buy_to_let', {
-                              type: 'buy_to_let_mortgage',
-                              annualAppreciationPercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'buy_to_let', {
+                                type: 'buy_to_let_mortgage',
+                                annualAppreciationPercent: n,
+                              });
+                          }}
                         />
                       </label>
                     </div>
@@ -624,26 +664,14 @@ export default function App() {
                         <input
                           type="number"
                           value={saveThenBuy.targetPropertyPrice}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'save_then_buy', {
-                              type: 'save_then_buy',
-                              targetPropertyPrice: n,
-                            }),
-                          )}
-                        />
-                      </label>
-                      <label>
-                        Ставка вклада % / год
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={saveThenBuy.bankDepositAnnualRatePercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'save_then_buy', {
-                              type: 'save_then_buy',
-                              bankDepositAnnualRatePercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'save_then_buy', {
+                                type: 'save_then_buy',
+                                targetPropertyPrice: n,
+                              });
+                          }}
                         />
                       </label>
                       <label>
@@ -652,12 +680,14 @@ export default function App() {
                           type="number"
                           step="0.1"
                           value={saveThenBuy.annualPriceGrowthPercent}
-                          onChange={onMoney((n) =>
-                            patchScenarioEvent('has_home', 'save_then_buy', {
-                              type: 'save_then_buy',
-                              annualPriceGrowthPercent: n,
-                            }),
-                          )}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('has_home', 'save_then_buy', {
+                                type: 'save_then_buy',
+                                annualPriceGrowthPercent: n,
+                              });
+                          }}
                         />
                       </label>
                     </div>

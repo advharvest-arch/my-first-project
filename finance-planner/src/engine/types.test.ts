@@ -36,7 +36,7 @@ describe('no_home scenarios', () => {
     const result = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
       horizonYears: 2,
-      annualInvestmentReturnPercent: 0,
+      bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
 
@@ -44,15 +44,21 @@ describe('no_home scenarios', () => {
     expect(result.years[2].homeEquity).toBeGreaterThan(2_000_000);
   });
 
-  it('grows deposit while paying rent', () => {
+  it('uses profile deposit rate while renting', () => {
     const scenario = buildScenariosForMode('no_home').find((s) => s.id === 'rent_save')!;
-    const result = projectScenario(DEFAULT_PROFILE, scenario, {
+    const low = projectScenario(DEFAULT_PROFILE, scenario, {
       ...DEFAULT_SETTINGS,
       horizonYears: 1,
+      bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
-    expect(result.years[1].homeEquity).toBe(0);
-    expect(result.finalNetWorth).toBeGreaterThan(DEFAULT_PROFILE.liquidAssets);
+    const high = projectScenario(DEFAULT_PROFILE, scenario, {
+      ...DEFAULT_SETTINGS,
+      horizonYears: 1,
+      bankDepositAnnualRatePercent: 20,
+      annualInflationPercent: 0,
+    });
+    expect(high.finalNetWorth).toBeGreaterThan(low.finalNetWorth);
   });
 });
 
@@ -68,7 +74,7 @@ describe('has_home scenarios', () => {
     const withRent = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
       horizonYears: 1,
-      annualInvestmentReturnPercent: 0,
+      bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
 
@@ -81,7 +87,7 @@ describe('has_home scenarios', () => {
     const withoutRent = projectScenario(profile, noRentScenario, {
       ...DEFAULT_SETTINGS,
       horizonYears: 1,
-      annualInvestmentReturnPercent: 0,
+      bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
 
@@ -97,7 +103,6 @@ describe('has_home scenarios', () => {
         {
           type: 'save_then_buy',
           startMonth: 0,
-          bankDepositAnnualRatePercent: 0,
           targetPropertyPrice: 1_200_000,
           annualPriceGrowthPercent: 0,
         },
@@ -112,18 +117,66 @@ describe('has_home scenarios', () => {
     const result = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
       horizonYears: 2,
-      annualInvestmentReturnPercent: 0,
+      bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
 
     expect(result.meta?.boughtAtMonth).toBeDefined();
     expect(result.years[2].homeEquity).toBeGreaterThan(0);
   });
+
+  it('reacts to target price growth while saving', () => {
+    const base = buildScenariosForMode('has_home').find((s) => s.id === 'save_then_buy')!;
+    const flat: Scenario = {
+      ...base,
+      events: [
+        {
+          type: 'save_then_buy',
+          startMonth: 0,
+          targetPropertyPrice: 8_000_000,
+          annualPriceGrowthPercent: 0,
+        },
+      ],
+    };
+    const rising: Scenario = {
+      ...base,
+      events: [
+        {
+          type: 'save_then_buy',
+          startMonth: 0,
+          targetPropertyPrice: 8_000_000,
+          annualPriceGrowthPercent: 20,
+        },
+      ],
+    };
+    const profile: BaselineProfile = {
+      ...DEFAULT_PROFILE,
+      monthlyNetIncome: 300_000,
+      monthlyExpenses: 50_000,
+      liquidAssets: 2_000_000,
+    };
+    const a = projectScenario(profile, flat, {
+      ...DEFAULT_SETTINGS,
+      horizonYears: 5,
+      bankDepositAnnualRatePercent: 10,
+      annualInflationPercent: 0,
+    });
+    const b = projectScenario(profile, rising, {
+      ...DEFAULT_SETTINGS,
+      horizonYears: 5,
+      bankDepositAnnualRatePercent: 10,
+      annualInflationPercent: 0,
+    });
+    expect(a.meta?.boughtAtMonth ?? 999).toBeLessThan(b.meta?.boughtAtMonth ?? 999);
+  });
 });
 
 describe('compareScenarios', () => {
-  it('picks the richer path inside a mode', () => {
-    const scenarios = buildScenariosForMode('no_home');
+  it('picks the richer path', () => {
+    const scenarios = [
+      ...buildScenariosForMode('no_home'),
+      ...buildScenariosForMode('has_home'),
+    ];
     const results = scenarios.map((s) =>
       projectScenario(DEFAULT_PROFILE, s, DEFAULT_SETTINGS),
     );

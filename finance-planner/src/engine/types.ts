@@ -3,7 +3,6 @@ export type Money = number;
 export type HousingMode = 'no_home' | 'has_home';
 
 export interface BaselineProfile {
-  currentAge: number;
   monthlyNetIncome: Money;
   /** Everyday spending without rent / mortgage / investment property. */
   monthlyExpenses: Money;
@@ -28,12 +27,11 @@ export type OffplanMortgageEvent = {
   moveInCost: Money;
 };
 
-/** Rent forever (horizon) and grow cash on a bank deposit. */
+/** Rent forever (horizon) and grow cash on the profile deposit rate. */
 export type RentAndSaveEvent = {
   type: 'rent_and_save';
   startMonth: number;
   monthlyRent: Money;
-  bankDepositAnnualRatePercent: number;
   moveInCost: Money;
 };
 
@@ -50,11 +48,10 @@ export type BuyToLetMortgageEvent = {
   monthlyRentIncome: Money;
 };
 
-/** Save on deposit, then buy for cash when enough is accumulated. */
+/** Save on deposit (profile rate), then buy for cash when enough is accumulated. */
 export type SaveThenBuyEvent = {
   type: 'save_then_buy';
   startMonth: number;
-  bankDepositAnnualRatePercent: number;
   targetPropertyPrice: Money;
   annualPriceGrowthPercent: number;
 };
@@ -74,13 +71,13 @@ export interface Scenario {
 
 export interface ProjectionSettings {
   horizonYears: number;
-  annualInvestmentReturnPercent: number;
+  /** Bank deposit / savings rate for liquid cash in every scenario. */
+  bankDepositAnnualRatePercent: number;
   annualInflationPercent: number;
 }
 
 export interface YearSnapshot {
   year: number;
-  age: number;
   liquidAssets: Money;
   homeEquity: Money;
   otherDebt: Money;
@@ -116,9 +113,9 @@ export function annuityPayment(
   termYears: number,
 ): Money {
   if (principal <= 0) return 0;
-  const n = termYears * MONTHS_IN_YEAR;
+  const n = Math.max(1, Math.round(termYears)) * MONTHS_IN_YEAR;
   const r = annualRatePercent / 100 / MONTHS_IN_YEAR;
-  if (r === 0) return principal / n;
+  if (Math.abs(r) < 1e-12) return principal / n;
   return (principal * r * (1 + r) ** n) / ((1 + r) ** n - 1);
 }
 
@@ -137,8 +134,8 @@ export function projectScenario(
   scenario: Scenario,
   settings: ProjectionSettings,
 ): ScenarioResult {
-  const totalMonths = Math.max(1, settings.horizonYears) * MONTHS_IN_YEAR;
-  const defaultLiquidRate = monthRate(settings.annualInvestmentReturnPercent);
+  const totalMonths = Math.max(1, Math.round(settings.horizonYears)) * MONTHS_IN_YEAR;
+  const depositRate = monthRate(settings.bankDepositAnnualRatePercent);
   const inflationMonth = monthRate(settings.annualInflationPercent);
 
   const income = profile.monthlyNetIncome;
@@ -146,7 +143,6 @@ export function projectScenario(
   let otherDebt = Math.max(0, profile.existingDebtBalance);
   const otherDebtPayment = Math.max(0, profile.existingDebtMonthlyPayment);
 
-  let liquidRate = defaultLiquidRate;
   let rentExpense = 0;
   let rentIncome = 0;
 
@@ -169,7 +165,6 @@ export function projectScenario(
   const years: YearSnapshot[] = [];
   years.push({
     year: 0,
-    age: profile.currentAge,
     liquidAssets: liquid,
     homeEquity: 0,
     otherDebt,
@@ -182,8 +177,10 @@ export function projectScenario(
       if (event.startMonth !== month) continue;
 
       if (event.type === 'offplan_mortgage') {
-        const loan = Math.max(0, event.propertyPrice - event.downPayment);
-        liquid -= event.downPayment + event.moveInCost;
+        const down = Math.max(0, event.downPayment);
+        const price = Math.max(0, event.propertyPrice);
+        const loan = Math.max(0, price - down);
+        liquid -= down + Math.max(0, event.moveInCost);
         mortgagePrincipal = loan;
         mortgagePayment = annuityPayment(
           loan,
@@ -191,23 +188,23 @@ export function projectScenario(
           event.termYears,
         );
         mortgageRate = monthRate(event.annualRatePercent);
-        homeValue = event.propertyPrice;
+        homeValue = price;
         homeAppreciation = monthRate(event.annualAppreciationPercent);
         mortgageActive = true;
-        rentExpense = event.monthlyRentUntilMoveIn;
-        handoverMonth = month + Math.max(0, event.monthsUntilHandover);
-        liquidRate = defaultLiquidRate;
+        rentExpense = Math.max(0, event.monthlyRentUntilMoveIn);
+        handoverMonth = month + Math.max(0, Math.round(event.monthsUntilHandover));
       }
 
       if (event.type === 'rent_and_save') {
-        rentExpense = event.monthlyRent;
-        liquid -= event.moveInCost;
-        liquidRate = monthRate(event.bankDepositAnnualRatePercent);
+        rentExpense = Math.max(0, event.monthlyRent);
+        liquid -= Math.max(0, event.moveInCost);
       }
 
       if (event.type === 'buy_to_let_mortgage') {
-        const loan = Math.max(0, event.propertyPrice - event.downPayment);
-        liquid -= event.downPayment;
+        const down = Math.max(0, event.downPayment);
+        const price = Math.max(0, event.propertyPrice);
+        const loan = Math.max(0, price - down);
+        liquid -= down;
         mortgagePrincipal = loan;
         mortgagePayment = annuityPayment(
           loan,
@@ -215,18 +212,16 @@ export function projectScenario(
           event.termYears,
         );
         mortgageRate = monthRate(event.annualRatePercent);
-        homeValue = event.propertyPrice;
+        homeValue = price;
         homeAppreciation = monthRate(event.annualAppreciationPercent);
         mortgageActive = true;
-        rentIncome = event.monthlyRentIncome;
+        rentIncome = Math.max(0, event.monthlyRentIncome);
         rentExpense = 0;
-        liquidRate = defaultLiquidRate;
       }
 
       if (event.type === 'save_then_buy') {
         saveThenBuyActive = true;
-        liquidRate = monthRate(event.bankDepositAnnualRatePercent);
-        targetPrice = event.targetPropertyPrice;
+        targetPrice = Math.max(0, event.targetPropertyPrice);
         targetPriceGrowth = monthRate(event.annualPriceGrowthPercent);
         rentExpense = 0;
         rentIncome = 0;
@@ -236,17 +231,6 @@ export function projectScenario(
     if (handoverMonth !== null && month === handoverMonth) {
       rentExpense = 0;
       movedInAtMonth = month;
-    }
-
-    if (saveThenBuyActive && !ownedCashHome && liquid >= targetPrice && targetPrice > 0) {
-      liquid -= targetPrice;
-      homeValue = targetPrice;
-      homeAppreciation = targetPriceGrowth;
-      ownedCashHome = true;
-      boughtAtMonth = month;
-      mortgageActive = false;
-      mortgagePrincipal = 0;
-      mortgagePayment = 0;
     }
 
     let debtPay = 0;
@@ -267,14 +251,6 @@ export function projectScenario(
       if (mortgagePrincipal < 0.01) mortgagePrincipal = 0;
     }
 
-    if ((mortgageActive || ownedCashHome) && homeValue > 0) {
-      homeValue *= 1 + homeAppreciation;
-    }
-
-    if (saveThenBuyActive && !ownedCashHome && targetPrice > 0) {
-      targetPrice *= 1 + targetPriceGrowth;
-    }
-
     const surplus =
       income +
       rentIncome -
@@ -282,7 +258,34 @@ export function projectScenario(
       rentExpense -
       mPay -
       debtPay;
-    liquid = (liquid + surplus) * (1 + liquidRate);
+
+    // Deposit interest applies to all leftover cash in every scenario.
+    liquid = (liquid + surplus) * (1 + depositRate);
+
+    // Buy for cash after this month's saving/interest lands.
+    if (
+      saveThenBuyActive &&
+      !ownedCashHome &&
+      targetPrice > 0 &&
+      liquid >= targetPrice
+    ) {
+      liquid -= targetPrice;
+      homeValue = targetPrice;
+      homeAppreciation = targetPriceGrowth;
+      ownedCashHome = true;
+      boughtAtMonth = month;
+      mortgageActive = false;
+      mortgagePrincipal = 0;
+      mortgagePayment = 0;
+    }
+
+    if ((mortgageActive || ownedCashHome) && homeValue > 0) {
+      homeValue *= 1 + homeAppreciation;
+    }
+
+    if (saveThenBuyActive && !ownedCashHome && targetPrice > 0) {
+      targetPrice *= 1 + targetPriceGrowth;
+    }
 
     const homeEquity =
       mortgageActive || ownedCashHome
@@ -295,15 +298,22 @@ export function projectScenario(
     if ((month + 1) % MONTHS_IN_YEAR === 0) {
       const year = (month + 1) / MONTHS_IN_YEAR;
       let note: string | undefined;
-      if (boughtAtMonth !== undefined && boughtAtMonth < month + 1 && boughtAtMonth >= month + 1 - 12) {
+      if (
+        boughtAtMonth !== undefined &&
+        boughtAtMonth < month + 1 &&
+        boughtAtMonth >= month + 1 - 12
+      ) {
         note = `Купили за наличные на ${boughtAtMonth + 1}-м мес.`;
       }
-      if (movedInAtMonth !== undefined && movedInAtMonth < month + 1 && movedInAtMonth >= month + 1 - 12) {
+      if (
+        movedInAtMonth !== undefined &&
+        movedInAtMonth < month + 1 &&
+        movedInAtMonth >= month + 1 - 12
+      ) {
         note = `Переезд после сдачи на ${movedInAtMonth + 1}-м мес.`;
       }
       years.push({
         year,
-        age: profile.currentAge + year,
         liquidAssets: liquid,
         homeEquity,
         otherDebt,
@@ -355,7 +365,6 @@ export function compareScenarios(results: ScenarioResult[]): CompareVerdict {
 }
 
 export const DEFAULT_PROFILE: BaselineProfile = {
-  currentAge: 32,
   monthlyNetIncome: 180_000,
   monthlyExpenses: 70_000,
   liquidAssets: 3_500_000,
@@ -365,7 +374,7 @@ export const DEFAULT_PROFILE: BaselineProfile = {
 
 export const DEFAULT_SETTINGS: ProjectionSettings = {
   horizonYears: 10,
-  annualInvestmentReturnPercent: 8,
+  bankDepositAnnualRatePercent: 16,
   annualInflationPercent: 6,
 };
 
@@ -400,7 +409,6 @@ export function buildScenariosForMode(mode: HousingMode): Scenario[] {
             type: 'rent_and_save',
             startMonth: 0,
             monthlyRent: 55_000,
-            bankDepositAnnualRatePercent: 16,
             moveInCost: 110_000,
           },
         ],
@@ -434,7 +442,6 @@ export function buildScenariosForMode(mode: HousingMode): Scenario[] {
         {
           type: 'save_then_buy',
           startMonth: 0,
-          bankDepositAnnualRatePercent: 16,
           targetPropertyPrice: 10_000_000,
           annualPriceGrowthPercent: 4,
         },
