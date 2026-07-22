@@ -17,6 +17,15 @@ import {
 import { getFreshNeeds } from "./scout.js";
 import { getConfig, saveConfigOverlay } from "./config.js";
 import { listSolutionPacks, readSolutionPack } from "./solutions.js";
+import { syncCatalogFromNeeds, loadCatalog, getProductById } from "./products.js";
+import {
+  createOrder,
+  payAndDeliver,
+  verifyDownload,
+  runAutoSales,
+  getCommerceDashboard,
+  createStripeCheckout,
+} from "./commerce.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, "..", "public");
@@ -60,7 +69,84 @@ function readBody(req) {
 async function handleApi(req, res, url) {
   try {
     if (req.method === "GET" && url.pathname === "/api/dashboard") {
-      return json(res, 200, getDashboard());
+      const base = getDashboard();
+      const commerce = getCommerceDashboard();
+      return json(res, 200, { ...base, commerce });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/commerce") {
+      return json(res, 200, getCommerceDashboard());
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/catalog") {
+      return json(res, 200, loadCatalog());
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/earn-cycle") {
+      const force = url.searchParams.get("force") !== "0";
+      const scout = await getFreshNeeds({ force, maxAgeMin: 10 });
+      const plans = runNeedsCycle(scout.needs || []);
+      const sync = syncCatalogFromNeeds(scout.needs || [], {
+        maxNew: Number(getConfig().commerce?.maxNewProductsPerCycle || 6),
+      });
+      const sales = runAutoSales({
+        maxSales: Number(getConfig().commerce?.maxAutoSalesPerCycle || 4),
+      });
+      return json(res, 200, {
+        scout: {
+          count: scout.count,
+          bySource: scout.bySource,
+          errors: scout.errors,
+          fromCache: scout.fromCache,
+        },
+        plans: { planned: plans.planned, skipped: plans.skipped },
+        products: { created: sync.created, refreshed: sync.refreshed, total: sync.catalog.products.length },
+        sales: {
+          count: sales.sold.length,
+          revenue: sales.revenue,
+          revenueLabel: formatMoney(sales.revenue),
+          mode: sales.mode,
+          orders: sales.sold.map((s) => s.order),
+        },
+        commerce: getCommerceDashboard(),
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/checkout") {
+      const body = await readBody(req);
+      const productId = body.productId;
+      if (!productId) throw new Error("productId обязателен");
+
+      if (process.env.STRIPE_SECRET_KEY && body.provider === "stripe") {
+        const origin = `${url.protocol}//${req.headers.host}`;
+        const session = await createStripeCheckout(
+          productId,
+          body.successUrl || `${origin}/store.html?paid=1`,
+          body.cancelUrl || `${origin}/store.html?cancel=1`
+        );
+        return json(res, 200, session);
+      }
+
+      const order = createOrder({
+        productId,
+        email: body.email || "buyer@store.local",
+        source: "store",
+      });
+      // demo: мгновенная оплата и выдача
+      const result = payAndDeliver(order.id, { provider: body.instant === false ? "pending" : "demo" });
+      return json(res, 200, result);
+    }
+
+    const dl = url.pathname.match(/^\/api\/download\/([^/]+)\/([^/]+)$/);
+    if (req.method === "GET" && dl) {
+      const { order, product, content } = verifyDownload(decodeURIComponent(dl[1]), dl[2]);
+      const buf = Buffer.from(content, "utf8");
+      res.writeHead(200, {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${product.id}.md"`,
+        "Content-Length": buf.length,
+      });
+      return res.end(buf);
     }
 
     if (req.method === "GET" && url.pathname === "/api/config") {
@@ -82,13 +168,13 @@ async function handleApi(req, res, url) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/queue") {
-      const limit = Number(url.searchParams.get("limit") || 20);
-      return json(res, 200, getWorkQueue(limit));
+      return json(res, 200, getWorkQueue(Number(url.searchParams.get("limit") || 20)));
     }
 
     if (req.method === "GET" && url.pathname === "/api/fulfillments") {
-      const query = Object.fromEntries(url.searchParams.entries());
-      return json(res, 200, { fulfillments: getFilteredFulfillments(query) });
+      return json(res, 200, {
+        fulfillments: getFilteredFulfillments(Object.fromEntries(url.searchParams.entries())),
+      });
     }
 
     if (req.method === "POST" && url.pathname === "/api/batch-approve") {
@@ -106,14 +192,16 @@ async function handleApi(req, res, url) {
 
     if (req.method === "POST" && url.pathname === "/api/scout") {
       const force = url.searchParams.get("force") === "1";
-      const scout = await getFreshNeeds({ force, maxAgeMin: 15 });
-      return json(res, 200, scout);
+      return json(res, 200, await getFreshNeeds({ force, maxAgeMin: 15 }));
     }
 
     if (req.method === "POST" && url.pathname === "/api/cycle") {
+      // backward compatible: now runs full earn cycle
       const force = url.searchParams.get("force") !== "0";
       const scout = await getFreshNeeds({ force, maxAgeMin: 15 });
       const report = runNeedsCycle(scout.needs || []);
+      const sync = syncCatalogFromNeeds(scout.needs || []);
+      const sales = runAutoSales({ maxSales: 4 });
       return json(res, 200, {
         scout: {
           count: scout.count,
@@ -123,7 +211,10 @@ async function handleApi(req, res, url) {
           errors: scout.errors,
         },
         ...report,
+        products: sync,
+        sales,
         expectedThisCycleLabel: formatMoney(report.expectedThisCycle),
+        earnedThisCycleLabel: formatMoney(sales.revenue),
       });
     }
 
@@ -133,15 +224,21 @@ async function handleApi(req, res, url) {
 
     const approveMatch = url.pathname.match(/^\/api\/offers\/([^/]+)\/approve$/);
     if (req.method === "POST" && approveMatch) {
-      const offer = approveOffer(decodeURIComponent(approveMatch[1]));
-      return json(res, 200, offer);
+      return json(res, 200, approveOffer(decodeURIComponent(approveMatch[1])));
     }
 
     const realizeMatch = url.pathname.match(/^\/api\/offers\/([^/]+)\/realize$/);
     if (req.method === "POST" && realizeMatch) {
       const body = await readBody(req);
-      const result = realizeOffer(decodeURIComponent(realizeMatch[1]), body.amount);
-      return json(res, 200, result);
+      return json(res, 200, realizeOffer(decodeURIComponent(realizeMatch[1]), body.amount));
+    }
+
+    // product detail
+    const prodMatch = url.pathname.match(/^\/api\/products\/([^/]+)$/);
+    if (req.method === "GET" && prodMatch) {
+      const p = getProductById(decodeURIComponent(prodMatch[1]));
+      if (!p) return json(res, 404, { error: "Not found" });
+      return json(res, 200, p);
     }
 
     return json(res, 404, { error: "Not found" });
@@ -163,12 +260,11 @@ function serveStatic(res, pathname) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  if (url.pathname.startsWith("/api/")) {
-    return handleApi(req, res, url);
-  }
+  if (url.pathname.startsWith("/api/")) return handleApi(req, res, url);
   return serveStatic(res, url.pathname);
 });
 
 server.listen(PORT, () => {
-  console.log(`AdvHarvest Autopilot → http://localhost:${PORT}`);
+  console.log(`AdvHarvest AUTO-EARN → http://localhost:${PORT}`);
+  console.log(`Store → http://localhost:${PORT}/store.html`);
 });

@@ -362,13 +362,11 @@ function renderLedger(ledger) {
 async function refresh() {
   const data = await api("/api/dashboard");
   cachedFulfillments = data.fulfillments || [];
-  document.getElementById("stat-needs").textContent = String(data.stats.needsSeen || 0);
+  document.getElementById("stat-needs").textContent = String(data.commerce?.stats?.ordersPaid || 0);
   document.getElementById("stat-ready").textContent = String(data.stats.fulfillmentsReady || 0);
-  document.getElementById("stat-packs").textContent = String(
-    data.stats.solutionPacks || data.solutions?.length || 0
-  );
+  document.getElementById("stat-packs").textContent = String(data.commerce?.catalogCount || 0);
   document.getElementById("stat-expected").textContent = money.format(
-    data.stats.expectedRevenueTotal || 0
+    data.commerce?.stats?.grossRevenue || 0
   );
 
   const cacheHint = data.cacheMeta?.fetchedAt
@@ -392,12 +390,12 @@ async function runCycle() {
   const buttons = [document.getElementById("btn-cycle"), document.getElementById("btn-cycle-hero")];
   for (const b of buttons) {
     b.disabled = true;
-    b.textContent = "Работаем…";
+    b.textContent = "Зарабатываем…";
   }
   try {
-    const report = await api("/api/cycle?force=1", { method: "POST" });
+    const report = await api("/api/earn-cycle?force=1", { method: "POST" });
     document.getElementById("pipeline-meta").textContent =
-      `Сеть: ${report.scout?.count ?? 0} · планов +${report.planned} · ${report.expectedThisCycleLabel}`;
+      `+${report.products?.created || 0} продуктов · продаж ${report.sales?.count || 0} · ${report.sales?.revenueLabel || "0"}`;
     renderSources(report.scout?.bySource);
     await refresh();
   } catch (err) {
@@ -405,7 +403,7 @@ async function runCycle() {
   } finally {
     for (const b of buttons) {
       b.disabled = false;
-      b.textContent = b.id === "btn-cycle-hero" ? "Запустить сейчас" : "Сканировать + цикл";
+      b.textContent = b.id === "btn-cycle-hero" ? "Запустить автозаработок" : "Автозаработок";
     }
   }
 }

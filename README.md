@@ -1,34 +1,33 @@
-# AdvHarvest Autopilot
+# AdvHarvest Auto-Earn
 
-Рабочая система: находит насущные потребности в интернете и готовит решения.
+Система **автоматического заработка** на цифровых продуктах:
+
+```
+Спрос в интернете → продукт → витрина → оплата → автовыдача → выручка
+```
+
+## Важно понимать
+
+- **auto/demo** — система сама создаёт товары и симулирует продажи (видно полный цикл денег).
+- **live + Stripe** — реальные деньги: задайте `STRIPE_SECRET_KEY` и продавайте с витрины.
+- Это не «кнопка печать денег» и не серые схемы. Деньги появляются из полезного цифрового товара.
 
 ## Запуск
 
 ```bash
-npm run demo              # скан → планы → solution packs
-npm start                 # http://localhost:3847
-npm run work              # очередь: что делать сейчас
-npm run work -- --approve 3 --paid
-npm run autopilot         # фон каждые 15 мин
-npm test                  # smoke tests
+npm start                 # панель + витрина
+npm run earn              # один автоцикл заработка
+npm run autopilot         # автопилот каждые 10 мин
 ```
 
-## Контур
+- Панель: http://localhost:3847  
+- Витрина: http://localhost:3847/store.html  
 
+## Реальные платежи
+
+```bash
+export STRIPE_SECRET_KEY=sk_live_or_test_...
+# на витрине checkout с provider=stripe
 ```
-Scout → Filter → Score → Proposal → Solution pack → Queue → Approve → Fulfill
-```
 
-### Источники
-FL.ru (платные заказы), Hacker News Ask, Stack Overflow / RU, GitHub, Lobsters.
-
-### Очередь работы
-`npm run work` показывает приоритетные задачи: сначала `approved` и paid (FL.ru), с готовым сообщением для копирования.
-
-В дашборде: **Approve топ-3 paid**, фильтры планов, Copy msg.
-
-### Solution packs
-Каждый план → `workspace/solutions/*.md` с КП, ценой, сроком, scope и готовым текстом сообщения.
-
-## Конфиг
-`config/default.json` — порог score, `minPaidBudget`, источники, ключевые слова.
+Без ключа покупка идёт в demo: мгновенная оплата + скачивание файла.

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AdvHarvest Store — автопродажи</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <p class="brand-name">AdvHarvest</p>
+        <p class="brand-sub">Auto Store</p>
+      </div>
+    </div>
+    <nav class="actions">
+      <a class="btn btn-ghost" href="/">Панель</a>
+      <button type="button" id="btn-earn" class="btn btn-primary">Запустить автозаработок</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="hero-kicker">Цифровые продукты · оплата · автовыдача</p>
+      <h1 class="hero-title">Система продаёт<br />пока вы спите.</h1>
+      <p class="hero-lead">
+        Находит спрос в интернете, упаковывает в цифровые продукты и продаёт их автоматически.
+        Demo-режим симулирует рынок; для живых денег подключите Stripe.
+      </p>
+    </section>
+
+    <section class="meters">
+      <div class="meter">
+        <p class="meter-label">Выручка</p>
+        <p class="meter-value accent" id="rev">—</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Оплаченных заказов</p>
+        <p class="meter-value" id="paid">0</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Продуктов в витрине</p>
+        <p class="meter-value" id="count">0</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Режим</p>
+        <p class="meter-value" id="mode">auto</p>
+      </div>
+    </section>
+
+    <section class="pipeline">
+      <div class="section-head">
+        <h2>Витрина</h2>
+        <p id="store-meta">Товары появятся после автоцикла</p>
+      </div>
+      <div id="products" class="offers"></div>
+    </section>
+
+    <section class="ledger-section">
+      <div class="section-head">
+        <h2>Последние продажи</h2>
+        <p>Автовыдача цифрового файла покупателю</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Статус</th>
+              <th>Продукт</th>
+              <th>Сумма</th>
+              <th>Когда</th>
+              <th>Скачать</th>
+            </tr>
+          </thead>
+          <tbody id="orders"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>AdvHarvest Auto-Earn · demo/auto продажи встроены · Stripe через STRIPE_SECRET_KEY</p>
+  </footer>
+  <script src="/store.js" type="module"></script>
+</body>
+</html>

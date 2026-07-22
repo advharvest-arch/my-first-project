@@ -1,6 +1,6 @@
 {
   "name": "AdvHarvest Autopilot",
-  "niche": "насущные потребности людей → полезные решения",
+  "niche": "автозаработок на цифровых продуктах из спроса",
   "locale": "ru",
   "currency": "RUB",
   "minNeedScore": 45,
@@ -24,9 +24,14 @@
     }
   },
   "autopilot": {
-    "intervalSec": 900,
+    "intervalSec": 600,
     "autoApproveBelow": 0,
-    "maxPlansPerCycle": 25
+    "maxPlansPerCycle": 10
+  },
+  "commerce": {
+    "mode": "auto",
+    "maxNewProductsPerCycle": 6,
+    "maxAutoSalesPerCycle": 4
   },
   "keywordsBoost": [
     "нужен",

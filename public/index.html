@@ -17,46 +17,46 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <p class="brand-name">AdvHarvest</p>
-        <p class="brand-sub">Operating System</p>
+        <p class="brand-sub">Auto-Earn</p>
       </div>
     </div>
     <nav class="actions">
-      <button type="button" id="btn-cycle" class="btn btn-primary">Сканировать + цикл</button>
+      <button type="button" id="btn-cycle" class="btn btn-primary">Автозаработок</button>
+      <a class="btn btn-ghost" href="/store.html">Витрина</a>
       <button type="button" id="btn-reset" class="btn btn-ghost">Сброс</button>
     </nav>
   </header>
 
   <main>
     <section class="hero">
-      <p class="hero-kicker">Рабочая система · FL.ru · HN · Stack Overflow · GitHub</p>
-      <h1 class="hero-title">Находим нужды.<br />Готовим решения.</h1>
+      <p class="hero-kicker">Автозаработок · спрос → продукт → продажа</p>
+      <h1 class="hero-title">Система сама<br />находит и продаёт.</h1>
       <p class="hero-lead">
-        Автопилот сканирует открытый интернет, отбирает насущные потребности,
-        пишет план и сохраняет solution-пакет в <code>workspace/solutions</code>.
-        Вы подтверждаете — и закрываете боль человека.
+        Сканирует потребности в интернете, собирает цифровые продукты и продаёт их автоматически.
+        Demo/auto режим крутит продажи сам. Для реальных денег — Stripe.
       </p>
       <div class="hero-cta">
-        <button type="button" id="btn-cycle-hero" class="btn btn-primary">Запустить сейчас</button>
-        <a class="btn btn-ghost" href="#queue">К очереди</a>
+        <button type="button" id="btn-cycle-hero" class="btn btn-primary">Запустить автозаработок</button>
+        <a class="btn btn-ghost" href="/store.html">Открыть витрину</a>
       </div>
     </section>
 
     <section class="meters" aria-label="Показатели">
       <div class="meter">
-        <p class="meter-label">Потребности</p>
+        <p class="meter-label">Автовыручка</p>
+        <p class="meter-value accent" id="stat-expected">—</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Оплачено заказов</p>
         <p class="meter-value" id="stat-needs">0</p>
+      </div>
+      <div class="meter">
+        <p class="meter-label">Продуктов</p>
+        <p class="meter-value" id="stat-packs">0</p>
       </div>
       <div class="meter">
         <p class="meter-label">Планов ready</p>
         <p class="meter-value" id="stat-ready">0</p>
-      </div>
-      <div class="meter">
-        <p class="meter-label">Solution packs</p>
-        <p class="meter-value" id="stat-packs">0</p>
-      </div>
-      <div class="meter">
-        <p class="meter-label">Ожидаемая ценность</p>
-        <p class="meter-value accent" id="stat-expected">—</p>
       </div>
     </section>
 

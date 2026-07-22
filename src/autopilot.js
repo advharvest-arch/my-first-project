@@ -1,81 +1,59 @@
 #!/usr/bin/env node
 /**
- * Autopilot daemon: периодический scout → cycle.
- * Не публикует ответы сам — только готовит планы и solution-пакеты.
- *
- *   node src/autopilot.js
- *   node src/autopilot.js --once
- *   INTERVAL_SEC=300 node src/autopilot.js
+ * Автопилот заработка:
+ *   Scout → Products → Auto-sales → Revenue
  */
-
 import { getFreshNeeds } from "./scout.js";
-import { runNeedsCycle, formatMoney, getDashboard } from "./engine.js";
+import { syncCatalogFromNeeds } from "./products.js";
+import { runAutoSales, getCommerceDashboard } from "./commerce.js";
 import { getConfig } from "./config.js";
+import { runNeedsCycle, formatMoney } from "./engine.js";
 
 const once = process.argv.includes("--once");
 
+function money(n) {
+  return formatMoney(n);
+}
+
 async function tick() {
   const cfg = getConfig();
-  const started = Date.now();
-  console.log(`\n── cycle ${new Date().toISOString()} ──`);
+  console.log(`\n── auto-earn ${new Date().toISOString()} ──`);
 
   const scout = await getFreshNeeds({ force: true });
-  console.log(
-    `scout: ${scout.count} needs` +
-      (scout.bySource
-        ? ` [${Object.entries(scout.bySource)
-            .map(([k, v]) => `${k}:${v}`)
-            .join(", ")}]`
-        : "")
-  );
-  if (scout.errors?.length) {
-    for (const e of scout.errors) console.log(`  ! ${e.source}: ${e.error}`);
-  }
+  console.log(`needs: ${scout.count}`);
 
-  const report = runNeedsCycle(scout.needs || [], {
-    maxPlansPerCycle: cfg.autopilot?.maxPlansPerCycle ?? 25,
+  // параллельно: планы удовлетворения (опционально) + каталог продуктов
+  runNeedsCycle(scout.needs || [], { maxPlansPerCycle: cfg.autopilot?.maxPlansPerCycle ?? 10 });
+  const sync = syncCatalogFromNeeds(scout.needs || [], {
+    maxNew: cfg.commerce?.maxNewProductsPerCycle ?? 6,
   });
+  console.log(`products: +${sync.created} new, ${sync.refreshed} refreshed, catalog=${sync.catalog.products.length}`);
 
-  console.log(
-    `plans: +${report.planned}  skip: ${report.skipped}  deferred: ${report.deferred || 0}  value: ${formatMoney(
-      report.expectedThisCycle
-    )}`
-  );
-
-  const top = report.results
-    .filter((r) => r.action === "fulfill_plan")
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
-  for (const r of top) {
-    console.log(`  • [${r.mode}] ${r.score}  ${r.title.slice(0, 70)}`);
-    if (r.solutionFile) console.log(`    → workspace/solutions/${r.solutionFile}`);
+  const sales = runAutoSales({ maxSales: cfg.commerce?.maxAutoSalesPerCycle ?? 4 });
+  console.log(`autosales: ${sales.sold.length} orders, +${money(sales.revenue)} (mode=${sales.mode})`);
+  for (const s of sales.sold) {
+    console.log(`  💰 ${money(s.order.amount)} ← ${s.order.productTitle.slice(0, 60)}`);
   }
 
-  const dash = getDashboard();
+  const dash = getCommerceDashboard();
   console.log(
-    `totals: needs=${dash.stats.needsSeen} ready=${dash.stats.fulfillmentsReady} packs=${dash.stats.solutionPacks} expected=${formatMoney(
-      dash.stats.expectedRevenueTotal
-    )} (${Date.now() - started}ms)`
+    `totals: revenue=${money(dash.stats.grossRevenue)} paid_orders=${dash.stats.ordersPaid} products=${dash.catalogCount}`
   );
-  return report;
+  return { scout, sync, sales, dash };
 }
 
 async function main() {
   const cfg = getConfig();
   const intervalSec = Number(process.env.INTERVAL_SEC || cfg.autopilot?.intervalSec || 900);
-
-  console.log("AdvHarvest Autopilot daemon");
-  console.log(`interval: ${intervalSec}s · once=${once}`);
+  console.log("AdvHarvest AUTO-EARN");
+  console.log(`mode=${process.env.COMMERCE_MODE || cfg.commerce?.mode || "auto"} interval=${intervalSec}s`);
 
   await tick();
   if (once) return;
-
-  setInterval(() => {
-    tick().catch((err) => console.error("cycle error:", err.message || err));
-  }, intervalSec * 1000);
+  setInterval(() => tick().catch((e) => console.error(e)), intervalSec * 1000);
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((e) => {
+  console.error(e);
   process.exit(1);
 });
