@@ -7,8 +7,8 @@ type Props = {
 
 export function NetWorthChart({ results, colors }: Props) {
   const width = 960;
-  const height = 460;
-  const pad = { top: 24, right: 24, bottom: 40, left: 72 };
+  const height = 520;
+  const pad = { top: 28, right: 170, bottom: 44, left: 78 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
 
@@ -39,6 +39,15 @@ export function NetWorthChart({ results, colors }: Props) {
       role="img"
       aria-label="График реального капитала по годам — все сценарии"
     >
+      <text
+        x={pad.left}
+        y={18}
+        fill="rgba(183,196,188,0.95)"
+        fontSize="12"
+      >
+        Реальный капитал, ₽ сегодня
+      </text>
+
       {ticks.map((tick) => (
         <g key={tick}>
           <line
@@ -64,7 +73,7 @@ export function NetWorthChart({ results, colors }: Props) {
         <text
           key={year}
           x={x(year)}
-          y={height - 12}
+          y={height - 14}
           textAnchor="middle"
           fill="rgba(183,196,188,0.9)"
           fontSize="12"
@@ -73,34 +82,47 @@ export function NetWorthChart({ results, colors }: Props) {
         </text>
       ))}
 
-      {results.map((result, i) => (
-        <g key={result.scenarioId}>
-          <path
-            d={pathFor(result)}
-            fill="none"
-            stroke={colors[i % colors.length]}
-            strokeWidth="3.2"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-          {result.years.map((pt) => (
-            <circle
-              key={`${result.scenarioId}-${pt.year}`}
-              cx={x(pt.year)}
-              cy={y(pt.realNetWorth)}
-              r="3.5"
-              fill={colors[i % colors.length]}
+      {results.map((result, i) => {
+        const last = result.years[result.years.length - 1];
+        return (
+          <g key={result.scenarioId}>
+            <path
+              d={pathFor(result)}
+              fill="none"
+              stroke={colors[i % colors.length]}
+              strokeWidth="3.2"
+              strokeLinejoin="round"
+              strokeLinecap="round"
             />
-          ))}
-        </g>
-      ))}
+            {result.years.map((pt) => (
+              <circle
+                key={`${result.scenarioId}-${pt.year}`}
+                cx={x(pt.year)}
+                cy={y(pt.realNetWorth)}
+                r="3.5"
+                fill={colors[i % colors.length]}
+              />
+            ))}
+            <text
+              x={x(last.year) + 10}
+              y={y(last.realNetWorth) + 4}
+              fill={colors[i % colors.length]}
+              fontSize="12"
+              fontWeight="600"
+            >
+              {formatCompact(last.realNetWorth)}
+            </text>
+          </g>
+        );
+      })}
     </svg>
   );
 }
 
 function formatCompact(value: number): string {
+  const sign = value < 0 ? '−' : '';
   const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}м`;
-  if (abs >= 1_000) return `${Math.round(value / 1_000)}к`;
-  return `${Math.round(value)}`;
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)} млн`;
+  if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)} тыс`;
+  return `${sign}${Math.round(abs)}`;
 }

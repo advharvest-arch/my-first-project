@@ -260,6 +260,21 @@ input:focus {
   animation: pulseIn 900ms ease both;
 }
 
+.inflation-box {
+  margin-top: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(224, 122, 122, 0.35);
+  background: rgba(224, 122, 122, 0.12);
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.inflation-box strong {
+  color: #f0b4b4;
+}
+
 .chart-wrap {
   margin-top: 1rem;
   overflow-x: auto;
@@ -271,8 +286,8 @@ input:focus {
 
 .chart {
   width: 100%;
-  min-width: 640px;
-  height: clamp(320px, 48vw, 480px);
+  min-width: 720px;
+  height: clamp(380px, 52vw, 560px);
   display: block;
 }
 

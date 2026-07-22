@@ -114,7 +114,28 @@ export default function App() {
     [profile, allScenarios, settings],
   );
 
+  const zeroInflationResults: ScenarioResult[] = useMemo(
+    () =>
+      allScenarios.map((s) =>
+        projectScenario(profile, s, {
+          ...settings,
+          annualInflationPercent: 0,
+        }),
+      ),
+    [profile, allScenarios, settings],
+  );
+
   const verdict = useMemo(() => compareScenarios(results), [results]);
+
+  const inflationImpact = useMemo(() => {
+    const withInf = Math.max(...results.map((r) => r.finalRealNetWorth));
+    const noInf = Math.max(
+      ...zeroInflationResults.map((r) => r.finalRealNetWorth),
+    );
+    const eaten = noInf - withInf;
+    const pct = noInf !== 0 ? (eaten / Math.abs(noInf)) * 100 : 0;
+    return { withInf, noInf, eaten, pct };
+  }, [results, zeroInflationResults]);
 
   function persist(
     nextProfile = profile,
@@ -222,6 +243,17 @@ export default function App() {
               общая, из профиля.
             </p>
             <div className="verdict">{verdict.message}</div>
+            <div className="inflation-box">
+              <strong>Эффект инфляции {settings.annualInflationPercent}%:</strong>{' '}
+              без инфляции лучший итог был бы {formatRub(inflationImpact.noInf)}, 
+              сейчас {formatRub(inflationImpact.withInf)}
+              {inflationImpact.eaten > 0
+                ? ` — инфляция «съела» ${formatRub(inflationImpact.eaten)} (${inflationImpact.pct.toFixed(0)}%)`
+                : inflationImpact.eaten < 0
+                  ? ` — при нулевой инфляции было бы меньше`
+                  : ' — при 0% инфляции итог тот же'}
+              .
+            </div>
             {results.some((r) => r.meta?.boughtAtMonth !== undefined) && (
               <p className="hint">
                 {results
