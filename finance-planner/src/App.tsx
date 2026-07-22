@@ -6,15 +6,15 @@ import {
   DEFAULT_SETTINGS,
   projectScenario,
   type BaselineProfile,
-  type JobOfferEvent,
   type MortgageEvent,
   type ProjectionSettings,
+  type RentAndSaveEvent,
   type Scenario,
   type ScenarioResult,
 } from './engine/types';
 import { NetWorthChart } from './components/NetWorthChart';
 
-const STORAGE_KEY = 'esli-finance-mvp-v1';
+const STORAGE_KEY = 'esli-finance-mvp-v2';
 
 type StoredState = {
   profile: BaselineProfile;
@@ -33,12 +33,16 @@ function loadState(): StoredState {
       };
     }
     const parsed = JSON.parse(raw) as StoredState;
+    const scenarios = parsed.scenarios?.length
+      ? parsed.scenarios
+      : buildDefaultScenarios();
+    const hasRent = scenarios.some((s) =>
+      s.events.some((e) => e.type === 'rent_and_save'),
+    );
     return {
       profile: { ...DEFAULT_PROFILE, ...parsed.profile },
       settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
-      scenarios: parsed.scenarios?.length
-        ? parsed.scenarios
-        : buildDefaultScenarios(),
+      scenarios: hasRent ? scenarios : buildDefaultScenarios(),
     };
   } catch {
     return {
@@ -115,18 +119,18 @@ export default function App() {
     persist(profile, next, scenarios);
   }
 
-  function updateJobOffer(patch: Partial<JobOfferEvent>) {
+  function updateRentAndSave(patch: Partial<RentAndSaveEvent>) {
     const next = scenarios.map((s) => {
-      if (s.id !== 'offer') return s;
-      const current = s.events.find((e) => e.type === 'job_offer') as
-        | JobOfferEvent
+      if (s.id !== 'rent_save') return s;
+      const current = s.events.find((e) => e.type === 'rent_and_save') as
+        | RentAndSaveEvent
         | undefined;
-      const event: JobOfferEvent = {
-        type: 'job_offer',
+      const event: RentAndSaveEvent = {
+        type: 'rent_and_save',
         startMonth: 0,
-        newMonthlyNetIncome: 250_000,
-        relocationCost: 0,
-        monthlyExpenseDelta: 0,
+        monthlyRent: 55_000,
+        bankDepositAnnualRatePercent: 16,
+        moveInCost: 0,
         ...current,
         ...patch,
       };
@@ -165,9 +169,11 @@ export default function App() {
     return (e) => setter(numberFromInput(e.target.value));
   }
 
-  const offer = scenarios
-    .find((s) => s.id === 'offer')
-    ?.events.find((e) => e.type === 'job_offer') as JobOfferEvent | undefined;
+  const rentSave = scenarios
+    .find((s) => s.id === 'rent_save')
+    ?.events.find((e) => e.type === 'rent_and_save') as
+    | RentAndSaveEvent
+    | undefined;
   const mortgage = scenarios
     .find((s) => s.id === 'mortgage')
     ?.events.find((e) => e.type === 'mortgage') as MortgageEvent | undefined;
@@ -179,8 +185,8 @@ export default function App() {
           Если<span>.</span>
         </h1>
         <p className="lede">
-          Симулятор решений: оффер, ипотека или ничего не менять. Считаем капитал
-          на 5–10 лет — без банков и без подписки.
+          Снимать жильё и копить во вкладе — или взять ипотеку? Считаем капитал
+          на 5–10 лет рядом.
         </p>
         {!started && (
           <div className="cta-row">
@@ -198,7 +204,11 @@ export default function App() {
                 setProfile(DEFAULT_PROFILE);
                 setSettings(DEFAULT_SETTINGS);
                 setScenarios(buildDefaultScenarios());
-                persist(DEFAULT_PROFILE, DEFAULT_SETTINGS, buildDefaultScenarios());
+                persist(
+                  DEFAULT_PROFILE,
+                  DEFAULT_SETTINGS,
+                  buildDefaultScenarios(),
+                );
                 setStarted(true);
               }}
             >
@@ -214,7 +224,8 @@ export default function App() {
             <section className="panel">
               <h2>Профиль</h2>
               <p className="hint">
-                Вводите уже чистый доход после налогов. MVP не считает НДФЛ.
+                Расходы — без аренды и ипотеки. Жильё задаётся в сценариях.
+                Доход — уже чистый после налогов.
               </p>
               <div className="fields two">
                 <label>
@@ -236,7 +247,7 @@ export default function App() {
                   />
                 </label>
                 <label>
-                  Расходы / мес
+                  Расходы без жилья / мес
                   <input
                     type="number"
                     value={profile.monthlyExpenses}
@@ -246,7 +257,7 @@ export default function App() {
                   />
                 </label>
                 <label>
-                  Кэш + инвестиции
+                  Кэш + накопления
                   <input
                     type="number"
                     value={profile.liquidAssets}
@@ -269,7 +280,7 @@ export default function App() {
                   />
                 </label>
                 <label>
-                  Доходность инвестиций % / год
+                  Доходность капитала % / год
                   <input
                     type="number"
                     step="0.1"
@@ -295,7 +306,10 @@ export default function App() {
 
             <section className="panel">
               <h2>Сценарии</h2>
-              <p className="hint">Три пути рядом. Меняйте допущения — график обновится.</p>
+              <p className="hint">
+                Три пути рядом. В сценарии вклада ставка банка перекрывает
+                общую доходность капитала.
+              </p>
               <div className="scenario-list">
                 <article className="scenario">
                   <header>
@@ -303,43 +317,47 @@ export default function App() {
                     <span className="tag">база</span>
                   </header>
                   <p className="hint" style={{ margin: 0 }}>
-                    Текущий доход и расходы без крупных решений.
+                    Без аренды и ипотеки в модели — только текущие расходы и рост
+                    капитала.
                   </p>
                 </article>
 
                 <article className="scenario">
                   <header>
-                    <h3>Принять оффер</h3>
-                    <span className="tag">работа</span>
+                    <h3>Снимать и копить во вкладе</h3>
+                    <span className="tag">аренда</span>
                   </header>
                   <div className="fields two">
                     <label>
-                      Новый чистый доход
+                      Аренда / мес
                       <input
                         type="number"
-                        value={offer?.newMonthlyNetIncome ?? 0}
+                        value={rentSave?.monthlyRent ?? 0}
                         onChange={onMoney((n) =>
-                          updateJobOffer({ newMonthlyNetIncome: n }),
+                          updateRentAndSave({ monthlyRent: n }),
                         )}
                       />
                     </label>
                     <label>
-                      Разовый переезд / затраты
+                      Ставка вклада % / год
                       <input
                         type="number"
-                        value={offer?.relocationCost ?? 0}
+                        step="0.1"
+                        value={rentSave?.bankDepositAnnualRatePercent ?? 0}
                         onChange={onMoney((n) =>
-                          updateJobOffer({ relocationCost: n }),
+                          updateRentAndSave({
+                            bankDepositAnnualRatePercent: n,
+                          }),
                         )}
                       />
                     </label>
                     <label>
-                      Дельта расходов / мес
+                      Разовый заезд (залог и т.п.)
                       <input
                         type="number"
-                        value={offer?.monthlyExpenseDelta ?? 0}
+                        value={rentSave?.moveInCost ?? 0}
                         onChange={onMoney((n) =>
-                          updateJobOffer({ monthlyExpenseDelta: n }),
+                          updateRentAndSave({ moveInCost: n }),
                         )}
                       />
                     </label>
@@ -349,7 +367,7 @@ export default function App() {
                 <article className="scenario">
                   <header>
                     <h3>Взять ипотеку</h3>
-                    <span className="tag">жильё</span>
+                    <span className="tag">покупка</span>
                   </header>
                   <div className="fields two">
                     <label>
@@ -373,7 +391,7 @@ export default function App() {
                       />
                     </label>
                     <label>
-                      Ставка % годовых
+                      Ставка ипотеки % / год
                       <input
                         type="number"
                         step="0.1"
@@ -415,7 +433,7 @@ export default function App() {
           <section className="panel">
             <h2>Сравнение</h2>
             <p className="hint">
-              Net worth = ликвидные активы + капитал в жилье − долги.
+              Net worth = накопления + капитал в жилье − долги.
             </p>
             <div className="verdict">{verdict.message}</div>
             <div className="chart-wrap">
@@ -457,9 +475,9 @@ export default function App() {
               })}
             </div>
             <p className="assumptions">
-              Допущения MVP: доход уже чистый; инвестиции растут равномерно;
-              ипотека — аннуитет; инфляция используется для «реального» капитала
-              в движке. Не финансовый совет.
+              Допущения: доход чистый; в сценарии аренды деньги растут по ставке
+              вклада; ипотека — аннуитет; расходы профиля без жилья. Не
+              финансовый совет.
             </p>
           </section>
         </div>

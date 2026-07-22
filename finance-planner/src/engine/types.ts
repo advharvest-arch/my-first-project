@@ -3,19 +3,22 @@ export type Money = number;
 export interface BaselineProfile {
   currentAge: number;
   monthlyNetIncome: Money;
+  /** Living costs without housing (rent / mortgage payment). */
   monthlyExpenses: Money;
   liquidAssets: Money;
   existingDebtBalance: Money;
   existingDebtMonthlyPayment: Money;
 }
 
-export type JobOfferEvent = {
-  type: 'job_offer';
-  /** Month index when offer starts (0 = now) */
+/** Rent housing and grow savings on a bank deposit. */
+export type RentAndSaveEvent = {
+  type: 'rent_and_save';
   startMonth: number;
-  newMonthlyNetIncome: Money;
-  relocationCost: Money;
-  monthlyExpenseDelta: Money;
+  monthlyRent: Money;
+  /** Deposit / savings account rate, % per year. */
+  bankDepositAnnualRatePercent: number;
+  /** One-time move-in: deposit, agent, first month, etc. */
+  moveInCost: Money;
 };
 
 export type MortgageEvent = {
@@ -28,7 +31,7 @@ export type MortgageEvent = {
   annualAppreciationPercent: number;
 };
 
-export type ScenarioEvent = JobOfferEvent | MortgageEvent;
+export type ScenarioEvent = RentAndSaveEvent | MortgageEvent;
 
 export interface Scenario {
   id: string;
@@ -38,6 +41,7 @@ export interface Scenario {
 
 export interface ProjectionSettings {
   horizonYears: number;
+  /** Default growth for liquid assets when scenario does not override (e.g. mortgage path). */
   annualInvestmentReturnPercent: number;
   annualInflationPercent: number;
 }
@@ -93,11 +97,13 @@ export function projectScenario(
   settings: ProjectionSettings,
 ): ScenarioResult {
   const totalMonths = Math.max(1, settings.horizonYears) * MONTHS_IN_YEAR;
-  const rMonth = settings.annualInvestmentReturnPercent / 100 / MONTHS_IN_YEAR;
+  const defaultLiquidRateMonth =
+    settings.annualInvestmentReturnPercent / 100 / MONTHS_IN_YEAR;
   const gInflationMonth = settings.annualInflationPercent / 100 / MONTHS_IN_YEAR;
 
-  let income = profile.monthlyNetIncome;
-  let expenses = profile.monthlyExpenses;
+  const income = profile.monthlyNetIncome;
+  let housingCost = 0;
+  let liquidRateMonth = defaultLiquidRateMonth;
   let liquid = profile.liquidAssets;
   let otherDebt = Math.max(0, profile.existingDebtBalance);
   const otherDebtPayment = Math.max(0, profile.existingDebtMonthlyPayment);
@@ -111,7 +117,6 @@ export function projectScenario(
 
   const years: YearSnapshot[] = [];
 
-  // Year 0 snapshot (before simulation)
   years.push({
     year: 0,
     age: profile.currentAge,
@@ -126,10 +131,11 @@ export function projectScenario(
     for (const event of scenario.events) {
       if (event.startMonth !== month) continue;
 
-      if (event.type === 'job_offer') {
-        income = event.newMonthlyNetIncome;
-        expenses = profile.monthlyExpenses + event.monthlyExpenseDelta;
-        liquid -= event.relocationCost;
+      if (event.type === 'rent_and_save') {
+        housingCost = event.monthlyRent;
+        liquidRateMonth =
+          event.bankDepositAnnualRatePercent / 100 / MONTHS_IN_YEAR;
+        liquid -= event.moveInCost;
       }
 
       if (event.type === 'mortgage') {
@@ -146,6 +152,7 @@ export function projectScenario(
         homeAppreciationMonth =
           event.annualAppreciationPercent / 100 / MONTHS_IN_YEAR;
         mortgageActive = loan > 0 || event.downPayment > 0;
+        housingCost = 0;
       }
     }
 
@@ -171,8 +178,9 @@ export function projectScenario(
       homeValue *= 1 + homeAppreciationMonth;
     }
 
-    const surplus = income - expenses - mPay - debtPay;
-    liquid = (liquid + surplus) * (1 + rMonth);
+    const surplus =
+      income - profile.monthlyExpenses - housingCost - mPay - debtPay;
+    liquid = (liquid + surplus) * (1 + liquidRateMonth);
 
     const homeEquity = mortgageActive
       ? Math.max(0, homeValue - mortgagePrincipal)
@@ -245,7 +253,7 @@ export function compareScenarios(
 export const DEFAULT_PROFILE: BaselineProfile = {
   currentAge: 32,
   monthlyNetIncome: 180_000,
-  monthlyExpenses: 110_000,
+  monthlyExpenses: 70_000,
   liquidAssets: 3_500_000,
   existingDebtBalance: 0,
   existingDebtMonthlyPayment: 0,
@@ -265,15 +273,15 @@ export function buildDefaultScenarios(): Scenario[] {
       events: [],
     },
     {
-      id: 'offer',
-      name: 'Принять оффер',
+      id: 'rent_save',
+      name: 'Снимать и копить во вкладе',
       events: [
         {
-          type: 'job_offer',
+          type: 'rent_and_save',
           startMonth: 0,
-          newMonthlyNetIncome: 250_000,
-          relocationCost: 150_000,
-          monthlyExpenseDelta: 20_000,
+          monthlyRent: 55_000,
+          bankDepositAnnualRatePercent: 16,
+          moveInCost: 110_000,
         },
       ],
     },

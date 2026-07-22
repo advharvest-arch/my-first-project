@@ -34,19 +34,40 @@ describe('projectScenario', () => {
     expect(result.finalNetWorth).toBeGreaterThan(DEFAULT_PROFILE.liquidAssets);
   });
 
-  it('applies job offer income and relocation cost', () => {
-    const scenarios = buildDefaultScenarios();
-    const offer = scenarios.find((s) => s.id === 'offer')!;
-    const baseline = scenarios.find((s) => s.id === 'baseline')!;
+  it('applies rent and grows savings at bank deposit rate', () => {
+    const profile: BaselineProfile = {
+      ...DEFAULT_PROFILE,
+      monthlyNetIncome: 200_000,
+      monthlyExpenses: 50_000,
+      liquidAssets: 1_000_000,
+    };
+    const scenario: Scenario = {
+      id: 'rent_save',
+      name: 'Снимать и копить',
+      events: [
+        {
+          type: 'rent_and_save',
+          startMonth: 0,
+          monthlyRent: 40_000,
+          bankDepositAnnualRatePercent: 12,
+          moveInCost: 80_000,
+        },
+      ],
+    };
 
-    const offerResult = projectScenario(DEFAULT_PROFILE, offer, DEFAULT_SETTINGS);
-    const baseResult = projectScenario(
-      DEFAULT_PROFILE,
-      baseline,
-      DEFAULT_SETTINGS,
-    );
+    const result = projectScenario(profile, scenario, {
+      ...DEFAULT_SETTINGS,
+      horizonYears: 1,
+      annualInvestmentReturnPercent: 0,
+      annualInflationPercent: 0,
+    });
 
-    expect(offerResult.finalNetWorth).toBeGreaterThan(baseResult.finalNetWorth);
+    // After move-in: 1_000_000 - 80_000 = 920_000
+    // Monthly surplus: 200_000 - 50_000 - 40_000 = 110_000
+    // Grow at 12%/yr monthly for 12 months
+    expect(result.years[1].homeEquity).toBe(0);
+    expect(result.finalNetWorth).toBeGreaterThan(920_000 + 110_000 * 12);
+    expect(result.finalNetWorth).toBeLessThan(2_500_000);
   });
 
   it('reduces liquid by down payment and builds home equity', () => {
