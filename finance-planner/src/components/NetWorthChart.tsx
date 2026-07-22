@@ -6,9 +6,9 @@ type Props = {
 };
 
 export function NetWorthChart({ results, colors }: Props) {
-  const width = 560;
-  const height = 220;
-  const pad = { top: 16, right: 16, bottom: 28, left: 52 };
+  const width = 960;
+  const height = 460;
+  const pad = { top: 24, right: 24, bottom: 40, left: 72 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
 
@@ -30,7 +30,12 @@ export function NetWorthChart({ results, colors }: Props) {
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => minY + spanY * t);
 
   return (
-    <svg className="chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="График капитала по годам">
+    <svg
+      className="chart"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="График капитала по годам — все сценарии"
+    >
       {ticks.map((tick) => (
         <g key={tick}>
           <line
@@ -41,11 +46,11 @@ export function NetWorthChart({ results, colors }: Props) {
             stroke="rgba(243,239,230,0.1)"
           />
           <text
-            x={pad.left - 8}
+            x={pad.left - 10}
             y={y(tick) + 4}
             textAnchor="end"
             fill="rgba(183,196,188,0.9)"
-            fontSize="10"
+            fontSize="12"
           >
             {formatCompact(tick)}
           </text>
@@ -56,25 +61,35 @@ export function NetWorthChart({ results, colors }: Props) {
         <text
           key={year}
           x={x(year)}
-          y={height - 8}
+          y={height - 12}
           textAnchor="middle"
           fill="rgba(183,196,188,0.9)"
-          fontSize="10"
+          fontSize="12"
         >
           {year === 0 ? 'сейчас' : `${year}г`}
         </text>
       ))}
 
       {results.map((result, i) => (
-        <path
-          key={result.scenarioId}
-          d={pathFor(result)}
-          fill="none"
-          stroke={colors[i % colors.length]}
-          strokeWidth="2.5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
+        <g key={result.scenarioId}>
+          <path
+            d={pathFor(result)}
+            fill="none"
+            stroke={colors[i % colors.length]}
+            strokeWidth="3.2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          {result.years.map((pt) => (
+            <circle
+              key={`${result.scenarioId}-${pt.year}`}
+              cx={x(pt.year)}
+              cy={y(pt.netWorth)}
+              r="3.5"
+              fill={colors[i % colors.length]}
+            />
+          ))}
+        </g>
       ))}
     </svg>
   );
