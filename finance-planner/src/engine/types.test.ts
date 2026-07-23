@@ -62,7 +62,7 @@ describe('no_home scenarios', () => {
 
     const shortRent = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
-      horizonYears: 2,
+      horizonYears: 3,
       bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
@@ -70,7 +70,7 @@ describe('no_home scenarios', () => {
     event.rentMonths = 24;
     const longRent = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
-      horizonYears: 2,
+      horizonYears: 3,
       bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
