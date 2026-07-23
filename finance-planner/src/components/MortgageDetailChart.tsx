@@ -18,13 +18,23 @@ export function MortgageDetailChart({
   const innerH = height - pad.top - pad.bottom;
 
   const allPoints = series.flatMap((s) =>
-    s.points.map((p) => p[metric]),
+    s.points
+      .filter((p) =>
+        metric === 'realNetWorth' ? p.year <= s.wealthHorizonYears : true,
+      )
+      .map((p) => p[metric]),
   );
   const minY = Math.min(0, ...allPoints);
   const maxY = Math.max(...allPoints, 1);
   const spanY = maxY - minY || 1;
   const maxYear = Math.max(
-    ...series.map((s) => s.points.at(-1)?.year ?? 0),
+    ...series.map((s) => {
+      const pts =
+        metric === 'realNetWorth'
+          ? s.points.filter((p) => p.year <= s.wealthHorizonYears)
+          : s.points;
+      return pts.at(-1)?.year ?? 0;
+    }),
     1,
   );
 
@@ -85,15 +95,23 @@ export function MortgageDetailChart({
 
       {series.map((result, i) => {
         const color = colors[i % colors.length];
-        const d = result.points
+        const pts =
+          metric === 'realNetWorth'
+            ? result.points.filter((p) => p.year <= result.wealthHorizonYears)
+            : result.points;
+        const d = pts
           .map(
             (pt, idx) =>
               `${idx === 0 ? 'M' : 'L'} ${x(pt.year).toFixed(1)} ${y(pt[metric]).toFixed(1)}`,
           )
           .join(' ');
-        const last = result.points[result.points.length - 1];
+        const last = pts[pts.length - 1];
+        const shortLabel =
+          result.label.length > 28
+            ? `${result.label.slice(0, 26)}…`
+            : result.label;
         return (
-          <g key={result.label}>
+          <g key={result.id}>
             <path
               d={d}
               fill="none"
@@ -106,10 +124,18 @@ export function MortgageDetailChart({
               x={x(last.year) + 8}
               y={y(last[metric]) + 4}
               fill={color}
-              fontSize="12"
+              fontSize="11"
               fontWeight="600"
             >
               {formatCompact(last[metric])}
+            </text>
+            <text
+              x={pad.left + innerW + 8}
+              y={pad.top + 18 + i * 18}
+              fill={color}
+              fontSize="11"
+            >
+              {shortLabel}
             </text>
           </g>
         );

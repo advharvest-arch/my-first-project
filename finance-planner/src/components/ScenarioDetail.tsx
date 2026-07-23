@@ -1,5 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import {
+  annuityPayment,
   type BaselineProfile,
   type BuyToLetMortgageEvent,
   type HousingMode,
@@ -12,11 +13,13 @@ import {
   type ScenarioResult,
 } from '../engine/types';
 import {
-  compareMortgageStrategies,
-  DEFAULT_EARLY_PLAN,
+  buildSharedMortgageBase,
+  compareMortgageVariants,
+  loanAmount,
+  suggestedExtraToMatchPayment,
   type EarlyPayMode,
   type EarlyPaymentPlan,
-  type MortgageDetailParams,
+  type MortgageVariantSpec,
 } from '../engine/mortgageDetail';
 import { NetWorthChart } from './NetWorthChart';
 import { MortgageDetailChart } from './MortgageDetailChart';
@@ -361,191 +364,311 @@ function MortgageLab({
   settings: ProjectionSettings;
   event: OffplanMortgageEvent | BuyToLetMortgageEvent;
 }) {
-  const [termYears, setTermYears] = useState(event.termYears);
-  const [extraMonthly, setExtraMonthly] = useState(20_000);
-  const [extraStartMonth, setExtraStartMonth] = useState(0);
+  const shared = useMemo(() => buildSharedMortgageBase(event), [event]);
+  const loan = loanAmount(shared);
+
+  const [longTermYears, setLongTermYears] = useState(30);
+  const [shortTermYears, setShortTermYears] = useState(15);
+  const [extraMonthly, setExtraMonthly] = useState(() =>
+    suggestedExtraToMatchPayment(
+      Math.max(0, event.propertyPrice - event.downPayment),
+      event.annualRatePercent,
+      30,
+      15,
+    ),
+  );
+  const [mode, setMode] = useState<EarlyPayMode>('reduce_term');
   const [lumpSumAmount, setLumpSumAmount] = useState(0);
   const [lumpSumMonth, setLumpSumMonth] = useState(12);
-  const [mode, setMode] = useState<EarlyPayMode>('reduce_term');
+  const [showThird, setShowThird] = useState(true);
   const [chartMetric, setChartMetric] = useState<
     'realNetWorth' | 'principalRemaining'
   >('principalRemaining');
 
-  const early: EarlyPaymentPlan = {
+  const longPay = annuityPayment(loan, event.annualRatePercent, longTermYears);
+  const shortPay = annuityPayment(loan, event.annualRatePercent, shortTermYears);
+  const matchExtra = suggestedExtraToMatchPayment(
+    loan,
+    event.annualRatePercent,
+    longTermYears,
+    shortTermYears,
+  );
+
+  const earlyA: EarlyPaymentPlan = {
     monthlyExtra: extraMonthly,
-    monthlyExtraStartMonth: extraStartMonth,
+    monthlyExtraStartMonth: 0,
     lumpSumAmount,
     lumpSumMonth,
     mode,
   };
 
-  const baseParams: MortgageDetailParams = useMemo(() => {
-    if (event.type === 'offplan_mortgage') {
-      return {
-        propertyPrice: event.propertyPrice,
-        downPayment: event.downPayment,
-        annualRatePercent: event.annualRatePercent,
-        termYears,
-        annualAppreciationPercent: event.annualAppreciationPercent,
-        rentMonths: event.rentMonths,
-        monthlyRent: event.monthlyRentUntilMoveIn,
-        moveInCost: event.moveInCost,
-        monthlyRentIncome: 0,
-        early,
-      };
+  const variants: MortgageVariantSpec[] = useMemo(() => {
+    const modeLabel =
+      mode === 'reduce_term'
+        ? 'досрочка на сокращение срока'
+        : 'досрочка на уменьшение платежа';
+    const list: MortgageVariantSpec[] = [
+      {
+        id: 'long-extra',
+        label: `Вариант 1: ${longTermYears} лет + досрочка`,
+        note: `Аннуитет ${formatRub(longPay)} + ${formatRub(extraMonthly)}/мес (${modeLabel})`,
+        termYears: longTermYears,
+        early: earlyA,
+      },
+      {
+        id: 'short-plain',
+        label: `Вариант 2: ${shortTermYears} лет по графику`,
+        note: `Только аннуитет ${formatRub(shortPay)}, без досрочных`,
+        termYears: shortTermYears,
+        early: {
+          monthlyExtra: 0,
+          monthlyExtraStartMonth: 0,
+          lumpSumAmount: 0,
+          lumpSumMonth: 12,
+          mode: 'reduce_term',
+        },
+      },
+    ];
+    if (showThird) {
+      list.push({
+        id: 'long-plain',
+        label: `Контроль: ${longTermYears} лет без досрочки`,
+        note: `Только аннуитет ${formatRub(longPay)} — чтобы видеть эффект досрочки`,
+        termYears: longTermYears,
+        early: {
+          monthlyExtra: 0,
+          monthlyExtraStartMonth: 0,
+          lumpSumAmount: 0,
+          lumpSumMonth: 12,
+          mode: 'reduce_term',
+        },
+      });
     }
-    return {
-      propertyPrice: event.propertyPrice,
-      downPayment: event.downPayment,
-      annualRatePercent: event.annualRatePercent,
-      termYears,
-      annualAppreciationPercent: event.annualAppreciationPercent,
-      rentMonths: 0,
-      monthlyRent: 0,
-      moveInCost: 0,
-      monthlyRentIncome: event.monthlyRentIncome,
-      early,
-    };
+    return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    event,
-    termYears,
+    longTermYears,
+    shortTermYears,
     extraMonthly,
-    extraStartMonth,
+    mode,
     lumpSumAmount,
     lumpSumMonth,
-    mode,
+    showThird,
+    longPay,
+    shortPay,
   ]);
 
   const comparison = useMemo(
-    () => compareMortgageStrategies(profile, settings, baseParams),
-    [profile, settings, baseParams],
+    () => compareMortgageVariants(profile, settings, shared, variants),
+    [profile, settings, shared, variants],
   );
 
-  const withEarly =
-    comparison.find((c) => c.label === 'С досрочкой') ?? comparison[0];
-  const baseline =
-    comparison.find((c) => c.label === 'Без досрочки') ?? comparison[0];
-
-  const spare =
-    profile.monthlyNetIncome -
-    profile.monthlyExpenses -
-    withEarly.scheduledPayment;
+  const variantA = comparison.find((c) => c.id === 'long-extra') ?? comparison[0];
+  const variantB =
+    comparison.find((c) => c.id === 'short-plain') ?? comparison[1];
+  const winnerByInterest =
+    variantA.totalInterestPaid <= variantB.totalInterestPaid ? variantA : variantB;
+  const interestDelta = Math.abs(
+    variantA.totalInterestPaid - variantB.totalInterestPaid,
+  );
+  const cashDelta = variantA.firstMonthCash - variantB.firstMonthCash;
 
   return (
     <section className="panel mortgage-lab">
-      <h3>Лаборатория ипотеки</h3>
+      <h3>Ипотечный калькулятор: сравнение вариантов</h3>
       <p className="hint">
-        Подберите срок и досрочные платежи: когда вносить, сколько и что выгоднее —
-        сократить срок или снизить ежемесячный платёж.
+        Классический выбор: длинный срок с ежемесячной досрочкой против короткого
+        срока строго по графику. Досрочка всегда уменьшает основной долг; дальше
+        банк либо сокращает срок, либо пересчитывает платёж.
       </p>
 
-      <div className="fields three lab-controls">
-        <label>
-          Срок кредита, лет
-          <input
-            type="number"
-            min={1}
-            max={40}
-            value={termYears}
-            onChange={(e) => {
-              const n = readNumber(e);
-              if (n !== null) setTermYears(Math.max(1, Math.round(n)));
-            }}
-          />
-        </label>
-        <label>
-          Ежемесячная досрочка, ₽
-          <input
-            type="number"
-            min={0}
-            step={1000}
-            value={extraMonthly}
-            onChange={(e) => {
-              const n = readNumber(e);
-              if (n !== null) setExtraMonthly(Math.max(0, n));
-            }}
-          />
-        </label>
-        <label>
-          Досрочка с месяца №
-          <input
-            type="number"
-            min={0}
-            value={extraStartMonth}
-            onChange={(e) => {
-              const n = readNumber(e);
-              if (n !== null) setExtraStartMonth(Math.max(0, Math.round(n)));
-            }}
-          />
-        </label>
-        <label>
-          Разовый платёж, ₽
-          <input
-            type="number"
-            min={0}
-            step={10000}
-            value={lumpSumAmount}
-            onChange={(e) => {
-              const n = readNumber(e);
-              if (n !== null) setLumpSumAmount(Math.max(0, n));
-            }}
-          />
-        </label>
-        <label>
-          Месяц разового платежа
-          <input
-            type="number"
-            min={0}
-            value={lumpSumMonth}
-            onChange={(e) => {
-              const n = readNumber(e);
-              if (n !== null) setLumpSumMonth(Math.max(0, Math.round(n)));
-            }}
-          />
-        </label>
-        <label>
-          Куда направить досрочку
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as EarlyPayMode)}
-          >
-            <option value="reduce_term">Сократить срок</option>
-            <option value="reduce_payment">Снизить платёж</option>
-          </select>
-        </label>
+      <div className="calc-loan-bar">
+        <div>
+          <span>Сумма кредита</span>
+          <strong>{formatRub(loan)}</strong>
+        </div>
+        <div>
+          <span>Ставка</span>
+          <strong>{event.annualRatePercent}% / год</strong>
+        </div>
+        <div>
+          <span>Тип платежей</span>
+          <strong>Аннуитет</strong>
+        </div>
       </div>
 
-      <p className="hint lab-spare">
-        После обычного платежа (~{formatRub(withEarly.scheduledPayment)}) свободно
-        около {formatRub(spare)} / мес (до аренды и инфляции расходов). Базовый
-        план без досрочки:{' '}
-        {baseline.payoffMonth != null
-          ? `закрытие на ${(baseline.payoffMonth / 12).toFixed(1)} году`
-          : 'не закрыта на горизонте'}
-        , переплата {formatRub(baseline.totalInterestPaid)}.
-      </p>
+      <div className="variant-grid">
+        <article className="variant-card">
+          <header>
+            <span className="variant-badge">Вариант 1</span>
+            <h4>Длинный срок + досрочка</h4>
+          </header>
+          <div className="fields two">
+            <label>
+              Срок ипотеки, лет
+              <input
+                type="number"
+                min={1}
+                max={40}
+                value={longTermYears}
+                onChange={(e) => {
+                  const n = readNumber(e);
+                  if (n !== null) setLongTermYears(Math.max(1, Math.round(n)));
+                }}
+              />
+            </label>
+            <label>
+              Платёж по графику
+              <input type="text" readOnly value={formatRub(longPay)} />
+            </label>
+            <label>
+              Дополнительно каждый месяц, ₽
+              <input
+                type="number"
+                min={0}
+                step={1000}
+                value={extraMonthly}
+                onChange={(e) => {
+                  const n = readNumber(e);
+                  if (n !== null) setExtraMonthly(Math.max(0, n));
+                }}
+              />
+            </label>
+            <label>
+              Куда идёт досрочка
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as EarlyPayMode)}
+              >
+                <option value="reduce_term">
+                  На сокращение срока (платёж тот же)
+                </option>
+                <option value="reduce_payment">
+                  На уменьшение платежа (срок тот же)
+                </option>
+              </select>
+            </label>
+            <label>
+              Разовый доп. платёж, ₽
+              <input
+                type="number"
+                min={0}
+                step={10000}
+                value={lumpSumAmount}
+                onChange={(e) => {
+                  const n = readNumber(e);
+                  if (n !== null) setLumpSumAmount(Math.max(0, n));
+                }}
+              />
+            </label>
+            <label>
+              Месяц разового платежа
+              <input
+                type="number"
+                min={0}
+                value={lumpSumMonth}
+                onChange={(e) => {
+                  const n = readNumber(e);
+                  if (n !== null) setLumpSumMonth(Math.max(0, Math.round(n)));
+                }}
+              />
+            </label>
+          </div>
+          <p className="hint">
+            Итого в первый месяц в банк:{' '}
+            <strong>{formatRub(variantA.firstMonthCash)}</strong>
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost calc-preset"
+            onClick={() => setExtraMonthly(matchExtra)}
+          >
+            Подобрать досрочку ≈ платежу варианта 2 ({formatRub(matchExtra)}/мес)
+          </button>
+        </article>
+
+        <article className="variant-card">
+          <header>
+            <span className="variant-badge alt">Вариант 2</span>
+            <h4>Короткий срок, только график</h4>
+          </header>
+          <div className="fields two">
+            <label>
+              Срок ипотеки, лет
+              <input
+                type="number"
+                min={1}
+                max={40}
+                value={shortTermYears}
+                onChange={(e) => {
+                  const n = readNumber(e);
+                  if (n !== null) setShortTermYears(Math.max(1, Math.round(n)));
+                }}
+              />
+            </label>
+            <label>
+              Платёж по графику
+              <input type="text" readOnly value={formatRub(shortPay)} />
+            </label>
+            <label>
+              Досрочные платежи
+              <input type="text" readOnly value="Нет — строго по графику" />
+            </label>
+            <label>
+              Итого в месяц в банк
+              <input type="text" readOnly value={formatRub(variantB.firstMonthCash)} />
+            </label>
+          </div>
+          <p className="hint">
+            Подходит, если готовы сразу платить высокий аннуитет и не хотите
+            зависеть от дисциплины досрочки.
+          </p>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={showThird}
+              onChange={(e) => setShowThird(e.target.checked)}
+            />
+            Показать контроль: {longTermYears} лет без досрочки
+          </label>
+        </article>
+      </div>
+
+      <div className="calc-verdict">
+        <strong>Итог сравнения:</strong> по переплате выгоднее «{winnerByInterest.label}»
+        — экономия {formatRub(interestDelta)} процентов.
+        {cashDelta > 0
+          ? ` В начале вариант 1 тяжелее по кассе на ${formatRub(cashDelta)}/мес.`
+          : cashDelta < 0
+            ? ` В начале вариант 1 легче по кассе на ${formatRub(Math.abs(cashDelta))}/мес.`
+            : ' Стартовый платёж почти одинаковый.'}{' '}
+        Закрытие: вариант 1 —{' '}
+        {variantA.payoffMonth != null
+          ? `${(variantA.payoffMonth / 12).toFixed(1)} лет`
+          : '—'}
+        , вариант 2 —{' '}
+        {variantB.payoffMonth != null
+          ? `${(variantB.payoffMonth / 12).toFixed(1)} лет`
+          : '—'}
+        .
+      </div>
 
       <div className="lab-kpis">
         <div>
-          <span>Платёж по графику</span>
-          <strong>{formatRub(withEarly.scheduledPayment)}</strong>
+          <span>Вариант 1 · платёж + досрочка</span>
+          <strong>{formatRub(variantA.firstMonthCash)}</strong>
         </div>
         <div>
-          <span>Переплата с досрочкой</span>
-          <strong>{formatRub(withEarly.totalInterestPaid)}</strong>
+          <span>Вариант 1 · переплата</span>
+          <strong>{formatRub(variantA.totalInterestPaid)}</strong>
         </div>
         <div>
-          <span>Закрытие</span>
-          <strong>
-            {withEarly.payoffMonth != null
-              ? `${withEarly.payoffMonth} мес. (${(withEarly.payoffMonth / 12).toFixed(1)} лет)`
-              : 'на горизонте не закрыта'}
-          </strong>
+          <span>Вариант 2 · платёж</span>
+          <strong>{formatRub(variantB.firstMonthCash)}</strong>
         </div>
         <div>
-          <span>Капитал в конце</span>
-          <strong>{formatRub(withEarly.finalRealNetWorth)}</strong>
+          <span>Вариант 2 · переплата</span>
+          <strong>{formatRub(variantB.totalInterestPaid)}</strong>
         </div>
       </div>
 
@@ -568,60 +691,65 @@ function MortgageLab({
 
       <div className="chart-wrap">
         <MortgageDetailChart
-          series={comparison.slice(0, 3)}
+          series={comparison}
           colors={DETAIL_COLORS}
           metric={chartMetric}
         />
       </div>
 
       <div className="strategy-table-wrap">
-        <h4>Сравнение стратегий</h4>
+        <h4>Таблица сравнения</h4>
         <table className="strategy-table">
           <thead>
             <tr>
-              <th>Стратегия</th>
-              <th>Платёж</th>
-              <th>Переплата</th>
+              <th>Вариант</th>
+              <th>Аннуитет</th>
+              <th>В банк / мес*</th>
+              <th>Переплата %</th>
+              <th>Всего банку</th>
               <th>Закрытие</th>
-              <th>Капитал</th>
             </tr>
           </thead>
           <tbody>
             {comparison.map((row) => (
               <tr
-                key={row.label}
-                className={row.label === 'С досрочкой' ? 'is-active' : undefined}
+                key={row.id}
+                className={
+                  row.id === winnerByInterest.id ? 'is-active' : undefined
+                }
               >
                 <td>
                   <strong>{row.label}</strong>
+                  <div className="strategy-note">{row.note}</div>
                 </td>
                 <td>{formatRub(row.scheduledPayment)}</td>
+                <td>{formatRub(row.firstMonthCash)}</td>
                 <td>{formatRub(row.totalInterestPaid)}</td>
+                <td>{formatRub(row.totalCashToBank)}</td>
                 <td>
                   {row.payoffMonth != null
-                    ? `${(row.payoffMonth / 12).toFixed(1)} лет`
+                    ? `${(row.payoffMonth / 12).toFixed(1)} лет (${row.payoffMonth + 1} мес.)`
                     : '—'}
                 </td>
-                <td>{formatRub(row.finalRealNetWorth)}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <p className="hint">
-          «С досрочкой» использует ваши настройки выше
-          {extraMonthly > 0 || lumpSumAmount > 0
-            ? ` (${extraMonthly > 0 ? `+${formatRub(extraMonthly)}/мес` : ''}${
-                lumpSumAmount > 0
-                  ? `${extraMonthly > 0 ? ', ' : ''}разово ${formatRub(lumpSumAmount)}`
-                  : ''
-              }, режим «${mode === 'reduce_term' ? 'срок' : 'платёж'}»)`
-            : ' (сейчас досрочка = 0 — совпадает с базой)'}
-          . Остальные строки — без досрочки, для сравнения сроков.
+          * «В банк / мес» — первый месяц (аннуитет + ежемесячная досрочка; разовый
+          платёж учитывается в своём месяце). Досрочка всегда гасит основной долг;
+          режим задаёт, что банк меняет после этого — срок или размер платежа.
         </p>
         <p className="assumptions">
-          Модель упрощённая: досрочка списывается с ликвидности; при «снизить
-          платёж» аннуитет пересчитывается на оставшийся срок. Дефолт досрочки —{' '}
-          {formatRub(DEFAULT_EARLY_PLAN.monthlyExtra)}/мес.
+          Свободно после расходов профиля:{' '}
+          {formatRub(
+            profile.monthlyNetIncome - profile.monthlyExpenses - variantA.firstMonthCash,
+          )}{' '}
+          при варианте 1 и{' '}
+          {formatRub(
+            profile.monthlyNetIncome - profile.monthlyExpenses - variantB.firstMonthCash,
+          )}{' '}
+          при варианте 2 (без учёта аренды сценария). Не финансовый совет.
         </p>
       </div>
     </section>

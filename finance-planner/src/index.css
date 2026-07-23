@@ -427,6 +427,121 @@ select:focus {
   margin: 0;
 }
 
+.calc-loan-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 700px) {
+  .calc-loan-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.calc-loan-bar > div {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.85rem 0.95rem;
+  background: rgba(8, 18, 14, 0.28);
+  display: grid;
+  gap: 0.3rem;
+}
+
+.calc-loan-bar span {
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+}
+
+.calc-loan-bar strong {
+  font-size: 1.05rem;
+}
+
+.variant-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 900px) {
+  .variant-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.variant-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1rem;
+  background: rgba(8, 18, 14, 0.28);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.variant-card header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+}
+
+.variant-card h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.variant-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #1a2a22;
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+}
+
+.variant-badge.alt {
+  background: var(--good);
+}
+
+.calc-preset {
+  justify-self: start;
+  font-size: 0.85rem;
+  padding: 0.55rem 0.9rem;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+}
+
+.check-row input {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.calc-verdict {
+  padding: 1rem 1.1rem;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(232, 196, 122, 0.16), rgba(125, 206, 160, 0.1));
+  border: 1px solid rgba(232, 196, 122, 0.28);
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.strategy-note {
+  margin-top: 0.25rem;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
 .scenario-list {
   display: grid;
   gap: 0.85rem;
