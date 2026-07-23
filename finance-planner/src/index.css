@@ -44,7 +44,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -202,7 +203,8 @@ label {
   color: var(--ink-muted);
 }
 
-input {
+input,
+select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -212,9 +214,217 @@ input {
   outline: none;
 }
 
-input:focus {
+select {
+  cursor: pointer;
+}
+
+input:focus,
+select:focus {
   border-color: rgba(232, 196, 122, 0.55);
   box-shadow: 0 0 0 3px rgba(232, 196, 122, 0.12);
+}
+
+.fields.three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+@media (max-width: 900px) {
+  .fields.three {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .fields.three {
+    grid-template-columns: 1fr;
+  }
+}
+
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.link-btn:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
+.delta-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem 0.85rem;
+  text-align: right;
+}
+
+.detail-page {
+  display: grid;
+  gap: 1.25rem;
+  animation: rise 500ms ease both;
+}
+
+.detail-back {
+  justify-self: start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  padding: 0.55rem 1rem;
+}
+
+.detail-back:hover {
+  border-color: rgba(232, 196, 122, 0.45);
+}
+
+.detail-hero h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  margin: 0.25rem 0 0.5rem;
+  font-weight: 650;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.detail-verdict {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  max-width: 40rem;
+}
+
+.detail-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 960px) {
+  .detail-layout {
+    grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+    align-items: start;
+  }
+}
+
+.detail-chart-panel h3,
+.detail-side h3,
+.mortgage-lab h3,
+.mortgage-lab h4 {
+  font-family: var(--font-display);
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+
+.detail-tips {
+  margin: 1.1rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.mortgage-lab {
+  display: grid;
+  gap: 1rem;
+}
+
+.lab-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 800px) {
+  .lab-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.lab-kpis > div {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.85rem 0.95rem;
+  background: rgba(8, 18, 14, 0.28);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.lab-kpis span {
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+}
+
+.lab-kpis strong {
+  font-size: 1.05rem;
+}
+
+.metric-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.25rem;
+  width: fit-content;
+}
+
+.metric-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.metric-toggle button.is-active {
+  background: rgba(232, 196, 122, 0.18);
+  color: var(--accent-strong);
+}
+
+.strategy-table-wrap {
+  overflow-x: auto;
+}
+
+.strategy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.strategy-table th,
+.strategy-table td {
+  text-align: left;
+  padding: 0.7rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.strategy-table th {
+  color: var(--ink-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.strategy-table tr.is-active td {
+  background: rgba(232, 196, 122, 0.08);
+}
+
+.lab-spare {
+  margin: 0;
 }
 
 .scenario-list {

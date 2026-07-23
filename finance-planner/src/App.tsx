@@ -17,6 +17,7 @@ import {
   type ScenarioResult,
 } from './engine/types';
 import { NetWorthChart } from './components/NetWorthChart';
+import { ScenarioDetail } from './components/ScenarioDetail';
 
 const STORAGE_KEY = 'esli-finance-mvp-v7';
 
@@ -102,6 +103,7 @@ export default function App() {
   const [profile, setProfile] = useState<BaselineProfile>(initial.profile);
   const [settings, setSettings] = useState<ProjectionSettings>(initial.settings);
   const [scenariosByMode, setScenariosByMode] = useState(initial.scenariosByMode);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const allScenarios = useMemo(
     () => [...scenariosByMode.no_home, ...scenariosByMode.has_home],
@@ -198,6 +200,13 @@ export default function App() {
   const saveThenBuy = scenariosByMode.has_home.find((s) => s.id === 'save_then_buy')
     ?.events[0] as SaveThenBuyEvent | undefined;
 
+  const detailScenario = detailId
+    ? allScenarios.find((s) => s.id === detailId)
+    : undefined;
+  const detailResult = detailId
+    ? results.find((r) => r.scenarioId === detailId)
+    : undefined;
+
   return (
     <div className="app">
       <header className="hero">
@@ -206,10 +215,21 @@ export default function App() {
         </h1>
         <p className="lede">
           Сравните пути к жилью: новостройка с арендой до сдачи, вклад вместо
-          покупки, ипотека под сдачу или накопить и купить за наличные.
+          покупки, ипотека под сдачу или накопить и купить за наличные. Зайдите
+          в сценарий, чтобы разобрать срок и досрочные платежи.
         </p>
       </header>
 
+      {detailScenario && detailResult ? (
+        <ScenarioDetail
+          scenario={detailScenario}
+          result={detailResult}
+          profile={profile}
+          settings={settings}
+          onBack={() => setDetailId(null)}
+          onPatchEvent={patchScenarioEvent}
+        />
+      ) : (
       <div className="layout-wide">
           <section className="panel panel-chart">
             <h2>Сравнение всех 4 сценариев</h2>
@@ -273,9 +293,16 @@ export default function App() {
                 return (
                   <div className="delta-row" key={r.scenarioId}>
                     <span>{r.scenarioName}</span>
-                    <span className={cls}>
+                    <span className={`delta-actions ${cls}`}>
                       {formatRub(r.finalRealNetWorth)}
                       {delta < 0 && <> (−{formatRub(Math.abs(delta))})</>}
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => setDetailId(r.scenarioId)}
+                      >
+                        Разобрать →
+                      </button>
                     </span>
                   </div>
                 );
@@ -386,7 +413,13 @@ export default function App() {
                   <article className="scenario">
                     <header>
                       <h3>Ипотека на новостройку + аренда до сдачи</h3>
-                      <span className="tag">новостройка</span>
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => setDetailId('offplan')}
+                      >
+                        Разобрать →
+                      </button>
                     </header>
                     <div className="fields two">
                       <label>
@@ -519,7 +552,13 @@ export default function App() {
                   <article className="scenario">
                     <header>
                       <h3>Снимать и копить во вкладе</h3>
-                      <span className="tag">аренда</span>
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => setDetailId('rent_save')}
+                      >
+                        Разобрать →
+                      </button>
                     </header>
                     <div className="fields two">
                       <label>
@@ -561,7 +600,13 @@ export default function App() {
                   <article className="scenario">
                     <header>
                       <h3>Ипотека на вторичку и сразу сдавать</h3>
-                      <span className="tag">сдача</span>
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => setDetailId('buy_to_let')}
+                      >
+                        Разобрать →
+                      </button>
                     </header>
                     <div className="fields two">
                       <label>
@@ -664,7 +709,13 @@ export default function App() {
                   <article className="scenario">
                     <header>
                       <h3>Копить во вкладе, потом купить за наличные</h3>
-                      <span className="tag">накопление</span>
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => setDetailId('save_then_buy')}
+                      >
+                        Разобрать →
+                      </button>
                     </header>
                     <div className="fields two">
                       <label>
@@ -705,6 +756,7 @@ export default function App() {
             </section>
           </div>
         </div>
+      )}
 
       <p className="footer-note">
         MVP · см. <code>finance-planner/docs/MVP.md</code>
