@@ -11,7 +11,7 @@ export interface BaselineProfile {
   existingDebtMonthlyPayment: Money;
 }
 
-/** New-build mortgage: rent until handover, then move in. */
+/** New-build mortgage: rent for a period, move in after handover. */
 export type OffplanMortgageEvent = {
   type: 'offplan_mortgage';
   startMonth: number;
@@ -20,9 +20,11 @@ export type OffplanMortgageEvent = {
   annualRatePercent: number;
   termYears: number;
   annualAppreciationPercent: number;
-  /** Months until the building is delivered. */
+  /** Months until the building is delivered / you can move in. */
   monthsUntilHandover: number;
-  /** Rent paid while waiting for handover. */
+  /** How many months you actually pay temporary rent. */
+  rentMonths: number;
+  /** Temporary rent while waiting / until rentMonths ends. */
   monthlyRentUntilMoveIn: Money;
   moveInCost: Money;
 };
@@ -155,6 +157,7 @@ export function projectScenario(
   let mortgageActive = false;
 
   let handoverMonth: number | null = null;
+  let rentEndMonth: number | null = null;
   let movedInAtMonth: number | undefined;
   let boughtAtMonth: number | undefined;
 
@@ -194,6 +197,7 @@ export function projectScenario(
         mortgageActive = true;
         rentExpense = Math.max(0, event.monthlyRentUntilMoveIn);
         handoverMonth = month + Math.max(0, Math.round(event.monthsUntilHandover));
+        rentEndMonth = month + Math.max(0, Math.round(event.rentMonths));
       }
 
       if (event.type === 'rent_and_save') {
@@ -230,8 +234,11 @@ export function projectScenario(
     }
 
     if (handoverMonth !== null && month === handoverMonth) {
-      rentExpense = 0;
       movedInAtMonth = month;
+    }
+
+    if (rentEndMonth !== null && month >= rentEndMonth) {
+      rentExpense = 0;
     }
 
     let debtPay = 0;
@@ -397,6 +404,7 @@ export function buildScenariosForMode(mode: HousingMode): Scenario[] {
             termYears: 20,
             annualAppreciationPercent: 5,
             monthsUntilHandover: 24,
+            rentMonths: 24,
             monthlyRentUntilMoveIn: 55_000,
             moveInCost: 110_000,
           },

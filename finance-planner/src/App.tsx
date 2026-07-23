@@ -18,7 +18,7 @@ import {
 } from './engine/types';
 import { NetWorthChart } from './components/NetWorthChart';
 
-const STORAGE_KEY = 'esli-finance-mvp-v5';
+const STORAGE_KEY = 'esli-finance-mvp-v6';
 
 type StoredState = {
   profile: BaselineProfile;
@@ -466,7 +466,22 @@ export default function App() {
                         />
                       </label>
                       <label>
-                        Аренда до переезда / мес
+                        Срок аренды (месяцев)
+                        <input
+                          type="number"
+                          value={offplan.rentMonths}
+                          onChange={(e) => {
+                            const n = readNumber(e);
+                            if (n !== null)
+                              patchScenarioEvent('no_home', 'offplan', {
+                                type: 'offplan_mortgage',
+                                rentMonths: Math.max(0, Math.round(n)),
+                              });
+                          }}
+                        />
+                      </label>
+                      <label>
+                        Аренда / мес
                         <input
                           type="number"
                           value={offplan.monthlyRentUntilMoveIn}
