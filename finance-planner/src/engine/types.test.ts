@@ -23,7 +23,6 @@ describe('no_home scenarios', () => {
     const scenario = buildScenariosForMode('no_home').find((s) => s.id === 'offplan')!;
     const event = scenario.events[0];
     if (event.type !== 'offplan_mortgage') throw new Error('expected offplan');
-    event.monthsUntilHandover = 12;
     event.rentMonths = 12;
     event.monthlyRentUntilMoveIn = 50_000;
 
@@ -45,11 +44,10 @@ describe('no_home scenarios', () => {
     expect(result.years[2].homeEquity).toBeGreaterThan(2_000_000);
   });
 
-  it('pays rent only for rentMonths, even if handover differs', () => {
+  it('pays rent only for rentMonths and moves in when rent ends', () => {
     const scenario = buildScenariosForMode('no_home').find((s) => s.id === 'offplan')!;
     const event = scenario.events[0];
     if (event.type !== 'offplan_mortgage') throw new Error('expected offplan');
-    event.monthsUntilHandover = 24;
     event.rentMonths = 6;
     event.monthlyRentUntilMoveIn = 40_000;
 
@@ -62,21 +60,21 @@ describe('no_home scenarios', () => {
 
     const shortRent = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
-      horizonYears: 3,
+      horizonYears: 2,
       bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
 
-    event.rentMonths = 24;
+    event.rentMonths = 18;
     const longRent = projectScenario(profile, scenario, {
       ...DEFAULT_SETTINGS,
-      horizonYears: 3,
+      horizonYears: 2,
       bankDepositAnnualRatePercent: 0,
       annualInflationPercent: 0,
     });
 
     expect(shortRent.finalNetWorth).toBeGreaterThan(longRent.finalNetWorth);
-    expect(shortRent.meta?.movedInAtMonth).toBe(24);
+    expect(shortRent.meta?.movedInAtMonth).toBe(6);
   });
 
   it('uses profile deposit rate while renting', () => {

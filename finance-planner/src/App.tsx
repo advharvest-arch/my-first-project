@@ -18,7 +18,7 @@ import {
 } from './engine/types';
 import { NetWorthChart } from './components/NetWorthChart';
 
-const STORAGE_KEY = 'esli-finance-mvp-v6';
+const STORAGE_KEY = 'esli-finance-mvp-v7';
 
 type StoredState = {
   profile: BaselineProfile;
@@ -246,7 +246,7 @@ export default function App() {
                   .filter((r) => r.meta?.movedInAtMonth !== undefined)
                   .map(
                     (r) =>
-                      `«${r.scenarioName}»: переезд после сдачи на ${(r.meta!.movedInAtMonth! / 12).toFixed(1)} году.`,
+                      `«${r.scenarioName}»: переезд после аренды на ${(r.meta!.movedInAtMonth! / 12).toFixed(1)} году.`,
                   )
                   .join(' ')}
               </p>
@@ -446,21 +446,6 @@ export default function App() {
                               patchScenarioEvent('no_home', 'offplan', {
                                 type: 'offplan_mortgage',
                                 termYears: Math.max(1, Math.round(n)),
-                              });
-                          }}
-                        />
-                      </label>
-                      <label>
-                        Месяцев до сдачи дома
-                        <input
-                          type="number"
-                          value={offplan.monthsUntilHandover}
-                          onChange={(e) => {
-                            const n = readNumber(e);
-                            if (n !== null)
-                              patchScenarioEvent('no_home', 'offplan', {
-                                type: 'offplan_mortgage',
-                                monthsUntilHandover: Math.max(0, Math.round(n)),
                               });
                           }}
                         />

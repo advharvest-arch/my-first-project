@@ -11,7 +11,7 @@ export interface BaselineProfile {
   existingDebtMonthlyPayment: Money;
 }
 
-/** New-build mortgage: rent for a period, move in after handover. */
+/** New-build mortgage: rent temporarily, then move into the new home. */
 export type OffplanMortgageEvent = {
   type: 'offplan_mortgage';
   startMonth: number;
@@ -20,11 +20,9 @@ export type OffplanMortgageEvent = {
   annualRatePercent: number;
   termYears: number;
   annualAppreciationPercent: number;
-  /** Months until the building is delivered / you can move in. */
-  monthsUntilHandover: number;
-  /** How many months you actually pay temporary rent. */
+  /** Months of temporary rent before moving into the new home. */
   rentMonths: number;
-  /** Temporary rent while waiting / until rentMonths ends. */
+  /** Temporary rent while rentMonths is active. */
   monthlyRentUntilMoveIn: Money;
   moveInCost: Money;
 };
@@ -156,7 +154,6 @@ export function projectScenario(
   let homeAppreciation = 0;
   let mortgageActive = false;
 
-  let handoverMonth: number | null = null;
   let rentEndMonth: number | null = null;
   let movedInAtMonth: number | undefined;
   let boughtAtMonth: number | undefined;
@@ -196,7 +193,6 @@ export function projectScenario(
         homeAppreciation = monthRate(event.annualAppreciationPercent);
         mortgageActive = true;
         rentExpense = Math.max(0, event.monthlyRentUntilMoveIn);
-        handoverMonth = month + Math.max(0, Math.round(event.monthsUntilHandover));
         rentEndMonth = month + Math.max(0, Math.round(event.rentMonths));
       }
 
@@ -233,11 +229,10 @@ export function projectScenario(
       }
     }
 
-    if (handoverMonth !== null && month === handoverMonth) {
-      movedInAtMonth = month;
-    }
-
     if (rentEndMonth !== null && month >= rentEndMonth) {
+      if (rentExpense > 0) {
+        movedInAtMonth = month;
+      }
       rentExpense = 0;
     }
 
@@ -317,7 +312,7 @@ export function projectScenario(
         movedInAtMonth < month + 1 &&
         movedInAtMonth >= month + 1 - 12
       ) {
-        note = `Переезд после сдачи на ${movedInAtMonth + 1}-м мес.`;
+        note = `Переезд в новостройку на ${movedInAtMonth + 1}-м мес.`;
       }
       years.push({
         year,
@@ -403,7 +398,6 @@ export function buildScenariosForMode(mode: HousingMode): Scenario[] {
             annualRatePercent: 18,
             termYears: 20,
             annualAppreciationPercent: 5,
-            monthsUntilHandover: 24,
             rentMonths: 24,
             monthlyRentUntilMoveIn: 55_000,
             moveInCost: 110_000,
