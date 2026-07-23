@@ -102,7 +102,6 @@ export default function App() {
   const [profile, setProfile] = useState<BaselineProfile>(initial.profile);
   const [settings, setSettings] = useState<ProjectionSettings>(initial.settings);
   const [scenariosByMode, setScenariosByMode] = useState(initial.scenariosByMode);
-  const [started, setStarted] = useState(false);
 
   const allScenarios = useMemo(
     () => [...scenariosByMode.no_home, ...scenariosByMode.has_home],
@@ -209,21 +208,9 @@ export default function App() {
           Сравните пути к жилью: новостройка с арендой до сдачи, вклад вместо
           покупки, ипотека под сдачу или накопить и купить за наличные.
         </p>
-        {!started && (
-          <div className="cta-row">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setStarted(true)}
-            >
-              Смоделировать
-            </button>
-          </div>
-        )}
       </header>
 
-      {started && (
-        <div className="layout-wide">
+      <div className="layout-wide">
           <section className="panel panel-chart">
             <h2>Сравнение всех 4 сценариев</h2>
             <p className="hint">
@@ -718,7 +705,6 @@ export default function App() {
             </section>
           </div>
         </div>
-      )}
 
       <p className="footer-note">
         MVP · см. <code>finance-planner/docs/MVP.md</code>
