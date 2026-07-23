@@ -190,15 +190,6 @@ export default function App() {
     });
   }
 
-  function resetExample() {
-    const next = defaultStore();
-    setProfile(next.profile);
-    setSettings(next.settings);
-    setScenariosByMode(next.scenariosByMode);
-    persist(next.profile, next.settings, next.scenariosByMode);
-    setStarted(true);
-  }
-
   const offplan = scenariosByMode.no_home.find((s) => s.id === 'offplan')
     ?.events[0] as OffplanMortgageEvent | undefined;
   const rentSave = scenariosByMode.no_home.find((s) => s.id === 'rent_save')
@@ -226,9 +217,6 @@ export default function App() {
               onClick={() => setStarted(true)}
             >
               Смоделировать
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={resetExample}>
-              Пример с цифрами
             </button>
           </div>
         )}
