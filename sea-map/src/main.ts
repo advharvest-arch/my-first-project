@@ -17,7 +17,14 @@ const map = L.map('map', {
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-// Bundled land outlines so continents stay visible even if tile CDNs are blocked
+// Bundled land outlines under tiles — visible if tile CDNs are blocked
+map.createPane('landPane');
+const landPane = map.getPane('landPane');
+if (landPane) {
+  landPane.style.zIndex = '150';
+  landPane.style.pointerEvents = 'none';
+}
+
 async function loadLandBase(): Promise<void> {
   try {
     const res = await fetch(`${import.meta.env.BASE_URL}land-110m.json`);
@@ -25,11 +32,12 @@ async function loadLandBase(): Promise<void> {
     const topology = (await res.json()) as Topology<{ land: GeometryCollection }>;
     const land = topoFeature(topology, topology.objects.land);
     L.geoJSON(land as GeoJSON.GeoJsonObject, {
+      pane: 'landPane',
       style: {
-        color: '#8aa4a8',
-        weight: 0.6,
-        fillColor: '#d7e3df',
-        fillOpacity: 0.95,
+        color: '#7f9aa0',
+        weight: 0.5,
+        fillColor: '#d5e2dd',
+        fillOpacity: 1,
       },
       interactive: false,
     }).addTo(map);
