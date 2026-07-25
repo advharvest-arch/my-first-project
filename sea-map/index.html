@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AquaRoute — карта морских маршрутов</title>
+    <title>AquaRoute — карта и измерения по воде</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,14 +20,30 @@
       <aside class="panel" id="panel">
         <header class="brand">
           <p class="brand-mark">AquaRoute</p>
-          <p class="brand-sub">Прокладка маршрута по воде</p>
+          <p class="brand-sub">Маршруты и измерения по воде</p>
         </header>
 
+        <div class="mode-switch" role="tablist" aria-label="Режим">
+          <button type="button" class="mode-btn active" data-mode="sea">Море</button>
+          <button type="button" class="mode-btn" data-mode="inland">Реки и озёра</button>
+          <button type="button" class="mode-btn" data-mode="ruler">Линейка</button>
+        </div>
+
+        <label class="field">
+          <span>Подложка карты</span>
+          <select id="basemap-select">
+            <option value="osm" selected>OSM — реки, озёра, города</option>
+            <option value="topo">Топокарта</option>
+            <option value="satellite">Спутник</option>
+            <option value="offline">Офлайн-контур</option>
+          </select>
+        </label>
+
         <p class="hint" id="hint">
-          Кликните по карте: сначала точка отправления, затем прибытия.
+          Режим «Море»: кликните отправление и прибытие для морского маршрута.
         </p>
 
-        <div class="fields">
+        <div class="fields" id="sea-fields">
           <label class="field">
             <span>Откуда</span>
             <input id="origin-input" type="text" readonly placeholder="Выберите на карте" />
@@ -40,7 +56,7 @@
 
         <div class="presets" id="presets" aria-label="Популярные порты"></div>
 
-        <div class="controls">
+        <div class="controls" id="sea-controls">
           <label class="field inline">
             <span>Скорость, узлы</span>
             <input id="speed" type="number" min="1" max="40" step="0.5" value="14" />
@@ -54,8 +70,17 @@
           </fieldset>
         </div>
 
+        <div class="inland-help" id="inland-help" hidden>
+          <p>
+            Кликайте точки <strong>по реке или озеру</strong>. Маршрут пойдёт вдоль водных путей
+            OpenStreetMap. Можно ставить несколько точек подряд.
+          </p>
+          <p class="muted" id="waypoint-count">Точек: 0</p>
+        </div>
+
         <div class="actions">
-          <button type="button" class="btn primary" id="route-btn" disabled>Проложить маршрут</button>
+          <button type="button" class="btn primary" id="route-btn" disabled>Проложить</button>
+          <button type="button" class="btn ghost" id="undo-btn" hidden>Отменить точку</button>
           <button type="button" class="btn ghost" id="clear-btn">Сбросить</button>
         </div>
 
@@ -65,19 +90,20 @@
             <strong id="stat-distance">—</strong>
           </div>
           <div class="stat">
-            <span class="stat-label">ETA</span>
+            <span class="stat-label">ETA / детали</span>
             <strong id="stat-eta">—</strong>
           </div>
           <div class="stat">
-            <span class="stat-label">Проходы</span>
+            <span class="stat-label">По воде</span>
             <strong id="stat-passages">—</strong>
           </div>
         </section>
 
         <p class="status" id="status" role="status"></p>
+        <button type="button" class="btn ghost collapse-btn" id="collapse-btn">Свернуть панель</button>
       </aside>
 
-      <button type="button" class="panel-toggle" id="panel-toggle" aria-label="Скрыть панель">
+      <button type="button" class="panel-toggle" id="panel-toggle" aria-label="Показать панель">
         ☰
       </button>
     </div>

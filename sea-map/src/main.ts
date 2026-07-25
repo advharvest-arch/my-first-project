@@ -1,27 +1,30 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Passage, SeaRouteFeature, SeaRouteMultiFeature } from 'searoute-ts';
-import { addOfflineBasemap } from './basemap';
+import { attachBasemapControl, createBasemaps, type BasemapId } from './basemap';
+import { formatDistance, haversineKm, pathLengthKm, type LngLat } from './geo';
 import { PORTS, formatCoords, nearestPortName } from './ports';
+import { measureWaterChain } from './waterways';
 import './style.css';
 
+type AppMode = 'sea' | 'inland' | 'ruler';
 type Point = { lon: number; lat: number; label: string };
 
 const mapEl = document.getElementById('map');
-if (!mapEl) {
-  throw new Error('Map container #map not found');
-}
+if (!mapEl) throw new Error('Map container #map not found');
 
 const map = L.map(mapEl, {
   worldCopyJump: true,
   minZoom: 2,
-  maxZoom: 10,
+  maxZoom: 19,
   zoomControl: false,
   attributionControl: true,
-}).setView([20, 10], 3);
+}).setView([55.75, 37.62], 5);
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
-addOfflineBasemap(map);
+
+const basemaps = createBasemaps();
+const basemapControl = attachBasemapControl(map, basemaps, 'osm');
 
 const refreshSize = () => map.invalidateSize({ animate: false });
 requestAnimationFrame(refreshSize);
@@ -30,7 +33,7 @@ setTimeout(refreshSize, 500);
 window.addEventListener('resize', refreshSize);
 window.addEventListener('orientationchange', refreshSize);
 
-const routeLayer = L.layerGroup().addTo(map);
+const drawLayer = L.layerGroup().addTo(map);
 
 const originInput = document.querySelector<HTMLInputElement>('#origin-input')!;
 const destInput = document.querySelector<HTMLInputElement>('#dest-input')!;
@@ -42,6 +45,7 @@ const etaEl = document.querySelector<HTMLElement>('#stat-eta')!;
 const passagesEl = document.querySelector<HTMLElement>('#stat-passages')!;
 const routeBtn = document.querySelector<HTMLButtonElement>('#route-btn')!;
 const clearBtn = document.querySelector<HTMLButtonElement>('#clear-btn')!;
+const undoBtn = document.querySelector<HTMLButtonElement>('#undo-btn')!;
 const speedInput = document.querySelector<HTMLInputElement>('#speed')!;
 const avoidSuez = document.querySelector<HTMLInputElement>('#avoid-suez')!;
 const avoidPanama = document.querySelector<HTMLInputElement>('#avoid-panama')!;
@@ -49,22 +53,31 @@ const allowArctic = document.querySelector<HTMLInputElement>('#allow-arctic')!;
 const presetsEl = document.querySelector<HTMLElement>('#presets')!;
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const panelToggle = document.querySelector<HTMLButtonElement>('#panel-toggle')!;
+const collapseBtn = document.querySelector<HTMLButtonElement>('#collapse-btn')!;
+const basemapSelect = document.querySelector<HTMLSelectElement>('#basemap-select')!;
+const seaFields = document.querySelector<HTMLElement>('#sea-fields')!;
+const seaControls = document.querySelector<HTMLElement>('#sea-controls')!;
+const inlandHelp = document.querySelector<HTMLElement>('#inland-help')!;
+const waypointCountEl = document.querySelector<HTMLElement>('#waypoint-count')!;
 
+let mode: AppMode = 'sea';
 let origin: Point | null = null;
 let destination: Point | null = null;
 let pickTarget: 'origin' | 'destination' = 'origin';
 let activePreset: 'origin' | 'destination' | null = null;
+let waypoints: LngLat[] = [];
+let busy = false;
 
 function pointLabel(lon: number, lat: number): string {
   return nearestPortName(lon, lat) ?? formatCoords(lon, lat);
 }
 
-function markerIcon(kind: 'origin' | 'dest'): L.DivIcon {
+function markerIcon(kind: 'origin' | 'dest' | 'way'): L.DivIcon {
   return L.divIcon({
     className: '',
     html: `<div class="route-marker ${kind}"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
   });
 }
 
@@ -73,42 +86,75 @@ function setStatus(message: string, isError = false): void {
   statusEl.classList.toggle('error', isError);
 }
 
-function updateHint(): void {
-  if (!origin) {
-    hintEl.textContent = 'Кликните по карте: сначала точка отправления, затем прибытия.';
-  } else if (!destination) {
-    hintEl.textContent = 'Теперь выберите точку прибытия на воде или у порта.';
-  } else {
-    hintEl.textContent = 'Маршрут готов к расчёту. Можно сменить точки кликом или портами ниже.';
-  }
-}
-
-function syncInputs(): void {
-  originInput.value = origin ? origin.label : '';
-  destInput.value = destination ? destination.label : '';
-  routeBtn.disabled = !(origin && destination);
-  updateHint();
-}
-
-function redrawMarkers(): void {
-  routeLayer.clearLayers();
-  if (origin) {
-    L.marker([origin.lat, origin.lon], { icon: markerIcon('origin') })
-      .bindTooltip(origin.label, { direction: 'top' })
-      .addTo(routeLayer);
-  }
-  if (destination) {
-    L.marker([destination.lat, destination.lon], { icon: markerIcon('dest') })
-      .bindTooltip(destination.label, { direction: 'top' })
-      .addTo(routeLayer);
-  }
-}
-
-function clearRouteStats(): void {
+function clearStats(): void {
   statsEl.hidden = true;
   distanceEl.textContent = '—';
   etaEl.textContent = '—';
   passagesEl.textContent = '—';
+}
+
+function showStats(distance: string, detail: string, water: string): void {
+  distanceEl.textContent = distance;
+  etaEl.textContent = detail;
+  passagesEl.textContent = water;
+  statsEl.hidden = false;
+}
+
+function updateHint(): void {
+  if (mode === 'sea') {
+    if (!origin) hintEl.textContent = 'Море: кликните точку отправления, затем прибытия.';
+    else if (!destination) hintEl.textContent = 'Море: выберите точку прибытия у порта или на воде.';
+    else hintEl.textContent = 'Море: маршрут готов. Можно сменить точки или ограничения.';
+  } else if (mode === 'inland') {
+    hintEl.textContent =
+      'Реки и озёра: кликайте вдоль реки/озера. Затем нажмите «Проложить» — путь пойдёт по воде OSM.';
+  } else {
+    hintEl.textContent =
+      'Линейка: кликайте точки подряд. Длина считается по прямой между точками (удобно по берегу).';
+  }
+}
+
+function syncSeaInputs(): void {
+  originInput.value = origin ? origin.label : '';
+  destInput.value = destination ? destination.label : '';
+  routeBtn.disabled = mode === 'sea' ? !(origin && destination) : waypoints.length < 2 || busy;
+  undoBtn.hidden = mode === 'sea';
+  waypointCountEl.textContent = `Точек: ${waypoints.length}`;
+  updateHint();
+}
+
+function redrawSeaMarkers(): void {
+  drawLayer.clearLayers();
+  if (origin) {
+    L.marker([origin.lat, origin.lon], { icon: markerIcon('origin') })
+      .bindTooltip(origin.label, { direction: 'top' })
+      .addTo(drawLayer);
+  }
+  if (destination) {
+    L.marker([destination.lat, destination.lon], { icon: markerIcon('dest') })
+      .bindTooltip(destination.label, { direction: 'top' })
+      .addTo(drawLayer);
+  }
+}
+
+function redrawWaypoints(path?: LngLat[]): void {
+  drawLayer.clearLayers();
+  waypoints.forEach((p, i) => {
+    L.marker([p.lat, p.lon], { icon: markerIcon(i === 0 ? 'origin' : 'way') })
+      .bindTooltip(`#${i + 1}`, { direction: 'top' })
+      .addTo(drawLayer);
+  });
+  if (path && path.length >= 2) {
+    L.polyline(
+      path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+      { color: '#2ec4b6', weight: 4, opacity: 0.95, className: 'route-line' },
+    ).addTo(drawLayer);
+  } else if (waypoints.length >= 2) {
+    L.polyline(
+      waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+      { color: '#d9c3a0', weight: 2, dashArray: '4 6', opacity: 0.85 },
+    ).addTo(drawLayer);
+  }
 }
 
 function formatDuration(hours: number): string {
@@ -151,47 +197,37 @@ function routeSegments(
   return [geom.coordinates.map(([lon, lat]) => [lat, lon] as L.LatLngTuple)];
 }
 
-function drawRoute(feature: SeaRouteFeature | SeaRouteMultiFeature): void {
-  redrawMarkers();
-
+function drawSeaRoute(feature: SeaRouteFeature | SeaRouteMultiFeature): void {
+  redrawSeaMarkers();
   const segments = routeSegments(feature);
-  const style = {
-    color: '#2ec4b6',
-    weight: 4,
-    opacity: 0.95,
-    className: 'route-line',
-  };
-
+  const style = { color: '#2ec4b6', weight: 4, opacity: 0.95, className: 'route-line' };
   const layer = L.layerGroup(segments.map((segment) => L.polyline(segment, style))).addTo(
-    routeLayer,
+    drawLayer,
   );
-
   const bounds = L.latLngBounds([]);
   layer.eachLayer((l) => {
     if (l instanceof L.Polyline) bounds.extend(l.getBounds());
   });
-  if (bounds.isValid()) {
-    map.fitBounds(bounds.pad(0.18), { animate: true, duration: 0.8 });
-  }
+  if (bounds.isValid()) map.fitBounds(bounds.pad(0.15), { animate: true });
 
   const { length, durationHours, passages } = feature.properties;
-  distanceEl.textContent = `${Math.round(length).toLocaleString('ru-RU')} м.миль`;
-  etaEl.textContent = durationHours != null ? formatDuration(durationHours) : '—';
-  passagesEl.textContent =
-    passages && passages.length > 0 ? passages.map(passageLabel).join(', ') : 'нет';
-  statsEl.hidden = false;
+  showStats(
+    `${Math.round(length).toLocaleString('ru-RU')} м.миль`,
+    durationHours != null ? formatDuration(durationHours) : '—',
+    passages && passages.length ? passages.map(passageLabel).join(', ') : 'нет',
+  );
 }
 
-async function computeRoute(): Promise<void> {
+async function computeSeaRoute(): Promise<void> {
   if (!origin || !destination) return;
-
   const restrictions: Passage[] = [];
   if (avoidSuez.checked) restrictions.push('suez', 'babelmandeb');
   if (avoidPanama.checked) restrictions.push('panama');
-
   const speed = Number(speedInput.value) || 14;
-  setStatus('Считаем морской маршрут…');
+
+  busy = true;
   routeBtn.disabled = true;
+  setStatus('Считаем морской маршрут…');
 
   try {
     const { seaRoute } = await import('searoute-ts');
@@ -205,12 +241,11 @@ async function computeRoute(): Promise<void> {
       antimeridian: 'split',
       maxSnapDistanceKm: 250,
     });
-
-    drawRoute(feature);
-    setStatus('Маршрут построен по судоходной сети Eurostat.');
+    drawSeaRoute(feature);
+    setStatus('Морской маршрут по сети Eurostat.');
   } catch (err) {
-    redrawMarkers();
-    clearRouteStats();
+    redrawSeaMarkers();
+    clearStats();
     const name = err instanceof Error ? err.name : '';
     if (name === 'SnapFailedError') {
       setStatus('Точка слишком далеко от моря. Выберите берег или порт.', true);
@@ -218,40 +253,139 @@ async function computeRoute(): Promise<void> {
       setStatus('Маршрут не найден. Снимите ограничения или смените точки.', true);
     } else {
       console.error(err);
-      setStatus('Не удалось построить маршрут.', true);
+      setStatus('Не удалось построить морской маршрут.', true);
     }
   } finally {
-    routeBtn.disabled = !(origin && destination);
+    busy = false;
+    syncSeaInputs();
   }
 }
 
-function setPoint(kind: 'origin' | 'destination', lon: number, lat: number, label?: string): void {
+async function computeInlandRoute(): Promise<void> {
+  if (waypoints.length < 2) return;
+  busy = true;
+  routeBtn.disabled = true;
+  setStatus('Ищем путь по рекам и озёрам OSM…');
+
+  try {
+    const path = await measureWaterChain(waypoints);
+    redrawWaypoints(path.points);
+    const fmt = formatDistance(path.lengthKm);
+    const methodLabel =
+      path.method === 'waterway'
+        ? 'по руслу'
+        : path.method === 'lake'
+          ? 'по озеру'
+          : 'напрямую (вода не найдена)';
+    showStats(fmt.km, fmt.nm, path.waterName ? `${path.waterName}` : methodLabel);
+    setStatus(
+      path.method === 'direct'
+        ? 'Водный путь рядом не найден — показана прямая. Приблизьте карту и кликайте точнее по реке.'
+        : `Измерено ${methodLabel}.`,
+      path.method === 'direct',
+    );
+    if (path.points.length >= 2) {
+      map.fitBounds(
+        L.latLngBounds(path.points.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2),
+      );
+    }
+  } catch (err) {
+    console.error(err);
+    redrawWaypoints();
+    const km = pathLengthKm(waypoints);
+    const fmt = formatDistance(km);
+    showStats(fmt.km, fmt.nm, 'ошибка сети');
+    setStatus('Не удалось запросить OSM Overpass. Показана длина по прямым отрезкам.', true);
+  } finally {
+    busy = false;
+    syncSeaInputs();
+  }
+}
+
+function computeRuler(): void {
+  if (waypoints.length < 2) return;
+  redrawWaypoints(waypoints);
+  const km = pathLengthKm(waypoints);
+  const fmt = formatDistance(km);
+  let maxLeg = 0;
+  for (let i = 1; i < waypoints.length; i++) {
+    maxLeg = Math.max(maxLeg, haversineKm(waypoints[i - 1]!, waypoints[i]!));
+  }
+  showStats(fmt.km, fmt.nm, `${waypoints.length - 1} отрезков`);
+  setStatus(`Линейка: сумма отрезков. Самый длинный: ${formatDistance(maxLeg).km}.`);
+  map.fitBounds(L.latLngBounds(waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2));
+}
+
+function setSeaPoint(kind: 'origin' | 'destination', lon: number, lat: number, label?: string): void {
   const point: Point = { lon, lat, label: label ?? pointLabel(lon, lat) };
   if (kind === 'origin') origin = point;
   else destination = point;
-  redrawMarkers();
-  clearRouteStats();
-  syncInputs();
+  redrawSeaMarkers();
+  clearStats();
+  syncSeaInputs();
   setStatus('');
-  if (origin && destination) computeRoute();
+  if (origin && destination) void computeSeaRoute();
+}
+
+function setMode(next: AppMode): void {
+  mode = next;
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
+    btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === next);
+  });
+  const sea = next === 'sea';
+  seaFields.hidden = !sea;
+  seaControls.hidden = !sea;
+  presetsEl.hidden = !sea;
+  inlandHelp.hidden = sea;
+  undoBtn.hidden = sea;
+  routeBtn.textContent = next === 'ruler' ? 'Измерить' : 'Проложить';
+
+  origin = null;
+  destination = null;
+  waypoints = [];
+  drawLayer.clearLayers();
+  clearStats();
+  syncSeaInputs();
+  setStatus(
+    next === 'sea'
+      ? 'Кликните по карте или выберите порт.'
+      : next === 'inland'
+        ? 'Приблизьте карту и кликайте по реке или озеру.'
+        : 'Кликайте точки для измерения.',
+  );
 }
 
 map.on('click', (e: L.LeafletMouseEvent) => {
+  if (busy) return;
   const { lat, lng } = e.latlng;
-  if (pickTarget === 'origin' || !origin) {
-    setPoint('origin', lng, lat);
-    pickTarget = 'destination';
-  } else if (pickTarget === 'destination' || !destination) {
-    setPoint('destination', lng, lat);
-    pickTarget = 'origin';
-  } else {
-    setPoint('origin', lng, lat);
-    destination = null;
-    pickTarget = 'destination';
-    redrawMarkers();
-    clearRouteStats();
-    syncInputs();
+
+  if (mode === 'sea') {
+    if (pickTarget === 'origin' || !origin) {
+      setSeaPoint('origin', lng, lat);
+      pickTarget = 'destination';
+    } else if (pickTarget === 'destination' || !destination) {
+      setSeaPoint('destination', lng, lat);
+      pickTarget = 'origin';
+    } else {
+      setSeaPoint('origin', lng, lat);
+      destination = null;
+      pickTarget = 'destination';
+      redrawSeaMarkers();
+      clearStats();
+      syncSeaInputs();
+    }
+    return;
   }
+
+  waypoints.push({ lon: lng, lat });
+  clearStats();
+  redrawWaypoints();
+  syncSeaInputs();
+  setStatus(
+    mode === 'inland'
+      ? `Точка ${waypoints.length}. Добавьте ещё или нажмите «Проложить».`
+      : `Точка ${waypoints.length}. Нажмите «Измерить» или продолжайте кликать.`,
+  );
 });
 
 originInput.addEventListener('click', () => {
@@ -266,25 +400,49 @@ destInput.addEventListener('click', () => {
   setStatus('Выберите прибытие на карте или порт ниже.');
 });
 
-routeBtn.addEventListener('click', computeRoute);
+routeBtn.addEventListener('click', () => {
+  if (mode === 'sea') void computeSeaRoute();
+  else if (mode === 'inland') void computeInlandRoute();
+  else computeRuler();
+});
+
+undoBtn.addEventListener('click', () => {
+  waypoints.pop();
+  clearStats();
+  redrawWaypoints();
+  syncSeaInputs();
+});
 
 clearBtn.addEventListener('click', () => {
   origin = null;
   destination = null;
+  waypoints = [];
   pickTarget = 'origin';
   activePreset = null;
-  routeLayer.clearLayers();
-  clearRouteStats();
-  syncInputs();
+  drawLayer.clearLayers();
+  clearStats();
+  syncSeaInputs();
   setStatus('');
-  map.setView([20, 10], 3, { animate: true });
 });
 
 for (const input of [speedInput, avoidSuez, avoidPanama, allowArctic]) {
   input.addEventListener('change', () => {
-    if (origin && destination) computeRoute();
+    if (mode === 'sea' && origin && destination) void computeSeaRoute();
   });
 }
+
+basemapSelect.addEventListener('change', () => {
+  basemapControl.setBasemap(basemapSelect.value as BasemapId);
+  const ocean = basemapSelect.value === 'offline';
+  map.getContainer().style.background = ocean ? '#0b3a4a' : '#ddd';
+});
+
+document.querySelectorAll('.mode-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const m = (btn as HTMLElement).dataset.mode as AppMode;
+    setMode(m);
+  });
+});
 
 for (const port of PORTS) {
   const chip = document.createElement('button');
@@ -293,8 +451,9 @@ for (const port of PORTS) {
   chip.textContent = port.city;
   chip.title = port.name;
   chip.addEventListener('click', () => {
+    if (mode !== 'sea') setMode('sea');
     const target = activePreset ?? (!origin ? 'origin' : 'destination');
-    setPoint(target, port.coords[0], port.coords[1], port.city);
+    setSeaPoint(target, port.coords[0], port.coords[1], port.city);
     activePreset = target === 'origin' ? 'destination' : null;
     pickTarget = activePreset ?? 'origin';
     document.querySelectorAll('.chip.active').forEach((el) => el.classList.remove('active'));
@@ -303,57 +462,29 @@ for (const port of PORTS) {
   presetsEl.appendChild(chip);
 }
 
-panelToggle.addEventListener('click', () => {
-  panel.classList.remove('collapsed');
-});
-
-let lastScroll = 0;
-panel.addEventListener('dblclick', (e) => {
-  if ((e.target as HTMLElement).closest('input,button,label,fieldset')) return;
-  panel.classList.add('collapsed');
-});
-
-// Mobile: swipe-like toggle via long press on brand
-document.querySelector('.brand')?.addEventListener('click', () => {
-  if (window.innerWidth <= 720) {
-    const now = Date.now();
-    if (now - lastScroll < 350) panel.classList.add('collapsed');
-    lastScroll = now;
-  }
-});
-
-// Add a discrete collapse control inside panel
-const collapseBtn = document.createElement('button');
-collapseBtn.type = 'button';
-collapseBtn.className = 'btn ghost';
-collapseBtn.style.marginTop = '0.75rem';
-collapseBtn.style.width = '100%';
-collapseBtn.textContent = 'Свернуть панель';
+panelToggle.addEventListener('click', () => panel.classList.remove('collapsed'));
 collapseBtn.addEventListener('click', () => panel.classList.add('collapsed'));
-panel.appendChild(collapseBtn);
 
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
   const fromKey = params.get('from')?.toLowerCase();
   const toKey = params.get('to')?.toLowerCase();
+  const qMode = params.get('mode') as AppMode | null;
+  if (qMode === 'inland' || qMode === 'ruler' || qMode === 'sea') setMode(qMode);
   if (!fromKey || !toKey) return;
-
   const from = PORTS.find(
     (p) => p.name.toLowerCase() === fromKey || p.city.toLowerCase() === fromKey,
   );
-  const to = PORTS.find(
-    (p) => p.name.toLowerCase() === toKey || p.city.toLowerCase() === toKey,
-  );
+  const to = PORTS.find((p) => p.name.toLowerCase() === toKey || p.city.toLowerCase() === toKey);
   if (!from || !to) return;
-
+  setMode('sea');
   origin = { lon: from.coords[0], lat: from.coords[1], label: from.city };
   destination = { lon: to.coords[0], lat: to.coords[1], label: to.city };
-  pickTarget = 'origin';
-  redrawMarkers();
-  syncInputs();
-  void computeRoute();
+  redrawSeaMarkers();
+  syncSeaInputs();
+  void computeSeaRoute();
 }
 
-syncInputs();
-setStatus('Кликните по океану или выберите порт.');
+syncSeaInputs();
+setStatus('Выберите режим и кликните по карте. На OSM видны реки и озёра.');
 bootFromQuery();
