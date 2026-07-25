@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AquaRoute — карта морских маршрутов</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <div id="map" aria-label="Карта мира"></div>
+
+      <aside class="panel" id="panel">
+        <header class="brand">
+          <p class="brand-mark">AquaRoute</p>
+          <p class="brand-sub">Прокладка маршрута по воде</p>
+        </header>
+
+        <p class="hint" id="hint">
+          Кликните по карте: сначала точка отправления, затем прибытия.
+        </p>
+
+        <div class="fields">
+          <label class="field">
+            <span>Откуда</span>
+            <input id="origin-input" type="text" readonly placeholder="Выберите на карте" />
+          </label>
+          <label class="field">
+            <span>Куда</span>
+            <input id="dest-input" type="text" readonly placeholder="Выберите на карте" />
+          </label>
+        </div>
+
+        <div class="presets" id="presets" aria-label="Популярные порты"></div>
+
+        <div class="controls">
+          <label class="field inline">
+            <span>Скорость, узлы</span>
+            <input id="speed" type="number" min="1" max="40" step="0.5" value="14" />
+          </label>
+
+          <fieldset class="restrictions">
+            <legend>Ограничения</legend>
+            <label><input type="checkbox" id="avoid-suez" /> Без Суэца</label>
+            <label><input type="checkbox" id="avoid-panama" /> Без Панамы</label>
+            <label><input type="checkbox" id="allow-arctic" /> Арктические проходы</label>
+          </fieldset>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn primary" id="route-btn" disabled>Проложить маршрут</button>
+          <button type="button" class="btn ghost" id="clear-btn">Сбросить</button>
+        </div>
+
+        <section class="stats" id="stats" hidden>
+          <div class="stat">
+            <span class="stat-label">Дистанция</span>
+            <strong id="stat-distance">—</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">ETA</span>
+            <strong id="stat-eta">—</strong>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Проходы</span>
+            <strong id="stat-passages">—</strong>
+          </div>
+        </section>
+
+        <p class="status" id="status" role="status"></p>
+      </aside>
+
+      <button type="button" class="panel-toggle" id="panel-toggle" aria-label="Скрыть панель">
+        ☰
+      </button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
