@@ -1,114 +1,34 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { feature as topoFeature } from 'topojson-client';
-import type { GeometryCollection, Topology } from 'topojson-specification';
 import type { Passage, SeaRouteFeature, SeaRouteMultiFeature } from 'searoute-ts';
+import { addOfflineBasemap } from './basemap';
 import { PORTS, formatCoords, nearestPortName } from './ports';
 import './style.css';
 
 type Point = { lon: number; lat: number; label: string };
 
-const map = L.map('map', {
+const mapEl = document.getElementById('map');
+if (!mapEl) {
+  throw new Error('Map container #map not found');
+}
+
+const map = L.map(mapEl, {
   worldCopyJump: true,
   minZoom: 2,
   maxZoom: 10,
   zoomControl: false,
+  attributionControl: true,
 }).setView([20, 10], 3);
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
+addOfflineBasemap(map);
 
-// Bundled land outlines under tiles — visible if tile CDNs are blocked
-map.createPane('landPane');
-const landPane = map.getPane('landPane');
-if (landPane) {
-  landPane.style.zIndex = '150';
-  landPane.style.pointerEvents = 'none';
-}
-
-async function loadLandBase(): Promise<void> {
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}land-110m.json`);
-    if (!res.ok) throw new Error(`land fetch ${res.status}`);
-    const topology = (await res.json()) as Topology<{ land: GeometryCollection }>;
-    const land = topoFeature(topology, topology.objects.land);
-    L.geoJSON(land as GeoJSON.GeoJsonObject, {
-      pane: 'landPane',
-      style: {
-        color: '#7f9aa0',
-        weight: 0.5,
-        fillColor: '#d5e2dd',
-        fillOpacity: 1,
-      },
-      interactive: false,
-    }).addTo(map);
-  } catch (err) {
-    console.warn('Land base failed to load', err);
-  }
-}
-
-void loadLandBase();
-
-const tileSources: Array<{
-  url: string;
-  options: L.TileLayerOptions;
-}> = [
-  {
-    // Often reachable when Carto is blocked
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    options: {
-      attribution: 'Tiles &copy; Esri',
-      maxZoom: 19,
-      opacity: 0.92,
-    },
-  },
-  {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    options: {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-      opacity: 0.92,
-    },
-  },
-  {
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    options: {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 19,
-      opacity: 0.92,
-    },
-  },
-];
-
-let activeTiles: L.TileLayer | null = null;
-let tileSourceIndex = 0;
-let tileErrors = 0;
-
-function attachTiles(index: number): void {
-  if (activeTiles) map.removeLayer(activeTiles);
-  tileSourceIndex = index;
-  tileErrors = 0;
-  const source = tileSources[index]!;
-  activeTiles = L.tileLayer(source.url, {
-    ...source.options,
-    className: 'basemap-tiles',
-  });
-  activeTiles.on('tileerror', () => {
-    tileErrors += 1;
-    if (tileErrors >= 4 && tileSourceIndex < tileSources.length - 1) {
-      attachTiles(tileSourceIndex + 1);
-    }
-  });
-  activeTiles.addTo(map);
-}
-
-attachTiles(0);
-
-requestAnimationFrame(() => {
-  map.invalidateSize();
-});
-window.addEventListener('resize', () => map.invalidateSize());
+const refreshSize = () => map.invalidateSize({ animate: false });
+requestAnimationFrame(refreshSize);
+setTimeout(refreshSize, 100);
+setTimeout(refreshSize, 500);
+window.addEventListener('resize', refreshSize);
+window.addEventListener('orientationchange', refreshSize);
 
 const routeLayer = L.layerGroup().addTo(map);
 
