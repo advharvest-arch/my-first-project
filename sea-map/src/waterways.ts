@@ -1,5 +1,5 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
-import { routeWithBrouter, routeWithBrouterChunked, routeSpanKm } from './brouter';
+import { routeWithBrouter, routeWithBrouterChunked } from './brouter';
 import waterCore from './water-core.json';
 
 export type WaterPath = {
@@ -727,27 +727,50 @@ async function fetchWaterNetwork(
   const fromCache = mergeLines(
     cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
   );
-  const missing = cells.filter((c) => !cellCache.get(cellKey(c.cx, c.cy))?.length);
+  const missing = cells.filter((c) => {
+    const id = cellKey(c.cx, c.cy);
+    if (cellCache.get(id)?.length) return false;
+    const emptyUntil = emptyCellUntil.get(id) ?? 0;
+    return emptyUntil <= Date.now();
+  });
 
   // Full cache hit — skip Overpass unless forced (failed route retry).
   if (!opts.forceRefresh && missing.length === 0 && fromCache.length > 0) return fromCache;
 
-  try {
-    const lines = linesFromElements(await overpassQuery(aroundWaterQuery(points)));
-    if (lines.length) {
-      rememberLinesInCells(lines);
-      return mergeLines([fromCache, lines]);
+  const span = pathLength(points);
+
+  // Short corridor: one compact around-query (fast).
+  if (span <= 100) {
+    try {
+      const lines = linesFromElements(await overpassQuery(aroundWaterQuery(points)));
+      if (lines.length) {
+        rememberLinesInCells(lines);
+        return mergeLines([fromCache, lines]);
+      }
+    } catch {
+      // fall through to cell loads
     }
-  } catch {
-    // fall through
   }
+
+  // Long corridor (or short query failed): load cells along the path in batches.
+  // Cap so we don't fire hundreds of Overpass calls at once.
+  const toLoad = (opts.forceRefresh ? cells : missing).slice(0, 80);
+  for (let i = 0; i < toLoad.length; i += 8) {
+    const batch = toLoad.slice(i, i + 8);
+    await Promise.all(batch.map((c) => loadCell(c.cx, c.cy)));
+  }
+
+  const loaded = mergeLines(
+    cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
+  );
+  if (loaded.length) return loaded;
 
   if (fromCache.length) return fromCache;
 
   const ends = [points[0]!, points[points.length - 1]!].map(pointCell);
   const unique = new Map(ends.map((c) => [cellKey(c.cx, c.cy), c]));
-  const loaded = await Promise.all([...unique.values()].map((c) => loadCell(c.cx, c.cy)));
-  return mergeLines(loaded);
+  const endLines = await Promise.all([...unique.values()].map((c) => loadCell(c.cx, c.cy)));
+  return mergeLines(endLines);
 }
 
 /** Warm waterway cache around a point (call after inland click / demo). */
@@ -1012,32 +1035,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   }
 
-  const spanKm = routeSpanKm(waypoints);
-
-  // Primary: one BRouter call for the whole chain (timeout scales with length).
-  let brouted = await routeWithBrouter(waypoints);
-  // Long / multi-stop fallback: stitch per-leg BRouter results instead of Overpass.
-  if (!brouted) brouted = await routeWithBrouterChunked(waypoints);
-
-  if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
-    const minSimplifyKm = brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
-    const simplified = simplifyPath(brouted.points, minSimplifyKm);
-    // namesAlongPath is expensive on long corridors — prefer BRouter tags first.
-    const named =
-      brouted.lengthKm > 120
-        ? waterNameFromTags(brouted.wayTags) ?? namesAlongPath(simplified)
-        : namesAlongPath(simplified) ?? waterNameFromTags(brouted.wayTags);
-    return {
-      points: simplified,
-      lengthKm: brouted.lengthKm,
-      waterName: named,
-      method: 'waterway',
-      waypointCumKm: cumKmAlongPath(brouted.points, waypoints),
-    };
-  }
-
-  // Local OSM graph only for short corridors — Overpass cannot cover long rivers.
-  if (spanKm > 90) {
+  const directFallback = (): WaterPath => {
     const cum = [0];
     let sum = 0;
     for (let i = 1; i < waypoints.length; i++) {
@@ -1051,26 +1049,35 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       method: 'direct',
       waypointCumKm: cum,
     };
+  };
+
+  // 1) Full-chain BRouter (retry once — public API is occasionally flaky).
+  let brouted = await routeWithBrouter(waypoints);
+  if (!brouted) brouted = await routeWithBrouter(waypoints);
+  // 2) Multi-stop: stitch per-leg BRouter calls.
+  if (!brouted) brouted = await routeWithBrouterChunked(waypoints);
+
+  if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
+    const minSimplifyKm = brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
+    const simplified = simplifyPath(brouted.points, minSimplifyKm);
+    const named =
+      brouted.lengthKm > 120
+        ? waterNameFromTags(brouted.wayTags) ?? namesAlongPath(simplified)
+        : namesAlongPath(simplified) ?? waterNameFromTags(brouted.wayTags);
+    return {
+      points: simplified,
+      lengthKm: brouted.lengthKm,
+      waterName: named,
+      method: 'waterway',
+      waypointCumKm: cumKmAlongPath(brouted.points, waypoints),
+    };
   }
 
-  // Fallback: local OSM graph (slower, used if BRouter is unavailable).
+  // 3) Local graph (water-core + Overpass cells) — same fallback as before sea merge.
+  //    Do NOT skip this for long routes; core coverage includes the Volga corridor.
   const run = async (forceRefresh: boolean): Promise<WaterPath> => {
     const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
-    if (lines.length === 0) {
-      const cum = [0];
-      let sum = 0;
-      for (let i = 1; i < waypoints.length; i++) {
-        sum += haversineKm(waypoints[i - 1]!, waypoints[i]!);
-        cum.push(sum);
-      }
-      return {
-        points: waypoints.slice(),
-        lengthKm: sum,
-        waterName: null,
-        method: 'direct',
-        waypointCumKm: cum,
-      };
-    }
+    if (lines.length === 0) return directFallback();
 
     const allPoints: LngLat[] = [];
     let lengthKm = 0;

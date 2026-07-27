@@ -76,10 +76,14 @@ export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResu
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { Accept: 'application/geo+json, application/json' },
+      headers: {
+        Accept: 'application/geo+json, application/vnd.geo+json, application/json, */*',
+      },
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as {
+    // Some gateways return geojson with a non-JSON content-type; parse text safely.
+    const text = await res.text();
+    let data: {
       features?: Array<{
         geometry?: { type?: string; coordinates?: number[][] | number[][][] };
         properties?: {
@@ -88,6 +92,11 @@ export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResu
         };
       }>;
     };
+    try {
+      data = JSON.parse(text) as typeof data;
+    } catch {
+      return null;
+    }
     const feature = data.features?.[0];
     if (!feature?.geometry) return null;
     const points = flattenCoords(feature.geometry);
