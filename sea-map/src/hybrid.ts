@@ -2,17 +2,23 @@ import type { Passage, SeaRouteFeature, SeaRouteMultiFeature } from 'searoute-ts
 import { haversineKm, pathLengthKm, type LngLat } from './geo';
 import { measureWaterChain, type WaterPath } from './waterways';
 
+/** How to pick between inland and maritime networks per leg. */
+export type RoutePrefer = 'river' | 'shortest' | 'sea';
+
 export type HybridOptions = {
   restrictions?: Passage[];
   allowArctic?: boolean;
   speedKnots?: number;
+  /** Default `river`: sea only if inland cannot connect. */
+  prefer?: RoutePrefer;
 };
 
 export type HybridPath = WaterPath & {
-  /** Labels describing which networks were used */
   networks: Array<'river' | 'sea' | 'direct'>;
   passages: Passage[];
 };
+
+type SeaLeg = { points: LngLat[]; lengthKm: number; passages: Passage[] };
 
 function featureToPoints(feature: SeaRouteFeature | SeaRouteMultiFeature): LngLat[] {
   const geom = feature.geometry;
@@ -30,11 +36,7 @@ function featureToPoints(feature: SeaRouteFeature | SeaRouteMultiFeature): LngLa
   return out;
 }
 
-async function seaLeg(
-  a: LngLat,
-  b: LngLat,
-  opts: HybridOptions,
-): Promise<{ points: LngLat[]; lengthKm: number; passages: Passage[] } | null> {
+async function seaLeg(a: LngLat, b: LngLat, opts: HybridOptions): Promise<SeaLeg | null> {
   try {
     const { seaRoute } = await import('searoute-ts');
     const feature = seaRoute([a.lon, a.lat], [b.lon, b.lat], {
@@ -63,42 +65,59 @@ async function seaLeg(
   }
 }
 
+function inlandOk(inland: WaterPath): boolean {
+  return inland.method !== 'direct' && inland.points.length >= 2 && inland.lengthKm > 0;
+}
+
+function seaOk(sea: SeaLeg | null): sea is SeaLeg {
+  return sea != null && sea.lengthKm > 0 && sea.points.length >= 2;
+}
+
 /**
- * Pick river vs sea for one leg.
- * Prefer inland when it follows waterways; use sea when inland fails or is a poor detour.
+ * Choose network for one leg.
+ * - river: inland whenever it connects; sea only as last resort
+ * - shortest: among valid options pick the shorter length
+ * - sea: maritime first; inland only if sea fails
  */
-function preferSea(
-  directKm: number,
+function chooseNetwork(
+  prefer: RoutePrefer,
   inland: WaterPath,
-  sea: { lengthKm: number } | null,
+  sea: SeaLeg | null,
 ): 'river' | 'sea' | 'direct' {
-  const inlandOk = inland.method !== 'direct' && inland.points.length >= 2;
-  const seaOk = sea != null && sea.lengthKm > 0;
+  const hasRiver = inlandOk(inland);
+  const hasSea = seaOk(sea);
 
-  if (inlandOk && !seaOk) return 'river';
-  if (!inlandOk && seaOk) return 'sea';
-  if (!inlandOk && !seaOk) return 'direct';
+  if (prefer === 'river') {
+    if (hasRiver) return 'river';
+    if (hasSea) return 'sea';
+    return 'direct';
+  }
 
-  // Both available: inland is suspicious if much longer than great-circle on long legs
-  // (typical when BRouter/OSM can't connect and wanders), or when it's barely better than direct.
-  const inlandRatio = inland.lengthKm / Math.max(directKm, 0.01);
-  const seaRatio = sea!.lengthKm / Math.max(directKm, 0.01);
+  if (prefer === 'sea') {
+    if (hasSea) return 'sea';
+    if (hasRiver) return 'river';
+    return 'direct';
+  }
 
-  if (directKm >= 40 && inlandRatio > 2.8 && seaRatio < inlandRatio * 0.85) return 'sea';
-  if (directKm >= 80 && inland.method === 'lake' && seaRatio < inlandRatio) return 'sea';
-  // Short coastal / river: prefer river network
-  if (inlandRatio <= 2.2) return 'river';
-  // Prefer shorter of the two when both look plausible
-  return sea!.lengthKm < inland.lengthKm * 0.92 ? 'sea' : 'river';
+  // shortest
+  if (hasRiver && hasSea) {
+    return sea!.lengthKm < inland.lengthKm ? 'sea' : 'river';
+  }
+  if (hasRiver) return 'river';
+  if (hasSea) return 'sea';
+  return 'direct';
 }
 
 /**
  * Continuous itinerary mixing inland waterways and maritime network per leg.
+ * Sea is not queried when `prefer=river` and inland already found a waterway path.
  */
 export async function measureHybridChain(
   waypoints: LngLat[],
   opts: HybridOptions = {},
 ): Promise<HybridPath> {
+  const prefer: RoutePrefer = opts.prefer ?? 'river';
+
   if (waypoints.length < 2) {
     return {
       points: waypoints.slice(),
@@ -125,12 +144,30 @@ export async function measureHybridChain(
     const b = waypoints[i]!;
     const directKm = haversineKm(a, b);
 
-    const [inland, sea] = await Promise.all([
-      measureWaterChain([a, b]),
-      seaLeg(a, b, opts),
-    ]);
+    let inland: WaterPath;
+    let sea: SeaLeg | null = null;
 
-    const choice = preferSea(directKm, inland, sea);
+    if (prefer === 'river') {
+      // Don't involve the sea network unless inland cannot connect.
+      inland = await measureWaterChain([a, b]);
+      if (!inlandOk(inland)) sea = await seaLeg(a, b, opts);
+    } else if (prefer === 'sea') {
+      sea = await seaLeg(a, b, opts);
+      if (!seaOk(sea)) inland = await measureWaterChain([a, b]);
+      else {
+        inland = {
+          points: [a, b],
+          lengthKm: directKm,
+          waterName: null,
+          method: 'direct',
+        };
+      }
+    } else {
+      // shortest — compare both when available
+      ;[inland, sea] = await Promise.all([measureWaterChain([a, b]), seaLeg(a, b, opts)]);
+    }
+
+    const choice = chooseNetwork(prefer, inland, sea);
     networks.push(choice);
 
     let chunk: LngLat[];

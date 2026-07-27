@@ -11,7 +11,7 @@ import {
   pathLengthKm,
   type LngLat,
 } from './geo';
-import { measureHybridChain } from './hybrid';
+import { measureHybridChain, type RoutePrefer } from './hybrid';
 import { PORTS, nearestPortName } from './ports';
 import { prefetchWaterBbox, prefetchWaterNear } from './waterways';
 import './style.css';
@@ -82,6 +82,7 @@ const speedInput = document.querySelector<HTMLInputElement>('#speed')!;
 const avoidSuez = document.querySelector<HTMLInputElement>('#avoid-suez')!;
 const avoidPanama = document.querySelector<HTMLInputElement>('#avoid-panama')!;
 const allowArctic = document.querySelector<HTMLInputElement>('#allow-arctic')!;
+const routePreferSelect = document.querySelector<HTMLSelectElement>('#route-prefer')!;
 const presetsEl = document.querySelector<HTMLElement>('#presets')!;
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const panelToggle = document.querySelector<HTMLButtonElement>('#panel-toggle')!;
@@ -669,6 +670,12 @@ function seaRestrictions(): Passage[] {
   return restrictions;
 }
 
+function routePrefer(): RoutePrefer {
+  const v = routePreferSelect.value;
+  if (v === 'shortest' || v === 'sea') return v;
+  return 'river';
+}
+
 async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
   const fit = opts.fit ?? false;
   if (waypoints.length < 2) return;
@@ -679,13 +686,21 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
   busy = true;
   pendingRebuild = false;
   routeBtn.disabled = true;
-  setStatus('Строим маршрут по воде…');
+  const prefer = routePrefer();
+  setStatus(
+    prefer === 'shortest'
+      ? 'Ищем кратчайший путь (река / море)…'
+      : prefer === 'sea'
+        ? 'Строим морской маршрут…'
+        : 'Строим маршрут по рекам и каналам…',
+  );
 
   try {
     const path = await measureHybridChain(waypoints, {
       restrictions: seaRestrictions(),
       allowArctic: allowArctic.checked,
       speedKnots: speedKmh() / KM_PER_KNOT,
+      prefer,
     });
     lastRoutePath = path.points;
     lastCumKm = path.waypointCumKm ?? [];
@@ -951,6 +966,9 @@ for (const input of [avoidSuez, avoidPanama, allowArctic]) {
     if (mode === 'water' && waypoints.length >= 2) void computeWaterRoute({ fit: false });
   });
 }
+routePreferSelect.addEventListener('change', () => {
+  if (mode === 'water' && waypoints.length >= 2) void computeWaterRoute({ fit: false });
+});
 
 basemapSelect.addEventListener('change', () => {
   basemapControl.setBasemap(basemapSelect.value as BasemapId);

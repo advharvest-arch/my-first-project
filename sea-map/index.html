@@ -52,6 +52,14 @@
         </div>
 
         <div class="controls" id="sea-controls">
+          <label class="field">
+            <span>Сеть маршрута</span>
+            <select id="route-prefer">
+              <option value="river" selected>Реки и каналы (море — только если нельзя по реке)</option>
+              <option value="shortest">Кратчайший (сравнить реку и море)</option>
+              <option value="sea">Море (морская сеть)</option>
+            </select>
+          </label>
           <fieldset class="restrictions">
             <legend>Ограничения (море)</legend>
             <label><input type="checkbox" id="avoid-suez" /> Без Суэца</label>
