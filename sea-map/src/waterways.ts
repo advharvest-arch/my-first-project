@@ -1,5 +1,5 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
-import { routeWithBrouter, routeWithBrouterChunked } from './brouter';
+import { routeWithBrouterAdaptive } from './brouter';
 import waterCore from './water-core.json';
 
 export type WaterPath = {
@@ -890,26 +890,20 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
   }
 
   if (!nodePath || nodePath.length < 2) {
-    // Last resort: still hug the water if both snaps are close to water.
-    if (snapA.distKm <= 2.5 && snapB.distKm <= 2.5) {
-      const prefer =
-        snapA.line.kind === 'waterway'
-          ? snapA.line
-          : snapB.line.kind === 'waterway'
-            ? snapB.line
-            : snapA.line;
-      const points = pathAlongLine(prefer, origin, destination);
-      // If along-line is much longer than direct chord between snaps, use snap chord on water.
-      const viaSnaps = simplifyPath([origin, snapA.point, snapB.point, destination]);
-      const use =
-        pathLength(points) > pathLength(viaSnaps) * 3 && prefer.id !== snapB.line.id
-          ? viaSnaps
-          : points;
+    // Same water body only — never invent a land chord between distant rivers/lakes
+    // (that looked like a "straight line not on water" for Seliger→Vokhma).
+    if (
+      distDirect <= 40 &&
+      snapA.distKm <= 2.5 &&
+      snapB.distKm <= 2.5 &&
+      snapA.line.id === snapB.line.id
+    ) {
+      const points = pathAlongLine(snapA.line, origin, destination);
       return {
-        points: use,
-        lengthKm: pathLength(use),
-        waterName: waterName ?? prefer.name,
-        method: prefer.kind === 'lake' ? 'lake' : 'waterway',
+        points,
+        lengthKm: pathLength(points),
+        waterName: waterName ?? snapA.line.name,
+        method: snapA.line.kind === 'lake' ? 'lake' : 'waterway',
       };
     }
     return {
@@ -1073,13 +1067,12 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   };
 
-  // 1) BRouter — fast path (retry once; public API is occasionally flaky).
-  let brouted = await routeWithBrouter(waypoints);
-  if (!brouted) brouted = await routeWithBrouter(waypoints);
-  if (!brouted && waypoints.length > 2) brouted = await routeWithBrouterChunked(waypoints);
+  // 1) BRouter — retries + adaptive split for long inland corridors.
+  const brouted = await routeWithBrouterAdaptive(waypoints);
 
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
-    const minSimplifyKm = brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
+    const minSimplifyKm =
+      brouted.lengthKm > 800 ? 0.35 : brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
     const simplified = simplifyPath(brouted.points, minSimplifyKm);
     // Tags only — never scan the full water-core graph for names (freezes the tab).
     const named =
