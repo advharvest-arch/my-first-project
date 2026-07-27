@@ -16,7 +16,6 @@ function parseWayTags(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Rough route length for timeout / strategy decisions. */
 export function routeSpanKm(waypoints: LngLat[]): number {
   if (waypoints.length < 2) return 0;
   let chain = 0;
@@ -31,8 +30,8 @@ export function routeSpanKm(waypoints: LngLat[]): number {
 
 function brouterTimeoutMs(waypoints: LngLat[]): number {
   const span = routeSpanKm(waypoints);
-  // Short legs stay snappy; long Volga-scale routes need up to ~90s on a slow link.
-  return Math.min(90_000, Math.max(15_000, 12_000 + span * 30));
+  // Short legs stay snappy; long Volga-scale routes need more time on a slow link.
+  return Math.min(90_000, Math.max(12_000, 10_000 + span * 25));
 }
 
 function flattenCoords(geometry: {
@@ -61,7 +60,7 @@ function flattenCoords(geometry: {
 
 /**
  * Fast river routing via BRouter public API (same approach as wetmeter.online).
- * Timeout scales with route length so long inland trips are not aborted early.
+ * No custom headers — avoids CORS preflight; Content-Type may be geo+json.
  */
 export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
@@ -74,14 +73,9 @@ export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResu
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), brouterTimeoutMs(waypoints));
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/geo+json, application/vnd.geo+json, application/json, */*',
-      },
-    });
+    const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) return null;
-    // Some gateways return geojson with a non-JSON content-type; parse text safely.
+    // Parse text — some gateways send application/vnd.geo+json.
     const text = await res.text();
     let data: {
       features?: Array<{
@@ -122,10 +116,7 @@ export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResu
   }
 }
 
-/**
- * Fallback for long / multi-stop routes: route each leg separately and stitch.
- * More reliable than one giant request when the public API times out.
- */
+/** Stitch per-leg BRouter results when the full-chain request fails. */
 export async function routeWithBrouterChunked(
   waypoints: LngLat[],
 ): Promise<BrouterResult | null> {

@@ -754,7 +754,8 @@ async function fetchWaterNetwork(
 
   // Long corridor (or short query failed): load cells along the path in batches.
   // Cap so we don't fire hundreds of Overpass calls at once.
-  const toLoad = (opts.forceRefresh ? cells : missing).slice(0, 80);
+  // Cap Overpass fan-out — BRouter is primary; this is only a backup.
+  const toLoad = (opts.forceRefresh ? cells : missing).slice(0, 24);
   for (let i = 0; i < toLoad.length; i += 8) {
     const batch = toLoad.slice(i, i + 8);
     await Promise.all(batch.map((c) => loadCell(c.cx, c.cy)));
@@ -934,54 +935,45 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
   };
 }
 
-function linesNearPath(path: LngLat[]): WaterLine[] {
-  const cells = cellsAlong(path);
-  return mergeLines(
-    cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
-  );
-}
-
 /**
- * Names of waterways the geometry actually follows — not every river near a click.
- * A name is kept only if a meaningful share of the route runs along that waterway.
+ * Cheap label from nearby named waterways (endpoint snaps only).
+ * Avoid full path×line scans — water-core near Moscow has 300+ named rivers and freezes the UI.
  */
-function namesAlongPath(path: LngLat[]): string | null {
+function namesNearEndpoints(path: LngLat[]): string | null {
   if (path.length < 2) return null;
-  const lines = linesNearPath(path).filter((l) => l.name && l.kind === 'waterway');
-  if (!lines.length) return null;
-
-  const totalKm = pathLength(path);
-  if (totalKm <= 0) return null;
-
+  const ends = [path[0]!, path[path.length - 1]!];
   const scored = new Map<string, number>();
-  const step = Math.max(1, Math.floor(path.length / 80));
-  for (let i = step; i < path.length; i += step) {
-    const a = path[i - step]!;
-    const b = path[i]!;
-    const mid = { lon: (a.lon + b.lon) / 2, lat: (a.lat + b.lat) / 2 };
-    const segKm = haversineKm(a, b);
+  for (const p of ends) {
+    const { cx, cy } = pointCell(p);
+    const seen = new Set<string>();
+    const nearby: WaterLine[] = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const line of cellCache.get(cellKey(cx + dx, cy + dy)) ?? []) {
+          if (!line.name || line.kind !== 'waterway' || seen.has(line.id)) continue;
+          seen.add(line.id);
+          nearby.push(line);
+        }
+      }
+    }
+    // Cap — dense cities have hundreds of named canals/streams in cache.
+    const limited = nearby.length > 80 ? nearby.slice(0, 80) : nearby;
     let bestName: string | null = null;
-    let bestD = 0.12; // 120 m — must hug the river, not a parallel tributary
-    for (const line of lines) {
-      for (let j = 1; j < line.coords.length; j++) {
-        const c = closestOnSegment(mid, line.coords[j - 1]!, line.coords[j]!);
+    let bestD = 0.35;
+    for (const line of limited) {
+      const stride = Math.max(1, Math.floor(line.coords.length / 24));
+      for (let j = stride; j < line.coords.length; j += stride) {
+        const c = closestOnSegment(p, line.coords[j - stride]!, line.coords[j]!);
         if (c.distKm < bestD) {
           bestD = c.distKm;
           bestName = line.name;
         }
       }
     }
-    if (!bestName) continue;
-    scored.set(bestName, (scored.get(bestName) ?? 0) + segKm);
+    if (bestName) scored.set(bestName, (scored.get(bestName) ?? 0) + 1);
   }
-
-  const minKm = Math.max(0.35, totalKm * 0.12);
-  const names = [...scored.entries()]
-    .filter(([, km]) => km >= minKm)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name]) => name);
-
-  return names.length ? names.join(', ') : null;
+  const names = [...scored.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  return names.length ? uniqueWaterName(...names) : null;
 }
 
 function cumKmAlongPath(path: LngLat[], waypoints: LngLat[]): number[] {
@@ -1051,61 +1043,69 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   };
 
-  // 1) Full-chain BRouter (retry once — public API is occasionally flaky).
-  let brouted = await routeWithBrouter(waypoints);
-  if (!brouted) brouted = await routeWithBrouter(waypoints);
-  // 2) Multi-stop: stitch per-leg BRouter calls.
-  if (!brouted) brouted = await routeWithBrouterChunked(waypoints);
-
-  if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
-    const minSimplifyKm = brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
-    const simplified = simplifyPath(brouted.points, minSimplifyKm);
-    const named =
-      brouted.lengthKm > 120
-        ? waterNameFromTags(brouted.wayTags) ?? namesAlongPath(simplified)
-        : namesAlongPath(simplified) ?? waterNameFromTags(brouted.wayTags);
-    return {
-      points: simplified,
-      lengthKm: brouted.lengthKm,
-      waterName: named,
-      method: 'waterway',
-      waypointCumKm: cumKmAlongPath(brouted.points, waypoints),
-    };
-  }
-
-  // 3) Local graph (water-core + Overpass cells) — same fallback as before sea merge.
-  //    Do NOT skip this for long routes; core coverage includes the Volga corridor.
-  const run = async (forceRefresh: boolean): Promise<WaterPath> => {
-    const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
-    if (lines.length === 0) return directFallback();
-
+  const routeOnCachedLines = (lines: WaterLine[]): WaterPath | null => {
+    if (!lines.length) return null;
     const allPoints: LngLat[] = [];
     let lengthKm = 0;
     const waypointCumKm = [0];
     let method: WaterPath['method'] = 'waterway';
     let anyRouted = false;
+    const nameBits: Array<string | null> = [];
 
     for (let i = 1; i < waypoints.length; i++) {
       const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
       if (leg.method !== 'direct') anyRouted = true;
       if (leg.method === 'lake' && method === 'waterway') method = 'lake';
+      if (leg.waterName) nameBits.push(leg.waterName);
       const chunk = i === 1 ? leg.points : leg.points.slice(1);
       allPoints.push(...chunk);
       lengthKm += leg.lengthKm;
       waypointCumKm.push(lengthKm);
     }
-
-    if (!anyRouted) method = 'direct';
+    if (!anyRouted) return null;
     const path = simplifyPath(allPoints);
-    const waterName = method === 'direct' ? null : namesAlongPath(path);
-
     return {
       points: path,
       lengthKm,
-      waterName,
+      waterName: uniqueWaterName(...nameBits) ?? namesNearEndpoints(path),
       method,
       waypointCumKm,
     };
+  };
+
+  // 1) BRouter — fast path (retry once; public API is occasionally flaky).
+  let brouted = await routeWithBrouter(waypoints);
+  if (!brouted) brouted = await routeWithBrouter(waypoints);
+  if (!brouted && waypoints.length > 2) brouted = await routeWithBrouterChunked(waypoints);
+
+  if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
+    const minSimplifyKm = brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
+    const simplified = simplifyPath(brouted.points, minSimplifyKm);
+    // Tags only — never scan the full water-core graph for names (freezes the tab).
+    const named =
+      waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(simplified);
+    return {
+      points: simplified,
+      lengthKm: brouted.lengthKm,
+      waterName: named,
+      method: 'waterway',
+      waypointCumKm: cumKmAlongPath(simplified, waypoints),
+    };
+  }
+
+  // 2) Instant local fallback from water-core already in memory (no network).
+  const cachedLines = mergeLines(
+    cellsAlong(waypoints)
+      .map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? [])
+      .filter((g) => g.length > 0),
+  );
+  const fromCache = routeOnCachedLines(cachedLines);
+  if (fromCache) return fromCache;
+
+  // 3) Fetch more OSM geometry, then route (may be slower).
+  const run = async (forceRefresh: boolean): Promise<WaterPath> => {
+    const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
+    return routeOnCachedLines(lines) ?? directFallback();
   };
 
   let path = await run(false);
