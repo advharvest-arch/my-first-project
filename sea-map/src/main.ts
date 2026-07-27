@@ -2,13 +2,43 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Passage, SeaRouteFeature, SeaRouteMultiFeature } from 'searoute-ts';
 import { attachBasemapControl, createBasemaps, type BasemapId } from './basemap';
-import { formatDistance, haversineKm, pathLengthKm, type LngLat } from './geo';
+import {
+  etaHours,
+  formatDuration,
+  formatKm,
+  haversineKm,
+  pathLengthKm,
+  type LngLat,
+} from './geo';
 import { PORTS, formatCoords, nearestPortName } from './ports';
 import { measureWaterChain } from './waterways';
 import './style.css';
 
 type AppMode = 'sea' | 'inland' | 'ruler';
 type Point = { lon: number; lat: number; label: string };
+
+const KM_PER_KNOT = 1.852;
+
+const INLAND_PRESETS: Array<{ label: string; a: LngLat; b: LngLat; zoom: number }> = [
+  {
+    label: 'Москва-река',
+    a: { lon: 37.505, lat: 55.742 },
+    b: { lon: 37.645, lat: 55.749 },
+    zoom: 12,
+  },
+  {
+    label: 'Волга (Н.Новгород)',
+    a: { lon: 43.95, lat: 56.33 },
+    b: { lon: 44.15, lat: 56.29 },
+    zoom: 11,
+  },
+  {
+    label: 'Куйбышевское вдхр.',
+    a: { lon: 48.42, lat: 54.36 },
+    b: { lon: 48.55, lat: 54.4 },
+    zoom: 10,
+  },
+];
 
 const mapEl = document.getElementById('map');
 if (!mapEl) throw new Error('Map container #map not found');
@@ -68,6 +98,10 @@ let activePreset: 'origin' | 'destination' | null = null;
 let waypoints: LngLat[] = [];
 let busy = false;
 
+function speedKmh(): number {
+  return Math.max(1, Number(speedInput.value) || 20);
+}
+
 function pointLabel(lon: number, lat: number): string {
   return nearestPortName(lon, lat) ?? formatCoords(lon, lat);
 }
@@ -107,17 +141,16 @@ function updateHint(): void {
     else hintEl.textContent = 'Море: маршрут готов. Можно сменить точки или ограничения.';
   } else if (mode === 'inland') {
     hintEl.textContent =
-      'Реки, озёра, водохранилища: два клика по воде — маршрут построится сам. Можно добавить промежуточные точки.';
+      'Реки/озёра: два клика по воде — маршрут построится сам. Или выберите пример ниже.';
   } else {
-    hintEl.textContent =
-      'Линейка: кликайте точки подряд. Длина считается по прямой между точками (удобно по берегу).';
+    hintEl.textContent = 'Линейка: кликайте точки подряд. Длина — сумма отрезков в километрах.';
   }
 }
 
-function syncSeaInputs(): void {
+function syncControls(): void {
   originInput.value = origin ? origin.label : '';
   destInput.value = destination ? destination.label : '';
-  routeBtn.disabled = mode === 'sea' ? !(origin && destination) : waypoints.length < 2 || busy;
+  routeBtn.disabled = mode === 'sea' ? !(origin && destination) || busy : waypoints.length < 2 || busy;
   undoBtn.hidden = mode === 'sea';
   waypointCountEl.textContent = `Точек: ${waypoints.length}`;
   updateHint();
@@ -147,7 +180,7 @@ function redrawWaypoints(path?: LngLat[]): void {
   if (path && path.length >= 2) {
     L.polyline(
       path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      { color: '#2ec4b6', weight: 4, opacity: 0.95, className: 'route-line' },
+      { color: '#2ec4b6', weight: 5, opacity: 0.95, className: 'route-line' },
     ).addTo(drawLayer);
   } else if (waypoints.length >= 2) {
     L.polyline(
@@ -155,13 +188,6 @@ function redrawWaypoints(path?: LngLat[]): void {
       { color: '#d9c3a0', weight: 2, dashArray: '4 6', opacity: 0.85 },
     ).addTo(drawLayer);
   }
-}
-
-function formatDuration(hours: number): string {
-  const d = Math.floor(hours / 24);
-  const h = Math.round(hours % 24);
-  if (d <= 0) return `${h} ч`;
-  return `${d} д ${h} ч`;
 }
 
 function passageLabel(p: Passage): string {
@@ -210,11 +236,14 @@ function drawSeaRoute(feature: SeaRouteFeature | SeaRouteMultiFeature): void {
   });
   if (bounds.isValid()) map.fitBounds(bounds.pad(0.15), { animate: true });
 
-  const { length, durationHours, passages } = feature.properties;
+  const lengthKm = feature.properties.length; // already km if units: kilometers
+  const hours = feature.properties.durationHours ?? etaHours(lengthKm, speedKmh());
   showStats(
-    `${Math.round(length).toLocaleString('ru-RU')} м.миль`,
-    durationHours != null ? formatDuration(durationHours) : '—',
-    passages && passages.length ? passages.map(passageLabel).join(', ') : 'нет',
+    formatKm(lengthKm),
+    formatDuration(hours),
+    feature.properties.passages?.length
+      ? feature.properties.passages.map(passageLabel).join(', ')
+      : 'нет',
   );
 }
 
@@ -223,7 +252,7 @@ async function computeSeaRoute(): Promise<void> {
   const restrictions: Passage[] = [];
   if (avoidSuez.checked) restrictions.push('suez', 'babelmandeb');
   if (avoidPanama.checked) restrictions.push('panama');
-  const speed = Number(speedInput.value) || 14;
+  const kmh = speedKmh();
 
   busy = true;
   routeBtn.disabled = true;
@@ -232,8 +261,8 @@ async function computeSeaRoute(): Promise<void> {
   try {
     const { seaRoute } = await import('searoute-ts');
     const feature = seaRoute([origin.lon, origin.lat], [destination.lon, destination.lat], {
-      units: 'nauticalmiles',
-      speedKnots: speed,
+      units: 'kilometers',
+      speedKnots: kmh / KM_PER_KNOT,
       restrictions,
       allowArctic: allowArctic.checked,
       returnPassages: true,
@@ -257,7 +286,7 @@ async function computeSeaRoute(): Promise<void> {
     }
   } finally {
     busy = false;
-    syncSeaInputs();
+    syncControls();
   }
 }
 
@@ -265,23 +294,26 @@ async function computeInlandRoute(): Promise<void> {
   if (waypoints.length < 2 || busy) return;
   busy = true;
   routeBtn.disabled = true;
-  setStatus('Строим маршрут по рекам, озёрам и водохранилищам…');
+  setStatus('Запрашиваем водные пути OSM (обычно 5–20 сек)…');
 
   try {
     const path = await measureWaterChain(waypoints);
     redrawWaypoints(path.points);
-    const fmt = formatDistance(path.lengthKm);
     const methodLabel =
       path.method === 'waterway'
-        ? 'по ВВП (русло/канал)'
+        ? 'по руслу/каналу'
         : path.method === 'lake'
           ? 'по водоёму'
-          : 'вода не связана — прямая';
-    showStats(fmt.km, fmt.nm, path.waterName ? path.waterName : methodLabel);
+          : 'вода не связана';
+    showStats(
+      formatKm(path.lengthKm),
+      formatDuration(etaHours(path.lengthKm, speedKmh())),
+      path.waterName ?? methodLabel,
+    );
     setStatus(
       path.method === 'direct'
-        ? 'Не удалось связать внутренние водные пути между точками. Приблизьте карту и кликайте точнее по реке/водохранилищу.'
-        : `Маршрут по внутренним водным путям: ${methodLabel}.`,
+        ? 'Не удалось связать водные пути. Приблизьте карту и кликните точнее по синей воде, или выберите пример ниже.'
+        : `Готово: ${methodLabel}${path.waterName ? ` (${path.waterName})` : ''}.`,
       path.method === 'direct',
     );
     if (path.points.length >= 2) {
@@ -293,12 +325,11 @@ async function computeInlandRoute(): Promise<void> {
     console.error(err);
     redrawWaypoints();
     const km = pathLengthKm(waypoints);
-    const fmt = formatDistance(km);
-    showStats(fmt.km, fmt.nm, 'ошибка сети');
-    setStatus('Ошибка запроса OSM Overpass. Попробуйте ещё раз через несколько секунд.', true);
+    showStats(formatKm(km), formatDuration(etaHours(km, speedKmh())), 'ошибка сети');
+    setStatus('Ошибка запроса OSM. Подождите пару секунд и нажмите «Проложить» ещё раз.', true);
   } finally {
     busy = false;
-    syncSeaInputs();
+    syncControls();
   }
 }
 
@@ -306,13 +337,16 @@ function computeRuler(): void {
   if (waypoints.length < 2) return;
   redrawWaypoints(waypoints);
   const km = pathLengthKm(waypoints);
-  const fmt = formatDistance(km);
   let maxLeg = 0;
   for (let i = 1; i < waypoints.length; i++) {
     maxLeg = Math.max(maxLeg, haversineKm(waypoints[i - 1]!, waypoints[i]!));
   }
-  showStats(fmt.km, fmt.nm, `${waypoints.length - 1} отрезков`);
-  setStatus(`Линейка: сумма отрезков. Самый длинный: ${formatDistance(maxLeg).km}.`);
+  showStats(
+    formatKm(km),
+    formatDuration(etaHours(km, speedKmh())),
+    `${waypoints.length - 1} отр., макс. ${formatKm(maxLeg)}`,
+  );
+  setStatus('Линейка: сумма отрезков между кликами.');
   map.fitBounds(L.latLngBounds(waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2));
 }
 
@@ -322,9 +356,46 @@ function setSeaPoint(kind: 'origin' | 'destination', lon: number, lat: number, l
   else destination = point;
   redrawSeaMarkers();
   clearStats();
-  syncSeaInputs();
+  syncControls();
   setStatus('');
   if (origin && destination) void computeSeaRoute();
+}
+
+function renderPresets(): void {
+  presetsEl.innerHTML = '';
+  if (mode === 'sea') {
+    for (const port of PORTS) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = port.city;
+      chip.title = port.name;
+      chip.addEventListener('click', () => {
+        const target = activePreset ?? (!origin ? 'origin' : 'destination');
+        setSeaPoint(target, port.coords[0], port.coords[1], port.city);
+        activePreset = target === 'origin' ? 'destination' : null;
+        pickTarget = activePreset ?? 'origin';
+        document.querySelectorAll('.chip.active').forEach((el) => el.classList.remove('active'));
+        chip.classList.add('active');
+      });
+      presetsEl.appendChild(chip);
+    }
+  } else if (mode === 'inland') {
+    for (const preset of INLAND_PRESETS) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = preset.label;
+      chip.addEventListener('click', () => {
+        waypoints = [preset.a, preset.b];
+        map.setView([(preset.a.lat + preset.b.lat) / 2, (preset.a.lon + preset.b.lon) / 2], preset.zoom);
+        redrawWaypoints();
+        syncControls();
+        void computeInlandRoute();
+      });
+      presetsEl.appendChild(chip);
+    }
+  }
 }
 
 function setMode(next: AppMode): void {
@@ -335,23 +406,24 @@ function setMode(next: AppMode): void {
   const sea = next === 'sea';
   seaFields.hidden = !sea;
   seaControls.hidden = !sea;
-  presetsEl.hidden = !sea;
   inlandHelp.hidden = sea;
   undoBtn.hidden = sea;
   routeBtn.textContent = next === 'ruler' ? 'Измерить' : 'Проложить';
+  speedInput.value = sea ? '25' : '20';
 
   origin = null;
   destination = null;
   waypoints = [];
   drawLayer.clearLayers();
   clearStats();
-  syncSeaInputs();
+  renderPresets();
+  syncControls();
   setStatus(
     next === 'sea'
       ? 'Кликните по карте или выберите порт.'
       : next === 'inland'
-        ? 'Кликните две точки на реке, озере или водохранилище — маршрут построится автоматически.'
-        : 'Кликайте точки для измерения.',
+        ? 'Кликните две точки на воде или выберите пример (Москва-река / Волга / водохранилище).'
+        : 'Кликайте точки для измерения в километрах.',
   );
 }
 
@@ -372,7 +444,7 @@ map.on('click', (e: L.LeafletMouseEvent) => {
       pickTarget = 'destination';
       redrawSeaMarkers();
       clearStats();
-      syncSeaInputs();
+      syncControls();
     }
     return;
   }
@@ -380,21 +452,18 @@ map.on('click', (e: L.LeafletMouseEvent) => {
   waypoints.push({ lon: lng, lat });
   clearStats();
   redrawWaypoints();
-  syncSeaInputs();
+  syncControls();
 
   if (mode === 'inland') {
     if (waypoints.length === 1) {
-      setStatus('Точка старта. Кликните вторую точку на реке, озере или водохранилище.');
+      setStatus('Старт отмечен. Кликните вторую точку на той же реке/озере/водохранилище.');
     } else if (waypoints.length === 2) {
-      setStatus('Строим маршрут…');
       void computeInlandRoute();
     } else {
-      setStatus(`Точек: ${waypoints.length}. Нажмите «Проложить» или кликните ещё точку.`);
+      setStatus(`Точек: ${waypoints.length}. Нажмите «Проложить» или добавьте ещё точку.`);
     }
   } else {
-    setStatus(
-      `Точка ${waypoints.length}. Нажмите «Измерить» или продолжайте кликать.`,
-    );
+    setStatus(`Точка ${waypoints.length}. Нажмите «Измерить» или продолжайте кликать.`);
   }
 });
 
@@ -420,7 +489,7 @@ undoBtn.addEventListener('click', () => {
   waypoints.pop();
   clearStats();
   redrawWaypoints();
-  syncSeaInputs();
+  syncControls();
 });
 
 clearBtn.addEventListener('click', () => {
@@ -431,56 +500,52 @@ clearBtn.addEventListener('click', () => {
   activePreset = null;
   drawLayer.clearLayers();
   clearStats();
-  syncSeaInputs();
+  syncControls();
   setStatus('');
 });
 
 for (const input of [speedInput, avoidSuez, avoidPanama, allowArctic]) {
   input.addEventListener('change', () => {
     if (mode === 'sea' && origin && destination) void computeSeaRoute();
+    if (mode === 'inland' && waypoints.length >= 2) void computeInlandRoute();
+    if (mode === 'ruler' && waypoints.length >= 2) computeRuler();
   });
 }
 
 basemapSelect.addEventListener('change', () => {
   basemapControl.setBasemap(basemapSelect.value as BasemapId);
-  const ocean = basemapSelect.value === 'offline';
-  map.getContainer().style.background = ocean ? '#0b3a4a' : '#ddd';
+  map.getContainer().style.background = basemapSelect.value === 'offline' ? '#0b3a4a' : '#cdd7d5';
 });
 
 document.querySelectorAll('.mode-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const m = (btn as HTMLElement).dataset.mode as AppMode;
-    setMode(m);
+    setMode((btn as HTMLElement).dataset.mode as AppMode);
   });
 });
-
-for (const port of PORTS) {
-  const chip = document.createElement('button');
-  chip.type = 'button';
-  chip.className = 'chip';
-  chip.textContent = port.city;
-  chip.title = port.name;
-  chip.addEventListener('click', () => {
-    if (mode !== 'sea') setMode('sea');
-    const target = activePreset ?? (!origin ? 'origin' : 'destination');
-    setSeaPoint(target, port.coords[0], port.coords[1], port.city);
-    activePreset = target === 'origin' ? 'destination' : null;
-    pickTarget = activePreset ?? 'origin';
-    document.querySelectorAll('.chip.active').forEach((el) => el.classList.remove('active'));
-    chip.classList.add('active');
-  });
-  presetsEl.appendChild(chip);
-}
 
 panelToggle.addEventListener('click', () => panel.classList.remove('collapsed'));
 collapseBtn.addEventListener('click', () => panel.classList.add('collapsed'));
 
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
-  const fromKey = params.get('from')?.toLowerCase();
-  const toKey = params.get('to')?.toLowerCase();
   const qMode = params.get('mode') as AppMode | null;
   if (qMode === 'inland' || qMode === 'ruler' || qMode === 'sea') setMode(qMode);
+
+  const demo = params.get('demo');
+  if (demo && mode === 'inland') {
+    const preset = INLAND_PRESETS.find((p) => p.label.toLowerCase().includes(demo.toLowerCase()));
+    if (preset) {
+      waypoints = [preset.a, preset.b];
+      map.setView([(preset.a.lat + preset.b.lat) / 2, (preset.a.lon + preset.b.lon) / 2], preset.zoom);
+      redrawWaypoints();
+      syncControls();
+      void computeInlandRoute();
+      return;
+    }
+  }
+
+  const fromKey = params.get('from')?.toLowerCase();
+  const toKey = params.get('to')?.toLowerCase();
   if (!fromKey || !toKey) return;
   const from = PORTS.find(
     (p) => p.name.toLowerCase() === fromKey || p.city.toLowerCase() === fromKey,
@@ -491,10 +556,11 @@ function bootFromQuery(): void {
   origin = { lon: from.coords[0], lat: from.coords[1], label: from.city };
   destination = { lon: to.coords[0], lat: to.coords[1], label: to.city };
   redrawSeaMarkers();
-  syncSeaInputs();
+  syncControls();
   void computeSeaRoute();
 }
 
-syncSeaInputs();
-setStatus('Выберите режим и кликните по карте. На OSM видны реки и озёра.');
+renderPresets();
+syncControls();
+setStatus('Выберите режим. Дистанция в км, скорость в км/ч.');
 bootFromQuery();

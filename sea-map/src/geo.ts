@@ -1,7 +1,6 @@
 export type LngLat = { lon: number; lat: number };
 
 const R_KM = 6371;
-const R_NM = 3440.065;
 
 function toRad(d: number): number {
   return (d * Math.PI) / 180;
@@ -17,22 +16,30 @@ export function haversineKm(a: LngLat, b: LngLat): number {
   return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export function haversineNm(a: LngLat, b: LngLat): number {
-  return haversineKm(a, b) * (R_NM / R_KM);
-}
-
 export function pathLengthKm(points: LngLat[]): number {
   let sum = 0;
   for (let i = 1; i < points.length; i++) sum += haversineKm(points[i - 1]!, points[i]!);
   return sum;
 }
 
-export function formatDistance(km: number): { km: string; nm: string } {
-  const nm = km * (R_NM / R_KM);
-  return {
-    km: km < 10 ? `${km.toFixed(2)} км` : `${Math.round(km).toLocaleString('ru-RU')} км`,
-    nm: nm < 10 ? `${nm.toFixed(2)} м.миль` : `${Math.round(nm).toLocaleString('ru-RU')} м.миль`,
-  };
+export function formatKm(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} м`;
+  if (km < 10) return `${km.toFixed(2)} км`;
+  return `${Math.round(km).toLocaleString('ru-RU')} км`;
+}
+
+export function formatDuration(hours: number): string {
+  if (!Number.isFinite(hours) || hours < 0) return '—';
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} мин`;
+  const d = Math.floor(hours / 24);
+  const h = Math.round(hours % 24);
+  if (d <= 0) return `${h} ч`;
+  return `${d} д ${h} ч`;
+}
+
+export function etaHours(distanceKm: number, speedKmh: number): number {
+  const speed = Math.max(0.1, speedKmh);
+  return distanceKm / speed;
 }
 
 /** Closest point on segment AB to P, and distance in km. */
