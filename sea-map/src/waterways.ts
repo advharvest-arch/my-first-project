@@ -34,9 +34,10 @@ type GraphNode = { id: number; lon: number; lat: number };
 type GraphEdge = { a: number; b: number; w: number };
 
 const GRID = 0.0005;
-const MERGE_KM = 0.06;
-const SNAP_MAX_KM = 10;
-const LAKE_CONNECT_KM = 0.2;
+const MERGE_KM = 0.18;
+const SNAP_MAX_KM = 12;
+const LAKE_CONNECT_KM = 0.45;
+const BRIDGE_KM = 0.28;
 
 // Mail.ru first — usually has RU data; CH often returns empty 200s (skip as primary).
 const OVERPASS_ENDPOINTS = [
@@ -177,7 +178,11 @@ function linesFromElements(elements: OverpassElement[]): WaterLine[] {
   return lines;
 }
 
-function buildGraph(lines: WaterLine[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
+function buildGraph(lines: WaterLine[]): {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  lineNodeIds: Map<string, number[]>;
+} {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const cellIndex = new Map<string, number[]>();
@@ -227,8 +232,8 @@ function buildGraph(lines: WaterLine[]): { nodes: GraphNode[]; edges: GraphEdge[
   for (const line of lines) {
     const ids: number[] = [];
     const step =
-      line.kind === 'lake' && line.coords.length > 100
-        ? Math.ceil(line.coords.length / 100)
+      line.kind === 'lake' && line.coords.length > 120
+        ? Math.ceil(line.coords.length / 120)
         : 1;
     for (let i = 0; i < line.coords.length; i += step) ids.push(ensure(line.coords[i]!));
     const last = ensure(line.coords[line.coords.length - 1]!);
@@ -276,7 +281,59 @@ function buildGraph(lines: WaterLine[]): { nodes: GraphNode[]; edges: GraphEdge[
     }
   }
 
-  return { nodes, edges };
+  // Bridge tiny gaps between any nearby nodes (broken OSM way joins).
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i]!;
+    const cx = Math.round(a.lon / GRID);
+    const cy = Math.round(a.lat / GRID);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const ids = cellIndex.get(`${cx + dx},${cy + dy}`);
+        if (!ids) continue;
+        for (const j of ids) {
+          if (j <= i) continue;
+          const d = haversineKm(a, nodes[j]!);
+          if (d > 0 && d <= BRIDGE_KM) link(i, j);
+        }
+      }
+    }
+  }
+
+  // Join same-named waterways at closest approach (up to 1.2 km).
+  const byName = new Map<string, WaterLine[]>();
+  for (const line of lines) {
+    if (!line.name || line.kind !== 'waterway') continue;
+    const key = line.name.toLocaleLowerCase('ru');
+    const arr = byName.get(key) ?? [];
+    arr.push(line);
+    byName.set(key, arr);
+  }
+  for (const group of byName.values()) {
+    if (group.length < 2) continue;
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const ia = lineNodeIds.get(group[i]!.id);
+        const ib = lineNodeIds.get(group[j]!.id);
+        if (!ia?.length || !ib?.length) continue;
+        let bestA = ia[0]!;
+        let bestB = ib[0]!;
+        let bestD = 1.2;
+        for (const a of ia) {
+          for (const b of ib) {
+            const d = haversineKm(nodes[a]!, nodes[b]!);
+            if (d < bestD) {
+              bestD = d;
+              bestA = a;
+              bestB = b;
+            }
+          }
+        }
+        if (bestD < 1.2) link(bestA, bestB);
+      }
+    }
+  }
+
+  return { nodes, edges, lineNodeIds };
 }
 
 function snapToNetwork(
@@ -284,6 +341,7 @@ function snapToNetwork(
   lines: WaterLine[],
   nodes: GraphNode[],
   edges: GraphEdge[],
+  lineNodeIds: Map<string, number[]>,
   maxKm: number,
 ): { nodeId: number; point: LngLat; distKm: number; line: WaterLine } | null {
   let bestWay: {
@@ -317,7 +375,8 @@ function snapToNetwork(
   }
 
   let best: typeof bestWay = null;
-  if (bestWay && bestWay.distKm <= maxKm && bestWay.distKm <= 2) best = bestWay;
+  // Prefer a nearby river/canal; lakes only if clearly closer or no river nearby.
+  if (bestWay && bestWay.distKm <= Math.min(maxKm, 3)) best = bestWay;
   else if (bestLake && bestLake.distKm <= maxKm) best = bestLake;
   else if (bestWay && bestWay.distKm <= maxKm) best = bestWay;
   if (!best) return null;
@@ -325,29 +384,61 @@ function snapToNetwork(
   const nodeId = nodes.length;
   nodes.push({ id: nodeId, lon: best.point.lon, lat: best.point.lat });
 
-  const attachNearest = (q: LngLat, limitKm: number) => {
+  const attachTo = (candidateIds: number[] | undefined, limitKm: number) => {
+    if (!candidateIds?.length) return false;
     let id = -1;
     let d = limitKm;
-    for (const n of nodes) {
-      if (n.id === nodeId) continue;
-      const dd = haversineKm(q, n);
+    for (const nid of candidateIds) {
+      const dd = haversineKm(best.point, nodes[nid]!);
       if (dd < d) {
         d = dd;
-        id = n.id;
+        id = nid;
       }
     }
-    if (id >= 0) {
-      const w = haversineKm(nodes[nodeId]!, nodes[id]!);
-      edges.push({ a: nodeId, b: id, w });
-      edges.push({ a: id, b: nodeId, w });
-    }
+    if (id < 0) return false;
+    const w = Math.max(haversineKm(nodes[nodeId]!, nodes[id]!), 0.001);
+    edges.push({ a: nodeId, b: id, w });
+    edges.push({ a: id, b: nodeId, w });
+    return true;
   };
 
-  attachNearest(best.a, 0.25);
-  attachNearest(best.b, 0.25);
-  attachNearest(best.point, best.line.kind === 'lake' ? 3 : 0.3);
+  const lineIds = lineNodeIds.get(best.line.id);
+  const attached =
+    attachTo(lineIds, best.line.kind === 'lake' ? 4 : 1.5) ||
+    attachTo(
+      nodes.map((n) => n.id).filter((id) => id !== nodeId),
+      best.line.kind === 'lake' ? 4 : 0.8,
+    );
+
+  if (!attached) {
+    // Still keep the node; dijkstra may fail but along-line fallback can use geometry.
+  }
 
   return { nodeId, point: best.point, distKm: best.distKm, line: best.line };
+}
+
+function pathAlongLine(line: WaterLine, from: LngLat, to: LngLat): LngLat[] {
+  const coords = line.coords;
+  if (coords.length < 2) return [from, to];
+  let i0 = 0;
+  let i1 = 0;
+  let d0 = Infinity;
+  let d1 = Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    const da = haversineKm(from, coords[i]!);
+    const db = haversineKm(to, coords[i]!);
+    if (da < d0) {
+      d0 = da;
+      i0 = i;
+    }
+    if (db < d1) {
+      d1 = db;
+      i1 = i;
+    }
+  }
+  const slice =
+    i0 <= i1 ? coords.slice(i0, i1 + 1) : coords.slice(i1, i0 + 1).reverse();
+  return simplifyPath([from, ...slice, to]);
 }
 
 function dijkstra(start: number, goal: number, nodeCount: number, edges: GraphEdge[]): number[] | null {
@@ -627,17 +718,19 @@ async function loadCell(cx: number, cy: number): Promise<WaterLine[]> {
   return task;
 }
 
-async function fetchWaterNetwork(points: LngLat[]): Promise<WaterLine[]> {
+async function fetchWaterNetwork(
+  points: LngLat[],
+  opts: { forceRefresh?: boolean } = {},
+): Promise<WaterLine[]> {
   const cells = cellsAlong(points);
   const fromCache = mergeLines(
     cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
   );
   const missing = cells.filter((c) => !cellCache.get(cellKey(c.cx, c.cy))?.length);
 
-  // Full cache hit — skip Overpass.
-  if (missing.length === 0 && fromCache.length > 0) return fromCache;
+  // Full cache hit — skip Overpass unless forced (failed route retry).
+  if (!opts.forceRefresh && missing.length === 0 && fromCache.length > 0) return fromCache;
 
-  // One corridor query — then seed the cell cache for next routes.
   try {
     const lines = linesFromElements(await overpassQuery(aroundWaterQuery(points)));
     if (lines.length) {
@@ -673,20 +766,39 @@ export function prefetchWaterBbox(south: number, west: number, north: number, ea
   void loadCell(midX, midY);
 }
 
+function uniqueWaterName(...parts: Array<string | null | undefined>): string | null {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of parts) {
+    if (!raw) continue;
+    for (const piece of raw.split(',')) {
+      const name = piece.trim();
+      if (!name) continue;
+      const key = name.toLocaleLowerCase('ru');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out.length ? out.join(', ') : null;
+}
+
 function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): WaterPath {
   const distDirect = haversineKm(origin, destination);
   if (lines.length === 0) {
     return { points: [origin, destination], lengthKm: distDirect, waterName: null, method: 'direct' };
   }
 
-  const { nodes, edges } = buildGraph(lines);
-  const snapMax = Math.min(SNAP_MAX_KM, Math.max(2, distDirect * 0.3 + 1));
-  const snapA = snapToNetwork(origin, lines, nodes, edges, snapMax);
-  const snapB = snapToNetwork(destination, lines, nodes, edges, snapMax);
+  const { nodes, edges, lineNodeIds } = buildGraph(lines);
+  const snapMax = Math.min(SNAP_MAX_KM, Math.max(3, distDirect * 0.35 + 1.5));
+  const snapA = snapToNetwork(origin, lines, nodes, edges, lineNodeIds, snapMax);
+  const snapB = snapToNetwork(destination, lines, nodes, edges, lineNodeIds, snapMax);
 
   if (!snapA || !snapB) {
     return { points: [origin, destination], lengthKm: distDirect, waterName: null, method: 'direct' };
   }
+
+  const waterName = uniqueWaterName(snapA.line.name, snapB.line.name);
 
   if (
     snapA.line.kind === 'lake' &&
@@ -698,20 +810,88 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
     return {
       points,
       lengthKm: pathLength(points),
-      waterName: snapA.line.name ?? 'водоём',
+      waterName: waterName ?? 'водоём',
       method: 'lake',
     };
   }
 
-  const nodePath = dijkstra(snapA.nodeId, snapB.nodeId, nodes.length, edges);
-  if (!nodePath || nodePath.length < 2) {
-    const points = simplifyPath([origin, snapA.point, snapB.point, destination]);
-    const lakeish = snapA.line.kind === 'lake' || snapB.line.kind === 'lake';
+  // Same OSM way — follow its geometry even if graph attach failed.
+  if (snapA.line.id === snapB.line.id && snapA.line.kind === 'waterway') {
+    const points = pathAlongLine(snapA.line, origin, destination);
     return {
       points,
       lengthKm: pathLength(points),
-      waterName: snapA.line.name ?? snapB.line.name,
-      method: lakeish ? 'lake' : 'direct',
+      waterName: waterName ?? snapA.line.name,
+      method: 'waterway',
+    };
+  }
+
+  let nodePath = dijkstra(snapA.nodeId, snapB.nodeId, nodes.length, edges);
+
+  // Retry on subset of same-named rivers / the two snapped lines.
+  if (!nodePath || nodePath.length < 2) {
+    const nameKeys = new Set<string>();
+    for (const n of [snapA.line.name, snapB.line.name]) {
+      if (n) nameKeys.add(n.toLocaleLowerCase('ru'));
+    }
+    const subset = lines.filter(
+      (l) =>
+        l.id === snapA.line.id ||
+        l.id === snapB.line.id ||
+        (l.name != null && nameKeys.has(l.name.toLocaleLowerCase('ru'))),
+    );
+    if (subset.length >= 1 && subset.length < lines.length) {
+      const g2 = buildGraph(subset);
+      const s2a = snapToNetwork(origin, subset, g2.nodes, g2.edges, g2.lineNodeIds, snapMax);
+      const s2b = snapToNetwork(destination, subset, g2.nodes, g2.edges, g2.lineNodeIds, snapMax);
+      if (s2a && s2b) {
+        nodePath = dijkstra(s2a.nodeId, s2b.nodeId, g2.nodes.length, g2.edges);
+        if (nodePath && nodePath.length >= 2) {
+          const points: LngLat[] = [origin];
+          for (const id of nodePath) {
+            const n = g2.nodes[id]!;
+            points.push({ lon: n.lon, lat: n.lat });
+          }
+          points.push(destination);
+          return {
+            points: simplifyPath(points),
+            lengthKm: pathLength(points),
+            waterName,
+            method: 'waterway',
+          };
+        }
+      }
+    }
+  }
+
+  if (!nodePath || nodePath.length < 2) {
+    // Last resort: still hug the water if both snaps are close to water.
+    if (snapA.distKm <= 2.5 && snapB.distKm <= 2.5) {
+      const prefer =
+        snapA.line.kind === 'waterway'
+          ? snapA.line
+          : snapB.line.kind === 'waterway'
+            ? snapB.line
+            : snapA.line;
+      const points = pathAlongLine(prefer, origin, destination);
+      // If along-line is much longer than direct chord between snaps, use snap chord on water.
+      const viaSnaps = simplifyPath([origin, snapA.point, snapB.point, destination]);
+      const use =
+        pathLength(points) > pathLength(viaSnaps) * 3 && prefer.id !== snapB.line.id
+          ? viaSnaps
+          : points;
+      return {
+        points: use,
+        lengthKm: pathLength(use),
+        waterName: waterName ?? prefer.name,
+        method: prefer.kind === 'lake' ? 'lake' : 'waterway',
+      };
+    }
+    return {
+      points: [origin, destination],
+      lengthKm: distDirect,
+      waterName: null,
+      method: 'direct',
     };
   }
 
@@ -722,28 +902,22 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
   }
   points.push(destination);
 
-  const namedParts: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of [snapA.line.name, snapB.line.name]) {
-    if (!raw) continue;
-    const key = raw.toLocaleLowerCase('ru');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    namedParts.push(raw);
-  }
-  const named = namedParts.length ? namedParts.join(', ') : null;
-
   return {
     points: simplifyPath(points),
     lengthKm: pathLength(points),
-    waterName: named,
+    waterName,
     method: 'waterway',
   };
 }
 
 export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {
-  const lines = await fetchWaterNetwork([origin, destination]);
-  return routeOnLines(origin, destination, lines);
+  let lines = await fetchWaterNetwork([origin, destination]);
+  let path = routeOnLines(origin, destination, lines);
+  if (path.method === 'direct') {
+    lines = await fetchWaterNetwork([origin, destination], { forceRefresh: true });
+    path = routeOnLines(origin, destination, lines);
+  }
+  return path;
 }
 
 export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath> {
@@ -757,61 +931,67 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   }
 
-  const lines = await fetchWaterNetwork(waypoints);
-  if (lines.length === 0) {
-    const cum = [0];
-    let sum = 0;
-    for (let i = 1; i < waypoints.length; i++) {
-      sum += haversineKm(waypoints[i - 1]!, waypoints[i]!);
-      cum.push(sum);
+  const run = async (forceRefresh: boolean): Promise<WaterPath> => {
+    const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
+    if (lines.length === 0) {
+      const cum = [0];
+      let sum = 0;
+      for (let i = 1; i < waypoints.length; i++) {
+        sum += haversineKm(waypoints[i - 1]!, waypoints[i]!);
+        cum.push(sum);
+      }
+      return {
+        points: waypoints.slice(),
+        lengthKm: sum,
+        waterName: null,
+        method: 'direct',
+        waypointCumKm: cum,
+      };
     }
-    return {
-      points: waypoints.slice(),
-      lengthKm: sum,
-      waterName: null,
-      method: 'direct',
-      waypointCumKm: cum,
+
+    const allPoints: LngLat[] = [];
+    let lengthKm = 0;
+    const waypointCumKm = [0];
+    const nameOrder: string[] = [];
+    const nameSeen = new Set<string>();
+    let method: WaterPath['method'] = 'waterway';
+    let anyRouted = false;
+
+    const addNames = (raw: string | null) => {
+      if (!raw) return;
+      for (const part of raw.split(',')) {
+        const name = part.trim();
+        if (!name) continue;
+        const key = name.toLocaleLowerCase('ru');
+        if (nameSeen.has(key)) continue;
+        nameSeen.add(key);
+        nameOrder.push(name);
+      }
     };
-  }
 
-  const allPoints: LngLat[] = [];
-  let lengthKm = 0;
-  const waypointCumKm = [0];
-  const nameOrder: string[] = [];
-  const nameSeen = new Set<string>();
-  let method: WaterPath['method'] = 'waterway';
-  let anyRouted = false;
-
-  const addNames = (raw: string | null) => {
-    if (!raw) return;
-    for (const part of raw.split(',')) {
-      const name = part.trim();
-      if (!name) continue;
-      const key = name.toLocaleLowerCase('ru');
-      if (nameSeen.has(key)) continue;
-      nameSeen.add(key);
-      nameOrder.push(name);
+    for (let i = 1; i < waypoints.length; i++) {
+      const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
+      if (leg.method !== 'direct') anyRouted = true;
+      if (leg.method === 'lake' && method === 'waterway') method = 'lake';
+      addNames(leg.waterName);
+      const chunk = i === 1 ? leg.points : leg.points.slice(1);
+      allPoints.push(...chunk);
+      lengthKm += leg.lengthKm;
+      waypointCumKm.push(lengthKm);
     }
+
+    if (!anyRouted) method = 'direct';
+
+    return {
+      points: simplifyPath(allPoints),
+      lengthKm,
+      waterName: nameOrder.length ? nameOrder.join(', ') : null,
+      method,
+      waypointCumKm,
+    };
   };
 
-  for (let i = 1; i < waypoints.length; i++) {
-    const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
-    if (leg.method !== 'direct') anyRouted = true;
-    if (leg.method === 'lake' && method === 'waterway') method = 'lake';
-    addNames(leg.waterName);
-    const chunk = i === 1 ? leg.points : leg.points.slice(1);
-    allPoints.push(...chunk);
-    lengthKm += leg.lengthKm;
-    waypointCumKm.push(lengthKm);
-  }
-
-  if (!anyRouted) method = 'direct';
-
-  return {
-    points: simplifyPath(allPoints),
-    lengthKm,
-    waterName: nameOrder.length ? nameOrder.join(', ') : null,
-    method,
-    waypointCumKm,
-  };
+  let path = await run(false);
+  if (path.method === 'direct') path = await run(true);
+  return path;
 }

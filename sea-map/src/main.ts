@@ -496,7 +496,7 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
     showStats(path.lengthKm, path.waterName ?? methodLabel);
     setStatus(
       path.method === 'direct'
-        ? 'Не удалось связать водные пути. Приблизьте карту и кликните точнее по синей воде, или выберите пример ниже.'
+        ? 'Не удалось найти связанный водный путь между точками. Кликните ближе к фарватеру (середине реки/канала) или выберите пример ниже.'
         : `Готово: ${waypoints.length} точ., ${methodLabel}${path.waterName ? ` (${path.waterName})` : ''}.`,
       path.method === 'direct',
     );
