@@ -117,11 +117,10 @@ let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
 /**
- * Parallel opposing legs use a constant on-screen gap (CSS px) at every zoom.
- * Geographic meters grow when zoomed out so the visual split stays the same.
- * Both legs offset left of travel → gap between them ≈ 2 × offset.
+ * Multi-leg parallel lanes: constant on-screen gap (CSS px) between adjacent
+ * legs at every zoom. Lane offsets are in a shared geographic frame so any
+ * number of legs (2, 3, …) fan out side-by-side.
  */
-/** Clear gap between opposing centerlines (CSS px), independent of zoom. */
 const PARALLEL_GAP_PX = 16;
 
 let markerClickGuardUntil = 0;
@@ -262,7 +261,7 @@ function updateHint(): void {
     else hintEl.textContent = 'Море: маршрут готов. Можно сменить точки или ограничения.';
   } else if (mode === 'inland') {
     hintEl.textContent =
-      'Реки: 1→2→назад к старту — встречные участки рисуются параллельно. Двойной клик по точке — удалить.';
+      'Реки: несколько участков разводятся параллельными полосами. Двойной клик по точке — удалить.';
   } else {
     hintEl.textContent =
       'Линейка: кликайте точки. Двойной клик — удалить. Встречные отрезки можно развести.';
@@ -407,12 +406,11 @@ function deleteWaypointById(id: string): void {
   }
 }
 
-/** Constant screen gap at every zoom — no geographic cap (that hid the split when zoomed out). */
+/** Adjacent-lane spacing in meters for the current zoom (full gap, not half). */
 function parallelGapMeters(): number {
   const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
   const gapPx = Math.max(PARALLEL_GAP_PX, weight + 8);
-  // Each leg shifts by half the gap; out + back → full gapPx on screen.
-  return Math.max(0.5, metersForPixels(gapPx) / 2);
+  return Math.max(0.5, metersForPixels(gapPx));
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
@@ -423,6 +421,17 @@ function bearingDeg(a: LngLat, b: LngLat): number {
   const y = Math.sin(dLon) * Math.cos(lat2);
   const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function legChordBearing(leg: LngLat[]): number {
+  return bearingDeg(leg[0]!, leg[leg.length - 1]!);
+}
+
+/** True if leg travels roughly the same way as the reference leg. */
+function sameTravelDirection(leg: LngLat[], ref: LngLat[]): boolean {
+  let d = Math.abs(legChordBearing(leg) - legChordBearing(ref)) % 360;
+  if (d > 180) d = 360 - d;
+  return d <= 90;
 }
 
 /** Nearest path vertex for each waypoint, searching only forward along the route. */
@@ -459,8 +468,8 @@ function splitPathLegs(path: LngLat[], indices: number[]): LngLat[][] {
 }
 
 /**
- * Offset a leg with taper to 0 at both ends — legs join continuously at waypoints
- * while the middle sits parallel (left of travel) on opposing sides for out/back.
+ * Offset a leg with taper to 0 at both ends — legs meet at waypoints while
+ * the middle sits on its assigned parallel lane.
  */
 function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
   if (points.length < 2 || meters === 0) return points.map((p) => ({ ...p }));
@@ -470,7 +479,6 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
     cum.push(cum[i - 1]! + haversineKm(points[i - 1]!, points[i]!) * 1000);
   }
   const total = cum[cum.length - 1] || 1;
-  // Short taper vs leg length so the parallel section is visible (do not tie to offset meters).
   const taperM = Math.min(Math.max(total * 0.1, 16), total * 0.22, 70);
 
   return points.map((p, i) => {
@@ -488,16 +496,24 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
 }
 
 /**
- * Offset each leg left of travel so out/back sit a constant screen gap apart.
- * Returns null when parallel mode is off.
+ * Fan every route leg onto its own parallel lane (2, 3, … N).
+ * Lane offsets share a geographic frame so opposing legs don't collapse.
  */
 function buildParallelLegs(path: LngLat[]): LngLat[][] | null {
   if (!showReturnInput.checked || waypoints.length < 3) return null;
   const indices = waypointPathIndices(path, waypoints);
   const legs = splitPathLegs(path, indices);
   if (legs.length < 2) return null;
+
   const sep = parallelGapMeters();
-  return legs.map((leg) => offsetPathTapered(leg, sep));
+  const ref = legs[0]!;
+  const n = legs.length;
+  return legs.map((leg, i) => {
+    const lane = i - (n - 1) / 2;
+    const geoOffset = lane * sep; // + = left of reference travel
+    const dirSign = sameTravelDirection(leg, ref) ? 1 : -1;
+    return offsetPathTapered(leg, geoOffset * dirSign);
+  });
 }
 
 /** Constant on-screen arrow layout (CSS pixels) — same at every zoom. */
@@ -813,7 +829,7 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
     showStats(path.lengthKm, path.waterName ?? methodLabel);
     const parallelNote =
       showReturnInput.checked && waypoints.length >= 3
-        ? ' Встречные участки разведены параллельно.'
+        ? ` Участки разведены в ${waypoints.length - 1} паралл. полос.`
         : '';
     setStatus(
       path.method === 'direct'
@@ -864,7 +880,7 @@ function computeRuler(opts: { fit?: boolean } = {}): void {
   showStats(sum, `${waypoints.length - 1} отр., макс. ${formatKm(maxLeg)}`);
   setStatus(
     showReturnInput.checked && waypoints.length >= 3
-      ? 'Линейка: встречные отрезки разведены. Двойной клик по точке — удалить.'
+      ? `Линейка: ${waypoints.length - 1} паралл. полос. Двойной клик по точке — удалить.`
       : 'Линейка: сумма отрезков. Двойной клик по точке — удалить.',
   );
   if (fit) {
@@ -953,7 +969,7 @@ function setMode(next: AppMode): void {
     next === 'sea'
       ? 'Кликните по карте или выберите порт.'
       : next === 'inland'
-        ? 'Кликайте: 1→2→назад. Линия непрерывная, со стрелками; встречные участки параллельно.'
+        ? 'Кликайте точки. Участки можно развести параллельными полосами (2 и более).'
         : 'Кликайте точки для измерения в километрах.',
   );
   if (next === 'inland') warmInlandCache();
