@@ -98,8 +98,6 @@ const lineColorInput = document.querySelector<HTMLInputElement>('#line-color')!;
 const lineWeightInput = document.querySelector<HTMLInputElement>('#line-weight')!;
 const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-labels')!;
 const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
-const returnColorInput = document.querySelector<HTMLInputElement>('#return-color')!;
-const returnColorField = document.querySelector<HTMLElement>('#return-color-field')!;
 
 let mode: AppMode = 'sea';
 let origin: Point | null = null;
@@ -136,17 +134,6 @@ function lineStyle(): L.PolylineOptions {
     lineCap: 'round',
     lineJoin: 'round',
     className: 'route-line',
-  };
-}
-
-function returnLineStyle(): L.PolylineOptions {
-  return {
-    color: returnColorInput.value || '#e8a87c',
-    weight: Math.max(2, Number(lineWeightInput.value) || 5),
-    opacity: 0.95,
-    lineCap: 'round',
-    lineJoin: 'round',
-    className: 'route-line return',
   };
 }
 
@@ -379,11 +366,6 @@ function deleteWaypointById(id: string): void {
   }
 }
 
-function syncReturnUi(): void {
-  returnColorField.hidden = !showReturnInput.checked;
-}
-
-/** Visible gap between parallel opposing legs (grows when zoomed out). */
 function parallelGapMeters(): number {
   try {
     const a = map.containerPointToLatLng(L.point(0, 0));
@@ -395,6 +377,16 @@ function parallelGapMeters(): number {
   }
 }
 
+function bearingDeg(a: LngLat, b: LngLat): number {
+  const toR = (d: number) => (d * Math.PI) / 180;
+  const dLon = toR(b.lon - a.lon);
+  const lat1 = toR(a.lat);
+  const lat2 = toR(b.lat);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 /** Nearest path vertex for each waypoint, searching only forward along the route. */
 function waypointPathIndices(path: LngLat[], wps: Waypoint[]): number[] {
   const indices: number[] = [];
@@ -403,7 +395,6 @@ function waypointPathIndices(path: LngLat[], wps: Waypoint[]): number[] {
     const wp = wps[w]!;
     let bestI = from;
     let bestD = Infinity;
-    // Look forward only — so the return point near the start maps to the path *end*.
     for (let i = from; i < path.length; i++) {
       const d = haversineKm(wp, path[i]!);
       if (d < bestD) {
@@ -430,40 +421,108 @@ function splitPathLegs(path: LngLat[], indices: number[]): LngLat[][] {
 }
 
 /**
- * Draw route legs. With «развести» on and 2+ legs, each leg is shifted to the
- * LEFT of its travel direction — so 1→2 and 2→3 (back) land on opposite sides.
+ * Offset a leg with taper to 0 at both ends — legs join continuously at waypoints
+ * while the middle sits parallel (left of travel) on opposing sides for out/back.
  */
-function drawRouteGeometry(path: LngLat[]): void {
-  const style = lineStyle();
-  const separate = showReturnInput.checked && waypoints.length >= 3;
-  if (!separate) {
-    L.polyline(
-      path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      { ...style, interactive: false },
-    ).addTo(drawLayer);
-    return;
+function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
+  if (points.length < 2 || meters === 0) return points.map((p) => ({ ...p }));
+  const full = offsetPathMeters(points, meters);
+  const cum = [0];
+  for (let i = 1; i < points.length; i++) {
+    cum.push(cum[i - 1]! + haversineKm(points[i - 1]!, points[i]!) * 1000);
   }
+  const total = cum[cum.length - 1] || 1;
+  const taperM = Math.min(Math.max(total * 0.18, 40), 250);
+
+  return points.map((p, i) => {
+    const d = cum[i]!;
+    let t = 1;
+    if (d < taperM) t = d / taperM;
+    if (total - d < taperM) t = Math.min(t, (total - d) / taperM);
+    t = t * t * (3 - 2 * t);
+    const o = full[i]!;
+    return {
+      lon: p.lon + (o.lon - p.lon) * t,
+      lat: p.lat + (o.lat - p.lat) * t,
+    };
+  });
+}
+
+/** Continuous display path: optional parallel separation of opposing legs. */
+function buildDisplayPath(path: LngLat[]): LngLat[] {
+  const separate = showReturnInput.checked && waypoints.length >= 3;
+  if (!separate) return path;
 
   const indices = waypointPathIndices(path, waypoints);
   const legs = splitPathLegs(path, indices);
-  if (legs.length < 2) {
-    L.polyline(
-      path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      { ...style, interactive: false },
-    ).addTo(drawLayer);
-    return;
-  }
+  if (legs.length < 2) return path;
 
   const sep = parallelGapMeters();
-  legs.forEach((leg, i) => {
-    // Left of THIS leg's direction → opposing legs become parallel on opposite banks.
-    const drawn = offsetPathMeters(leg, sep);
-    const opts = i % 2 === 0 ? style : returnLineStyle();
-    L.polyline(
-      drawn.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      { ...opts, interactive: false },
-    ).addTo(drawLayer);
-  });
+  const out: LngLat[] = [];
+  for (const leg of legs) {
+    const tapered = offsetPathTapered(leg, sep);
+    if (out.length === 0) out.push(...tapered);
+    else out.push(...tapered.slice(1));
+  }
+  return out.length >= 2 ? out : path;
+}
+
+function drawDirectionArrows(path: LngLat[], color: string): void {
+  if (path.length < 2) return;
+  let stepM = 180;
+  try {
+    const a = map.containerPointToLatLng(L.point(0, 0));
+    const b = map.containerPointToLatLng(L.point(52, 0));
+    stepM = Math.max(100, map.distance(a, b));
+  } catch {
+    /* keep default */
+  }
+
+  let acc = 0;
+  let nextAt = stepM * 0.55;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1]!;
+    const b = path[i]!;
+    const segM = haversineKm(a, b) * 1000;
+    if (segM < 0.5) {
+      acc += segM;
+      continue;
+    }
+    const segStart = acc;
+    acc += segM;
+    while (nextAt <= acc) {
+      const t = (nextAt - segStart) / segM;
+      const lon = a.lon + (b.lon - a.lon) * t;
+      const lat = a.lat + (b.lat - a.lat) * t;
+      const brg = bearingDeg(a, b);
+      L.marker([lat, lon], {
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 200,
+        icon: L.divIcon({
+          className: 'route-arrow-wrap',
+          html: `<div class="route-arrow" style="--brg:${brg.toFixed(1)}deg;--arrow-color:${color}"></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        }),
+      }).addTo(drawLayer);
+      nextAt += stepM;
+    }
+  }
+}
+
+/**
+ * One continuous same-color line; opposing legs can be parallel-separated;
+ * arrows show travel direction.
+ */
+function drawRouteGeometry(path: LngLat[]): void {
+  const style = lineStyle();
+  const display = buildDisplayPath(path);
+  L.polyline(
+    display.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+    { ...style, interactive: false },
+  ).addTo(drawLayer);
+  drawDirectionArrows(display, String(style.color ?? '#2ec4b6'));
 }
 
 function attachWaypointMarker(wp: Waypoint, index: number): void {
@@ -818,12 +877,11 @@ function setMode(next: AppMode): void {
   clearStats();
   renderPresets();
   syncControls();
-  syncReturnUi();
   setStatus(
     next === 'sea'
       ? 'Кликните по карте или выберите порт.'
       : next === 'inland'
-        ? 'Кликайте точки на воде. 1→2→назад: встречные участки рисуются параллельно. Двойной клик — удалить.'
+        ? 'Кликайте: 1→2→назад. Линия непрерывная, со стрелками; встречные участки параллельно.'
         : 'Кликайте точки для измерения в километрах.',
   );
   if (next === 'inland') warmInlandCache();
@@ -953,17 +1011,14 @@ function restyleRouteLine(): void {
 
 lineColorInput.addEventListener('input', () => restyleRouteLine());
 lineWeightInput.addEventListener('input', () => restyleRouteLine());
-returnColorInput.addEventListener('input', () => restyleRouteLine());
 showKmLabelsInput.addEventListener('change', () => {
   redrawCurrent();
   renderWaypointList();
 });
 showReturnInput.addEventListener('change', () => {
-  syncReturnUi();
   if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
   else restyleRouteLine();
 });
-syncReturnUi();
 
 for (const input of [avoidSuez, avoidPanama, allowArctic]) {
   input.addEventListener('change', () => {
