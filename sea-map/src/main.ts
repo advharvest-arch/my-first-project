@@ -494,19 +494,19 @@ function buildDisplayPath(path: LngLat[]): LngLat[] {
 
 function drawDirectionArrows(path: LngLat[], color: string): void {
   if (path.length < 2) return;
-  let stepM = 140;
+  let stepM = 800;
   try {
     const a = map.containerPointToLatLng(L.point(0, 0));
-    const b = map.containerPointToLatLng(L.point(40, 0));
-    // Dense enough to read direction; avoid clutter when zoomed out.
-    stepM = Math.min(320, Math.max(70, map.distance(a, b)));
+    const b = map.containerPointToLatLng(L.point(200, 0));
+    // Sparse arrows — only a few along the route at typical zooms.
+    stepM = Math.min(2500, Math.max(500, map.distance(a, b)));
   } catch {
     /* keep default */
   }
 
   const safeColor = escapeHtml(color);
   let acc = 0;
-  let nextAt = stepM * 0.4;
+  let nextAt = stepM * 0.55;
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1]!;
     const b = path[i]!;
