@@ -511,13 +511,8 @@ function buildDisplayPath(path: LngLat[]): LngLat[] {
 
 function arrowLayoutForScale(): { stepM: number; sizePx: number } {
   const zoom = map.getZoom();
-  // Zoom in → larger screen step → fewer arrows on the visible route.
-  const stepPx = Math.round(Math.min(380, Math.max(110, 70 + (zoom - 8) * 36)));
-  let stepM = metersForPixels(stepPx);
-  // Geographic floor also grows with zoom so close-ups stay sparse.
-  const minByZoom = 220 * Math.pow(1.4, Math.max(0, zoom - 11));
-  stepM = Math.min(5000, Math.max(200, stepM, minByZoom));
-  // Arrow size still grows with zoom.
+  // Constant screen spacing at every zoom — geographic meters follow scale.
+  const stepM = Math.min(6000, Math.max(80, metersForPixels(160)));
   const sizePx = Math.round(Math.min(26, Math.max(10, 8 + (zoom - 8) * 1.5)));
   return { stepM, sizePx };
 }
