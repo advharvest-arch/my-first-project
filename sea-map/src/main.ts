@@ -98,6 +98,7 @@ const lineColorInput = document.querySelector<HTMLInputElement>('#line-color')!;
 const lineWeightInput = document.querySelector<HTMLInputElement>('#line-weight')!;
 const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-labels')!;
 const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
+const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')!;
 
 let mode: AppMode = 'sea';
 let origin: Point | null = null;
@@ -537,6 +538,7 @@ function arrowLayoutForScale(): { stepM: number; sizePx: number } {
 }
 
 function drawDirectionArrows(path: LngLat[], color: string): void {
+  if (!showArrowsInput.checked) return;
   if (path.length < 2) return;
   const { stepM, sizePx } = arrowLayoutForScale();
   const safeColor = escapeHtml(color);
@@ -1119,6 +1121,10 @@ showKmLabelsInput.addEventListener('change', () => {
   renderWaypointList();
 });
 showReturnInput.addEventListener('change', () => {
+  if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
+  else restyleRouteLine();
+});
+showArrowsInput.addEventListener('change', () => {
   if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
   else restyleRouteLine();
 });
