@@ -207,20 +207,53 @@ body {
   overflow: visible !important;
 }
 
+.wp-marker-wrap {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.wp-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+  cursor: pointer;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.wp-num {
+  font: 700 0.65rem/1 var(--font-body);
+  color: #073040;
+  pointer-events: none;
+  user-select: none;
+}
+
+.route-marker.origin .wp-num,
+.route-marker.dest .wp-num {
+  color: #fff;
+}
+
 .route-marker-label {
   position: absolute;
   left: 50%;
-  top: 16px;
+  top: 22px;
   transform: translateX(-50%);
   white-space: nowrap;
   font: 600 0.72rem/1.2 var(--font-body);
   color: var(--ink);
-  background: rgba(232, 244, 242, 0.92);
+  background: rgba(232, 244, 242, 0.95);
   border: 1px solid rgba(7, 24, 33, 0.12);
   border-radius: 8px;
   padding: 0.18rem 0.4rem;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
   pointer-events: none;
+}
+
+.wp-hit .route-marker-label {
+  /* Include label in the double-click hit target */
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .route-marker-label .km {
@@ -233,17 +266,20 @@ body {
 .route-arrow-wrap {
   background: transparent !important;
   border: none !important;
+  overflow: visible !important;
 }
 
 .route-arrow {
-  width: 0;
-  height: 0;
-  margin: 0 auto;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 11px solid var(--arrow-color, #2ec4b6);
+  width: 22px;
+  height: 22px;
   transform: rotate(var(--brg, 0deg));
-  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.95)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+
+.route-arrow svg {
+  display: block;
+  overflow: visible;
 }
 
 .waypoint-list {
@@ -256,8 +292,8 @@ body {
 
 .waypoint-row {
   display: grid;
-  grid-template-columns: 1.4rem 1fr auto;
-  gap: 0.4rem;
+  grid-template-columns: 1.4rem 1fr auto auto;
+  gap: 0.35rem;
   align-items: center;
 }
 
@@ -283,10 +319,27 @@ body {
 }
 
 .waypoint-km {
-  min-width: 3.5rem;
+  min-width: 3.2rem;
   text-align: right;
   font-size: 0.75rem;
   color: rgba(232, 244, 242, 0.7);
+}
+
+.waypoint-del {
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(7, 24, 33, 0.9);
+  color: rgba(232, 244, 242, 0.85);
+  font: 600 1rem/1 var(--font-body);
+  cursor: pointer;
+  padding: 0;
+}
+
+.waypoint-del:hover {
+  border-color: rgba(232, 120, 100, 0.55);
+  color: #ffb4a8;
 }
 
 .route-style {
@@ -524,11 +577,15 @@ body {
 }
 
 .route-marker {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid #fff;
   box-shadow: 0 0 0 6px rgba(46, 196, 182, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .route-marker.origin {

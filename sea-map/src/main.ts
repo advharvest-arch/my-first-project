@@ -116,8 +116,9 @@ let lastCumKm: number[] = [];
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
-/** Parallel gap for opposing legs — ~24 screen px, at least 90 m */
-const RETURN_GAP_MIN_M = 90;
+/** Parallel gap stays inside a typical river channel (~5–28 m). */
+const RETURN_GAP_MIN_M = 5;
+const RETURN_GAP_MAX_M = 28;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
@@ -180,8 +181,25 @@ function markerIcon(kind: 'origin' | 'dest' | 'way', labelHtml: string): L.DivIc
   return L.divIcon({
     className: 'route-marker-wrap',
     html: `<div class="route-marker ${kind}"></div><div class="route-marker-label">${labelHtml}</div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+/** Inland/ruler waypoint: larger hit area (dot + label) for reliable double-click delete. */
+function waypointMarkerIcon(
+  kind: 'origin' | 'dest' | 'way',
+  index: number,
+  labelHtml: string,
+): L.DivIcon {
+  return L.divIcon({
+    className: 'route-marker-wrap wp-marker-wrap',
+    html: `<div class="wp-hit" title="Двойной щелчок — удалить">
+      <div class="route-marker ${kind}"><span class="wp-num">${index + 1}</span></div>
+      <div class="route-marker-label">${labelHtml}</div>
+    </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
   });
 }
 
@@ -264,6 +282,7 @@ function renderWaypointList(): void {
       <span class="waypoint-idx">${index + 1}</span>
       <input type="text" class="waypoint-name" data-id="${wp.id}" value="${escapeHtml(wp.name)}" maxlength="48" />
       <span class="waypoint-km">${kmText}</span>
+      <button type="button" class="waypoint-del" data-id="${wp.id}" title="Удалить точку" aria-label="Удалить точку">×</button>
     `;
     const input = row.querySelector<HTMLInputElement>('input')!;
     input.addEventListener('input', () => {
@@ -277,6 +296,11 @@ function renderWaypointList(): void {
       window.setTimeout(() => {
         suppressMapClick = false;
       }, 200);
+    });
+    row.querySelector<HTMLButtonElement>('.waypoint-del')!.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      deleteWaypointById(wp.id);
     });
     waypointListEl.appendChild(row);
   });
@@ -345,19 +369,22 @@ function deleteWaypointById(id: string): void {
   lastRoutePath = null;
   lastCumKm = [];
   lastMarkerTap = null;
-  markerClickGuardUntil = Date.now() + 450;
+  markerClickGuardUntil = Date.now() + 600;
+  suppressMapClick = true;
+  window.setTimeout(() => {
+    suppressMapClick = false;
+  }, 350);
+
+  // Instant visual feedback before async rebuild.
+  redrawWaypoints();
+  syncControls();
 
   if (waypoints.length >= 2) {
     if (mode === 'inland') void computeInlandRoute({ fit: false });
     else if (mode === 'ruler') computeRuler({ fit: false });
-    else {
-      redrawWaypoints();
-      syncControls();
-    }
+    else setStatus('Точка удалена.');
   } else {
     clearStats();
-    redrawWaypoints();
-    syncControls();
     setStatus(
       waypoints.length === 1
         ? 'Точка удалена. Добавьте ещё одну или кликните по карте.'
@@ -366,14 +393,20 @@ function deleteWaypointById(id: string): void {
   }
 }
 
+/**
+ * Parallel offset for opposing legs: about half the drawn stroke on screen,
+ * hard-capped so lanes never sit wider than a typical river channel.
+ */
 function parallelGapMeters(): number {
   try {
+    const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
+    const targetPx = Math.max(4, weight * 0.45);
     const a = map.containerPointToLatLng(L.point(0, 0));
-    const b = map.containerPointToLatLng(L.point(24, 0));
+    const b = map.containerPointToLatLng(L.point(targetPx, 0));
     const m = map.distance(a, b);
-    return Math.max(RETURN_GAP_MIN_M, m);
+    return Math.min(RETURN_GAP_MAX_M, Math.max(RETURN_GAP_MIN_M, m));
   } catch {
-    return RETURN_GAP_MIN_M;
+    return 12;
   }
 }
 
@@ -469,17 +502,19 @@ function buildDisplayPath(path: LngLat[]): LngLat[] {
 
 function drawDirectionArrows(path: LngLat[], color: string): void {
   if (path.length < 2) return;
-  let stepM = 180;
+  let stepM = 140;
   try {
     const a = map.containerPointToLatLng(L.point(0, 0));
-    const b = map.containerPointToLatLng(L.point(52, 0));
-    stepM = Math.max(100, map.distance(a, b));
+    const b = map.containerPointToLatLng(L.point(40, 0));
+    // Dense enough to read direction; avoid clutter when zoomed out.
+    stepM = Math.min(320, Math.max(70, map.distance(a, b)));
   } catch {
     /* keep default */
   }
 
+  const safeColor = escapeHtml(color);
   let acc = 0;
-  let nextAt = stepM * 0.55;
+  let nextAt = stepM * 0.4;
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1]!;
     const b = path[i]!;
@@ -501,9 +536,14 @@ function drawDirectionArrows(path: LngLat[], color: string): void {
         zIndexOffset: 200,
         icon: L.divIcon({
           className: 'route-arrow-wrap',
-          html: `<div class="route-arrow" style="--brg:${brg.toFixed(1)}deg;--arrow-color:${color}"></div>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
+          html: `<div class="route-arrow" style="--brg:${brg.toFixed(1)}deg">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M12 2.5 L21 20.5 L12 16.2 L3 20.5 Z"
+                fill="${safeColor}" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+            </svg>
+          </div>`,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
         }),
       }).addTo(drawLayer);
       nextAt += stepM;
@@ -528,16 +568,27 @@ function drawRouteGeometry(path: LngLat[]): void {
 function attachWaypointMarker(wp: Waypoint, index: number): void {
   const kind = index === 0 ? 'origin' : index === waypoints.length - 1 ? 'dest' : 'way';
   const marker = L.marker([wp.lat, wp.lon], {
-    icon: markerIcon(kind, waypointLabelHtml(wp, index)),
+    icon: waypointMarkerIcon(kind, index, waypointLabelHtml(wp, index)),
     draggable: true,
     autoPan: true,
   });
+
+  const removeThis = () => {
+    lastMarkerTap = null;
+    markerClickGuardUntil = Date.now() + 600;
+    deleteWaypointById(wp.id);
+  };
 
   marker.on('add', () => {
     const el = marker.getElement();
     if (!el) return;
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
+    // Native dblclick is more reliable than Leaflet's when marker is draggable.
+    L.DomEvent.on(el, 'dblclick', (ev: Event) => {
+      L.DomEvent.stop(ev);
+      removeThis();
+    });
   });
 
   marker
@@ -547,6 +598,7 @@ function attachWaypointMarker(wp: Waypoint, index: number): void {
     .on('dragstart', () => {
       suppressMapClick = true;
       markerClickGuardUntil = Date.now() + 1000;
+      lastMarkerTap = null;
     })
     .on('drag', (e: L.LeafletEvent) => {
       const ll = (e.target as L.Marker).getLatLng();
@@ -562,20 +614,24 @@ function attachWaypointMarker(wp: Waypoint, index: number): void {
     })
     .on('click', (e: L.LeafletMouseEvent) => {
       L.DomEvent.stop(e);
-      markerClickGuardUntil = Date.now() + 450;
+      markerClickGuardUntil = Date.now() + 600;
       const now = Date.now();
-      if (lastMarkerTap && lastMarkerTap.id === wp.id && now - lastMarkerTap.at < 400) {
-        lastMarkerTap = null;
-        deleteWaypointById(wp.id);
+      if (lastMarkerTap && lastMarkerTap.id === wp.id && now - lastMarkerTap.at < 450) {
+        // Briefly disable drag so the second tap of a double-click isn't eaten.
+        marker.dragging?.disable();
+        removeThis();
         return;
       }
       lastMarkerTap = { id: wp.id, at: now };
+      // Pause drag briefly to allow a clean double-click / second tap.
+      marker.dragging?.disable();
+      window.setTimeout(() => {
+        if (waypoints.some((w) => w.id === wp.id)) marker.dragging?.enable();
+      }, 450);
     })
     .on('dblclick', (e: L.LeafletMouseEvent) => {
       L.DomEvent.stop(e);
-      markerClickGuardUntil = Date.now() + 450;
-      lastMarkerTap = null;
-      deleteWaypointById(wp.id);
+      removeThis();
     })
     .bindTooltip('Двойной клик — удалить', { direction: 'bottom', opacity: 0.85 })
     .addTo(drawLayer);
