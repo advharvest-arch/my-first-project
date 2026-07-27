@@ -107,7 +107,7 @@ function updateHint(): void {
     else hintEl.textContent = 'Море: маршрут готов. Можно сменить точки или ограничения.';
   } else if (mode === 'inland') {
     hintEl.textContent =
-      'Реки и озёра: кликайте вдоль реки/озера. Затем нажмите «Проложить» — путь пойдёт по воде OSM.';
+      'Реки, озёра, водохранилища: два клика по воде — маршрут построится сам. Можно добавить промежуточные точки.';
   } else {
     hintEl.textContent =
       'Линейка: кликайте точки подряд. Длина считается по прямой между точками (удобно по берегу).';
@@ -262,10 +262,10 @@ async function computeSeaRoute(): Promise<void> {
 }
 
 async function computeInlandRoute(): Promise<void> {
-  if (waypoints.length < 2) return;
+  if (waypoints.length < 2 || busy) return;
   busy = true;
   routeBtn.disabled = true;
-  setStatus('Ищем путь по рекам и озёрам OSM…');
+  setStatus('Строим маршрут по рекам, озёрам и водохранилищам…');
 
   try {
     const path = await measureWaterChain(waypoints);
@@ -273,15 +273,15 @@ async function computeInlandRoute(): Promise<void> {
     const fmt = formatDistance(path.lengthKm);
     const methodLabel =
       path.method === 'waterway'
-        ? 'по руслу'
+        ? 'по ВВП (русло/канал)'
         : path.method === 'lake'
-          ? 'по озеру'
-          : 'напрямую (вода не найдена)';
-    showStats(fmt.km, fmt.nm, path.waterName ? `${path.waterName}` : methodLabel);
+          ? 'по водоёму'
+          : 'вода не связана — прямая';
+    showStats(fmt.km, fmt.nm, path.waterName ? path.waterName : methodLabel);
     setStatus(
       path.method === 'direct'
-        ? 'Водный путь рядом не найден — показана прямая. Приблизьте карту и кликайте точнее по реке.'
-        : `Измерено ${methodLabel}.`,
+        ? 'Не удалось связать внутренние водные пути между точками. Приблизьте карту и кликайте точнее по реке/водохранилищу.'
+        : `Маршрут по внутренним водным путям: ${methodLabel}.`,
       path.method === 'direct',
     );
     if (path.points.length >= 2) {
@@ -295,7 +295,7 @@ async function computeInlandRoute(): Promise<void> {
     const km = pathLengthKm(waypoints);
     const fmt = formatDistance(km);
     showStats(fmt.km, fmt.nm, 'ошибка сети');
-    setStatus('Не удалось запросить OSM Overpass. Показана длина по прямым отрезкам.', true);
+    setStatus('Ошибка запроса OSM Overpass. Попробуйте ещё раз через несколько секунд.', true);
   } finally {
     busy = false;
     syncSeaInputs();
@@ -350,7 +350,7 @@ function setMode(next: AppMode): void {
     next === 'sea'
       ? 'Кликните по карте или выберите порт.'
       : next === 'inland'
-        ? 'Приблизьте карту и кликайте по реке или озеру.'
+        ? 'Кликните две точки на реке, озере или водохранилище — маршрут построится автоматически.'
         : 'Кликайте точки для измерения.',
   );
 }
@@ -381,11 +381,21 @@ map.on('click', (e: L.LeafletMouseEvent) => {
   clearStats();
   redrawWaypoints();
   syncSeaInputs();
-  setStatus(
-    mode === 'inland'
-      ? `Точка ${waypoints.length}. Добавьте ещё или нажмите «Проложить».`
-      : `Точка ${waypoints.length}. Нажмите «Измерить» или продолжайте кликать.`,
-  );
+
+  if (mode === 'inland') {
+    if (waypoints.length === 1) {
+      setStatus('Точка старта. Кликните вторую точку на реке, озере или водохранилище.');
+    } else if (waypoints.length === 2) {
+      setStatus('Строим маршрут…');
+      void computeInlandRoute();
+    } else {
+      setStatus(`Точек: ${waypoints.length}. Нажмите «Проложить» или кликните ещё точку.`);
+    }
+  } else {
+    setStatus(
+      `Точка ${waypoints.length}. Нажмите «Измерить» или продолжайте кликать.`,
+    );
+  }
 });
 
 originInput.addEventListener('click', () => {
