@@ -9,16 +9,21 @@ export type HybridOptions = {
   restrictions?: Passage[];
   allowArctic?: boolean;
   speedKnots?: number;
-  /** Default `river`: full inland chain; sea only for failed coastal legs. */
+  /** Default `river`: full inland chain; sea only where inland cannot connect. */
   prefer?: RoutePrefer;
 };
 
 export type HybridPath = WaterPath & {
   networks: Array<'river' | 'sea' | 'direct'>;
   passages: Passage[];
+  /** True when sea was requested but inland was kept (points not near the sea). */
+  seaUnavailable?: boolean;
 };
 
 type SeaLeg = { points: LngLat[]; lengthKm: number; passages: Passage[]; maxSnapKm: number };
+
+/** Snap farther than this → treat as "not at sea" (don't yank inland points to the coast). */
+const SEA_SNAP_OK_KM = 55;
 
 function featureToPoints(feature: SeaRouteFeature | SeaRouteMultiFeature): LngLat[] {
   const geom = feature.geometry;
@@ -74,7 +79,11 @@ function inlandOk(inland: WaterPath): boolean {
   return inland.method !== 'direct' && inland.points.length >= 2 && inland.lengthKm > 0;
 }
 
-function wrapInland(inland: WaterPath, nLegs: number): HybridPath {
+function wrapInland(
+  inland: WaterPath,
+  nLegs: number,
+  extra?: Partial<HybridPath>,
+): HybridPath {
   const networks = Array.from({ length: Math.max(0, nLegs) }, () =>
     inland.method === 'direct' ? ('direct' as const) : ('river' as const),
   );
@@ -82,141 +91,269 @@ function wrapInland(inland: WaterPath, nLegs: number): HybridPath {
     ...inland,
     networks,
     passages: [],
+    ...extra,
   };
 }
 
-/**
- * River-first: one BRouter/OSM call for the whole chain (as before unification).
- * Sea is never used here — keeps inland routes stable.
- */
-async function routeRiverOnly(waypoints: LngLat[]): Promise<HybridPath> {
-  const inland = await measureWaterChain(waypoints);
-  return wrapInland(inland, waypoints.length - 1);
-}
+type LegResult = {
+  network: 'river' | 'sea' | 'direct';
+  points: LngLat[];
+  lengthKm: number;
+  passages: Passage[];
+  waterName: string | null;
+  method: WaterPath['method'];
+};
 
-/**
- * Sea-first via consecutive maritime legs; fall back to full inland if sea fails.
- */
-async function routeSeaPreferred(
-  waypoints: LngLat[],
+async function resolveLeg(
+  a: LngLat,
+  b: LngLat,
   opts: HybridOptions,
-): Promise<HybridPath> {
-  const allPoints: LngLat[] = [];
-  const waypointCumKm = [0];
-  const networks: HybridPath['networks'] = [];
-  const passageSet = new Set<Passage>();
-  let lengthKm = 0;
-  let allSea = true;
+  prefer: RoutePrefer,
+): Promise<LegResult> {
+  const directKm = haversineKm(a, b);
 
-  for (let i = 1; i < waypoints.length; i++) {
-    const a = waypoints[i - 1]!;
-    const b = waypoints[i]!;
-    const sea = await seaLeg(a, b, opts, 280);
-    if (!sea) {
-      allSea = false;
-      break;
+  if (prefer === 'sea') {
+    const sea = await seaLeg(a, b, opts, SEA_SNAP_OK_KM);
+    if (sea) {
+      return {
+        network: 'sea',
+        points: sea.points,
+        lengthKm: sea.lengthKm,
+        passages: sea.passages,
+        waterName: 'море',
+        method: 'waterway',
+      };
     }
-    networks.push('sea');
-    if (allPoints.length === 0) allPoints.push(...sea.points);
-    else allPoints.push(...sea.points.slice(1));
-    lengthKm += sea.lengthKm;
-    waypointCumKm.push(lengthKm);
-    for (const p of sea.passages) passageSet.add(p);
-  }
-
-  if (allSea && allPoints.length >= 2) {
+    const inland = await measureWaterChain([a, b]);
+    if (inlandOk(inland)) {
+      return {
+        network: 'river',
+        points: inland.points,
+        lengthKm: inland.lengthKm,
+        passages: [],
+        waterName: inland.waterName,
+        method: inland.method,
+      };
+    }
     return {
-      points: allPoints,
-      lengthKm,
-      waterName: 'море',
-      method: 'waterway',
-      waypointCumKm,
-      networks,
-      passages: [...passageSet],
+      network: 'direct',
+      points: [a, b],
+      lengthKm: directKm,
+      passages: [],
+      waterName: null,
+      method: 'direct',
     };
   }
 
-  return routeRiverOnly(waypoints);
+  // river or shortest: try inland first
+  const inland = await measureWaterChain([a, b]);
+  const sea =
+    prefer === 'shortest' || !inlandOk(inland)
+      ? await seaLeg(a, b, opts, SEA_SNAP_OK_KM)
+      : null;
+
+  if (prefer === 'shortest' && inlandOk(inland) && sea) {
+    const useSea = sea.lengthKm < inland.lengthKm * 0.92;
+    if (useSea) {
+      return {
+        network: 'sea',
+        points: sea.points,
+        lengthKm: sea.lengthKm,
+        passages: sea.passages,
+        waterName: 'море',
+        method: 'waterway',
+      };
+    }
+  }
+
+  if (inlandOk(inland)) {
+    return {
+      network: 'river',
+      points: inland.points,
+      lengthKm: inland.lengthKm,
+      passages: [],
+      waterName: inland.waterName,
+      method: inland.method,
+    };
+  }
+
+  if (sea) {
+    return {
+      network: 'sea',
+      points: sea.points,
+      lengthKm: sea.lengthKm,
+      passages: sea.passages,
+      waterName: 'море',
+      method: 'waterway',
+    };
+  }
+
+  return {
+    network: 'direct',
+    points: [a, b],
+    lengthKm: directKm,
+    passages: [],
+    waterName: null,
+    method: 'direct',
+  };
 }
 
-/**
- * Per-leg shortest: inland full chain split by waypoint cum-km vs sea per leg.
- * Uses one inland request for quality, then replaces individual legs with sea
- * only when sea is clearly shorter and snaps are tight enough.
- */
-async function routeShortest(waypoints: LngLat[], opts: HybridOptions): Promise<HybridPath> {
-  const inland = await measureWaterChain(waypoints);
-
-  // If inland failed entirely, try sea legs (ports / open water).
-  if (!inlandOk(inland)) {
-    return routeSeaPreferred(waypoints, opts);
-  }
-
-  const cum = inland.waypointCumKm;
-  const n = waypoints.length;
-  // Need cum distances to slice the inland geometry into legs.
-  if (!cum || cum.length !== n) {
-    return wrapInland(inland, n - 1);
-  }
-
+function stitchLegs(legs: LegResult[]): HybridPath {
   const allPoints: LngLat[] = [];
   const waypointCumKm = [0];
   const networks: HybridPath['networks'] = [];
   const passageSet = new Set<Passage>();
   const nameBits: string[] = [];
   let lengthKm = 0;
-  let anyLake = inland.method === 'lake';
+  let anyWater = false;
+  let anyLake = false;
+  let anySea = false;
 
-  for (let i = 1; i < n; i++) {
-    const a = waypoints[i - 1]!;
-    const b = waypoints[i]!;
-    const inlandLegKm = Math.max(0, (cum[i] ?? 0) - (cum[i - 1] ?? 0));
-    const sea = await seaLeg(a, b, opts, 80);
+  for (const leg of legs) {
+    networks.push(leg.network);
+    if (leg.network === 'sea') anySea = true;
+    if (leg.method !== 'direct') anyWater = true;
+    if (leg.method === 'lake') anyLake = true;
+    for (const p of leg.passages) passageSet.add(p);
+    if (leg.waterName) nameBits.push(leg.waterName);
 
-    const useSea =
-      sea != null &&
-      sea.lengthKm > 0 &&
-      sea.lengthKm < inlandLegKm * 0.92 &&
-      sea.maxSnapKm <= 80;
-
-    networks.push(useSea ? 'sea' : 'river');
-
-    let chunk: LngLat[];
-    let legKm: number;
-    if (useSea && sea) {
-      chunk = sea.points;
-      legKm = sea.lengthKm;
-      for (const p of sea.passages) passageSet.add(p);
-      nameBits.push('море');
-    } else {
-      // Extract inland subpath between waypoint cum distances.
-      chunk = slicePathByCumKm(inland.points, cum[i - 1]!, cum[i]!);
-      if (chunk.length < 2) chunk = [a, b];
-      legKm = inlandLegKm || pathLengthKm(chunk);
-      if (inland.waterName) nameBits.push(inland.waterName);
-    }
-
-    if (allPoints.length === 0) allPoints.push(...chunk);
-    else allPoints.push(...chunk.slice(1));
-    lengthKm += legKm;
+    if (allPoints.length === 0) allPoints.push(...leg.points);
+    else allPoints.push(...leg.points.slice(1));
+    lengthKm += leg.lengthKm;
     waypointCumKm.push(lengthKm);
   }
 
-  const usedSea = networks.includes('sea');
-  const uniqueNames = [...new Set(nameBits.filter(Boolean))];
-
   return {
-    points: allPoints.length >= 2 ? allPoints : inland.points,
+    points: allPoints.length >= 2 ? allPoints : legs.flatMap((l) => l.points),
     lengthKm,
-    waterName: uniqueNames.length ? uniqueNames.join(' · ') : inland.waterName,
-    method: anyLake && !usedSea ? 'lake' : 'waterway',
+    waterName: [...new Set(nameBits.filter(Boolean))].join(' · ') || null,
+    method: !anyWater ? 'direct' : anyLake && !anySea ? 'lake' : 'waterway',
     waypointCumKm,
     networks,
     passages: [...passageSet],
   };
 }
 
-/** Walk path geometry and keep the portion between cumStart and cumEnd (km). */
+/**
+ * Prefer one BRouter call for pure inland chains (fast + stable).
+ * If that fails (e.g. a sea waypoint was added), fall back to per-leg stitching.
+ */
+async function routeRiverPreferred(
+  waypoints: LngLat[],
+  opts: HybridOptions,
+): Promise<HybridPath> {
+  const inland = await measureWaterChain(waypoints);
+  if (inlandOk(inland)) return wrapInland(inland, waypoints.length - 1);
+
+  const legs: LegResult[] = [];
+  for (let i = 1; i < waypoints.length; i++) {
+    legs.push(await resolveLeg(waypoints[i - 1]!, waypoints[i]!, opts, 'river'));
+  }
+  return stitchLegs(legs);
+}
+
+async function routeSeaPreferred(
+  waypoints: LngLat[],
+  opts: HybridOptions,
+): Promise<HybridPath> {
+  // Keep a good inland result ready — switching to «Море» must not destroy a river route
+  // when points are far from the maritime network.
+  const inlandPromise = measureWaterChain(waypoints);
+
+  const legs: LegResult[] = [];
+  let seaLegs = 0;
+  for (let i = 1; i < waypoints.length; i++) {
+    const leg = await resolveLeg(waypoints[i - 1]!, waypoints[i]!, opts, 'sea');
+    legs.push(leg);
+    if (leg.network === 'sea') seaLegs += 1;
+  }
+
+  const inland = await inlandPromise;
+
+  // No leg could use the sea → keep full inland chain if it works.
+  if (seaLegs === 0 && inlandOk(inland)) {
+    return wrapInland(inland, waypoints.length - 1, { seaUnavailable: true });
+  }
+
+  // Partial sea: if inland full chain is much better overall, keep it and warn.
+  if (inlandOk(inland)) {
+    const stitchedKm = legs.reduce((s, l) => s + l.lengthKm, 0);
+    if (seaLegs < legs.length && inland.lengthKm < stitchedKm * 0.9) {
+      return wrapInland(inland, waypoints.length - 1, { seaUnavailable: seaLegs === 0 });
+    }
+  }
+
+  const stitched = stitchLegs(legs);
+  if (seaLegs === 0) stitched.seaUnavailable = true;
+  return stitched;
+}
+
+async function routeShortest(
+  waypoints: LngLat[],
+  opts: HybridOptions,
+): Promise<HybridPath> {
+  const inland = await measureWaterChain(waypoints);
+  if (inlandOk(inland) && waypoints.length === 2) {
+    // Fast path: one inland + one sea comparison
+    const sea = await seaLeg(waypoints[0]!, waypoints[1]!, opts, SEA_SNAP_OK_KM);
+    if (sea && sea.lengthKm < inland.lengthKm * 0.92) {
+      return {
+        points: sea.points,
+        lengthKm: sea.lengthKm,
+        waterName: 'море',
+        method: 'waterway',
+        waypointCumKm: [0, sea.lengthKm],
+        networks: ['sea'],
+        passages: sea.passages,
+      };
+    }
+    return wrapInland(inland, 1);
+  }
+
+  if (inlandOk(inland)) {
+    // Multi-point: start from inland; only replace a leg with sea when clearly shorter
+    const cum = inland.waypointCumKm;
+    if (cum && cum.length === waypoints.length) {
+      const legs: LegResult[] = [];
+      for (let i = 1; i < waypoints.length; i++) {
+        const a = waypoints[i - 1]!;
+        const b = waypoints[i]!;
+        const inlandLegKm = Math.max(0, cum[i]! - cum[i - 1]!);
+        const sea = await seaLeg(a, b, opts, SEA_SNAP_OK_KM);
+        if (sea && sea.lengthKm < inlandLegKm * 0.92) {
+          legs.push({
+            network: 'sea',
+            points: sea.points,
+            lengthKm: sea.lengthKm,
+            passages: sea.passages,
+            waterName: 'море',
+            method: 'waterway',
+          });
+        } else {
+          const chunk = slicePathByCumKm(inland.points, cum[i - 1]!, cum[i]!);
+          legs.push({
+            network: 'river',
+            points: chunk.length >= 2 ? chunk : [a, b],
+            lengthKm: inlandLegKm || pathLengthKm(chunk),
+            passages: [],
+            waterName: inland.waterName,
+            method: inland.method,
+          });
+        }
+      }
+      return stitchLegs(legs);
+    }
+    return wrapInland(inland, waypoints.length - 1);
+  }
+
+  // Inland failed — per-leg with sea allowed where snap is OK
+  const legs: LegResult[] = [];
+  for (let i = 1; i < waypoints.length; i++) {
+    legs.push(await resolveLeg(waypoints[i - 1]!, waypoints[i]!, opts, 'shortest'));
+  }
+  return stitchLegs(legs);
+}
+
 function slicePathByCumKm(path: LngLat[], cumStart: number, cumEnd: number): LngLat[] {
   if (path.length < 2 || cumEnd <= cumStart) return path.slice();
 
@@ -257,10 +394,6 @@ function slicePathByCumKm(path: LngLat[], cumStart: number, cumEnd: number): Lng
   return out.length >= 2 ? out : path.slice();
 }
 
-/**
- * Continuous itinerary: river routes use a single inland chain (BRouter);
- * sea is only mixed in when explicitly requested (shortest / sea).
- */
 export async function measureHybridChain(
   waypoints: LngLat[],
   opts: HybridOptions = {},
@@ -279,7 +412,7 @@ export async function measureHybridChain(
     };
   }
 
-  if (prefer === 'river') return routeRiverOnly(waypoints);
+  if (prefer === 'river') return routeRiverPreferred(waypoints, opts);
   if (prefer === 'sea') return routeSeaPreferred(waypoints, opts);
   return routeShortest(waypoints, opts);
 }

@@ -727,12 +727,20 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       showReturnInput.checked && waypoints.length >= 3
         ? ` Участки разведены в ${waypoints.length - 1} паралл. полос.`
         : '';
-    setStatus(
-      path.method === 'direct' && !netParts.length
-        ? 'Не удалось найти водный путь. Кликните ближе к фарватеру, порту или береговой линии.'
-        : `Готово: ${waypoints.length} точ., ${netLabel}.${parallelNote}`,
-      path.method === 'direct' && !netParts.length,
-    );
+
+    if (path.seaUnavailable && prefer === 'sea') {
+      setStatus(
+        `Точки далеко от моря — оставлен речной маршрут (${netLabel}). Для моря кликните порт или берег.`,
+        true,
+      );
+    } else {
+      setStatus(
+        path.method === 'direct' && !netParts.length
+          ? 'Не удалось найти водный путь. Кликните ближе к фарватеру, порту или береговой линии.'
+          : `Готово: ${waypoints.length} точ., ${netLabel}.${parallelNote}`,
+        path.method === 'direct' && !netParts.length,
+      );
+    }
     if (fit && path.points.length >= 2) {
       map.fitBounds(
         L.latLngBounds(path.points.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2),
@@ -740,12 +748,18 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     }
   } catch (err) {
     console.error(err);
-    lastRoutePath = null;
-    lastCumKm = [];
-    redrawWaypoints();
-    const km = pathLengthKm(waypoints);
-    showStats(km, 'ошибка сети');
-    setStatus('Ошибка запроса маршрута. Подождите и нажмите «Проложить» ещё раз.', true);
+    // Keep the previous successful route visible instead of wiping it.
+    if (lastRoutePath && lastRoutePath.length >= 2) {
+      redrawWaypoints(lastRoutePath);
+      setStatus('Не удалось пересчитать маршрут — показан предыдущий. Попробуйте снова.', true);
+    } else {
+      lastRoutePath = null;
+      lastCumKm = [];
+      redrawWaypoints();
+      const km = pathLengthKm(waypoints);
+      showStats(km, 'ошибка сети');
+      setStatus('Ошибка запроса маршрута. Подождите и нажмите «Проложить» ещё раз.', true);
+    }
   } finally {
     busy = false;
     syncControls();
