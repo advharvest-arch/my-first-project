@@ -100,9 +100,6 @@ const routeBtn = document.querySelector<HTMLButtonElement>('#route-btn')!;
 const clearBtn = document.querySelector<HTMLButtonElement>('#clear-btn')!;
 const undoBtn = document.querySelector<HTMLButtonElement>('#undo-btn')!;
 const speedInput = document.querySelector<HTMLInputElement>('#speed')!;
-const avoidSuez = document.querySelector<HTMLInputElement>('#avoid-suez')!;
-const avoidPanama = document.querySelector<HTMLInputElement>('#avoid-panama')!;
-const allowArctic = document.querySelector<HTMLInputElement>('#allow-arctic')!;
 const routePreferSelect = document.querySelector<HTMLSelectElement>('#route-prefer')!;
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const panelToggle = document.querySelector<HTMLButtonElement>('#panel-toggle')!;
@@ -117,8 +114,8 @@ const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-lab
 const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
 const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')!;
 const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
-const routeDescBody = document.querySelector<HTMLElement>('#route-desc-body')!;
-const routeDescClose = document.querySelector<HTMLButtonElement>('#route-desc-close')!;
+const routeDescBody = document.querySelector<HTMLTextAreaElement>('#route-desc-body')!;
+const routeDescCopy = document.querySelector<HTMLButtonElement>('#route-desc-copy')!;
 
 let mode: AppMode = 'water';
 let waypoints: Waypoint[] = [];
@@ -258,7 +255,8 @@ function showStats(distanceKm: number): void {
 
 function hideRouteDesc(): void {
   routeDescEl.hidden = true;
-  routeDescBody.textContent = '';
+  routeDescBody.value = '';
+  routeDescCopy.textContent = 'Копировать';
 }
 
 function showRouteDesc(text: string): void {
@@ -267,8 +265,25 @@ function showRouteDesc(text: string): void {
     hideRouteDesc();
     return;
   }
-  routeDescBody.textContent = trimmed;
+  routeDescBody.value = trimmed;
   routeDescEl.hidden = false;
+  routeDescCopy.textContent = 'Копировать';
+}
+
+async function copyRouteDesc(): Promise<void> {
+  const text = routeDescBody.value.trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    routeDescCopy.textContent = 'Скопировано';
+    window.setTimeout(() => {
+      if (routeDescCopy.textContent === 'Скопировано') routeDescCopy.textContent = 'Копировать';
+    }, 1600);
+  } catch {
+    routeDescBody.focus();
+    routeDescBody.select();
+    routeDescCopy.textContent = 'Ctrl+C';
+  }
 }
 
 async function updateRouteItinerary(path: LngLat[], fallback: string | null): Promise<void> {
@@ -289,7 +304,6 @@ async function updateRouteItinerary(path: LngLat[], fallback: string | null): Pr
   } catch (err) {
     console.warn(err);
   }
-  // Keep whatever is already shown (quick / fallback).
 }
 
 function syncControls(): void {
@@ -716,10 +730,7 @@ function uniquePassageLabel(passages: Passage[] | undefined): string {
 }
 
 function seaRestrictions(): Passage[] {
-  const restrictions: Passage[] = [];
-  if (avoidSuez.checked) restrictions.push('suez', 'babelmandeb');
-  if (avoidPanama.checked) restrictions.push('panama');
-  return restrictions;
+  return [];
 }
 
 function routePrefer(): RoutePrefer {
@@ -764,7 +775,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
   try {
     const path = await measureHybridChain(waypoints, {
       restrictions: seaRestrictions(),
-      allowArctic: allowArctic.checked,
+      allowArctic: false,
       speedKnots: speedKmh() / KM_PER_KNOT,
       prefer,
     });
@@ -1024,11 +1035,6 @@ showArrowsInput.addEventListener('change', () => {
   else restyleRouteLine();
 });
 
-for (const input of [avoidSuez, avoidPanama, allowArctic]) {
-  input.addEventListener('change', () => {
-    if (mode === 'water' && waypoints.length >= 2) void computeWaterRoute({ fit: false });
-  });
-}
 routePreferSelect.addEventListener('change', () => {
   if (mode === 'water' && waypoints.length >= 2) void computeWaterRoute({ fit: false });
 });
@@ -1046,8 +1052,9 @@ document.querySelectorAll('.mode-btn').forEach((btn) => {
 
 panelToggle.addEventListener('click', () => panel.classList.remove('collapsed'));
 collapseBtn.addEventListener('click', () => panel.classList.add('collapsed'));
-routeDescClose.addEventListener('click', () => hideRouteDesc());
-
+routeDescCopy.addEventListener('click', () => {
+  void copyRouteDesc();
+});
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
   const qMode = params.get('mode');
