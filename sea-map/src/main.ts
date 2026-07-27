@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatKm,
   haversineKm,
+  offsetPathMeters,
   pathLengthKm,
   type LngLat,
 } from './geo';
@@ -95,6 +96,9 @@ const waypointListEl = document.querySelector<HTMLElement>('#waypoint-list')!;
 const lineColorInput = document.querySelector<HTMLInputElement>('#line-color')!;
 const lineWeightInput = document.querySelector<HTMLInputElement>('#line-weight')!;
 const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-labels')!;
+const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
+const returnColorInput = document.querySelector<HTMLInputElement>('#return-color')!;
+const returnColorField = document.querySelector<HTMLElement>('#return-color-field')!;
 
 let mode: AppMode = 'sea';
 let origin: Point | null = null;
@@ -107,11 +111,16 @@ let pendingRebuild = false;
 let suppressMapClick = false;
 /** Last computed route distance — used for live ETA when speed changes */
 let lastDistanceKm: number | null = null;
+let lastReturnKm: number | null = null;
 let lastWaterLabel = '—';
 let lastRoutePath: LngLat[] | null = null;
+let lastReturnPath: LngLat[] | null = null;
 let lastCumKm: number[] = [];
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
+
+/** Parallel offset between туда/обратно lines, metres */
+const RETURN_OFFSET_M = 28;
 
 function speedKmh(): number {
   return Math.max(1, Number(speedInput.value) || 20);
@@ -128,10 +137,29 @@ function lineStyle(): L.PolylineOptions {
   };
 }
 
+function returnLineStyle(): L.PolylineOptions {
+  return {
+    color: returnColorInput.value || '#d9c3a0',
+    weight: Math.max(2, Number(lineWeightInput.value) || 5),
+    opacity: 0.92,
+    lineCap: 'round',
+    lineJoin: 'round',
+    className: 'route-line return',
+  };
+}
+
 function refreshEtaFromSpeed(): void {
   if (lastDistanceKm == null || statsEl.hidden) return;
-  distanceEl.textContent = formatKm(lastDistanceKm);
-  etaEl.textContent = formatDuration(etaHours(lastDistanceKm, speedKmh()));
+  const total =
+    showReturnInput.checked && lastReturnKm != null
+      ? lastDistanceKm + lastReturnKm
+      : lastDistanceKm;
+  if (showReturnInput.checked && lastReturnKm != null) {
+    distanceEl.textContent = `${formatKm(lastDistanceKm)} + ${formatKm(lastReturnKm)}`;
+  } else {
+    distanceEl.textContent = formatKm(lastDistanceKm);
+  }
+  etaEl.textContent = formatDuration(etaHours(total, speedKmh()));
   passagesEl.textContent = lastWaterLabel;
 }
 
@@ -184,17 +212,18 @@ function clearStats(): void {
   etaEl.textContent = '—';
   passagesEl.textContent = '—';
   lastDistanceKm = null;
+  lastReturnKm = null;
   lastWaterLabel = '—';
   lastRoutePath = null;
+  lastReturnPath = null;
   lastCumKm = [];
 }
 
-function showStats(distanceKm: number, water: string): void {
+function showStats(distanceKm: number, water: string, returnKm: number | null = null): void {
   lastDistanceKm = distanceKm;
+  lastReturnKm = returnKm;
   lastWaterLabel = water;
-  distanceEl.textContent = formatKm(distanceKm);
-  etaEl.textContent = formatDuration(etaHours(distanceKm, speedKmh()));
-  passagesEl.textContent = water;
+  refreshEtaFromSpeed();
   statsEl.hidden = false;
 }
 
@@ -205,9 +234,10 @@ function updateHint(): void {
     else hintEl.textContent = 'Море: маршрут готов. Можно сменить точки или ограничения.';
   } else if (mode === 'inland') {
     hintEl.textContent =
-      'Реки/озёра: кликайте точки на воде — маршрут строится сам. Перетаскивайте маркеры, задавайте имена.';
+      'Реки: клик — точка, перетаскивание — сдвиг, двойной клик — удаление. Можно включить обратный маршрут.';
   } else {
-    hintEl.textContent = 'Линейка: кликайте точки подряд. Длина — сумма отрезков в километрах.';
+    hintEl.textContent =
+      'Линейка: кликайте точки. Двойной клик по точке — удалить. Опционально — обратный путь параллельно.';
   }
 }
 
@@ -311,6 +341,36 @@ function redrawSeaMarkers(): void {
   }
 }
 
+function deleteWaypointById(id: string): void {
+  const idx = waypoints.findIndex((w) => w.id === id);
+  if (idx < 0) return;
+  waypoints.splice(idx, 1);
+  lastRoutePath = null;
+  lastReturnPath = null;
+  lastCumKm = [];
+  if (waypoints.length >= 2) {
+    if (mode === 'inland') void computeInlandRoute({ fit: false });
+    else if (mode === 'ruler') computeRuler({ fit: false });
+    else {
+      redrawWaypoints();
+      syncControls();
+    }
+  } else {
+    clearStats();
+    redrawWaypoints();
+    syncControls();
+    setStatus(
+      waypoints.length === 1
+        ? 'Точка удалена. Добавьте ещё одну или кликните по карте.'
+        : 'Все точки удалены.',
+    );
+  }
+}
+
+function syncReturnUi(): void {
+  returnColorField.hidden = !showReturnInput.checked;
+}
+
 function redrawWaypoints(path?: LngLat[]): void {
   drawLayer.clearLayers();
   waypoints.forEach((wp, i) => {
@@ -335,15 +395,40 @@ function redrawWaypoints(path?: LngLat[]): void {
         }, 200);
         scheduleRebuildAfterDrag();
       })
+      .on('dblclick', (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stop(e);
+        suppressMapClick = true;
+        window.setTimeout(() => {
+          suppressMapClick = false;
+        }, 300);
+        deleteWaypointById(wp.id);
+      })
+      .bindTooltip('Двойной клик — удалить', { direction: 'bottom', opacity: 0.85 })
       .addTo(drawLayer);
   });
 
   const style = lineStyle();
-  if (path && path.length >= 2) {
-    L.polyline(
-      path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      style,
-    ).addTo(drawLayer);
+  const forward = path && path.length >= 2 ? path : null;
+  if (forward) {
+    if (showReturnInput.checked) {
+      const half = RETURN_OFFSET_M / 2;
+      const outPath = offsetPathMeters(forward, -half);
+      const backSource = lastReturnPath ?? [...forward].reverse();
+      const backPath = offsetPathMeters(backSource, half);
+      L.polyline(
+        outPath.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+        style,
+      ).addTo(drawLayer);
+      L.polyline(
+        backPath.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+        returnLineStyle(),
+      ).addTo(drawLayer);
+    } else {
+      L.polyline(
+        forward.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+        style,
+      ).addTo(drawLayer);
+    }
   } else if (waypoints.length >= 2) {
     L.polyline(
       waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple),
@@ -479,12 +564,29 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
   busy = true;
   pendingRebuild = false;
   routeBtn.disabled = true;
-  setStatus('Строим маршрут…');
+  setStatus(
+    showReturnInput.checked ? 'Строим маршрут туда и обратно…' : 'Строим маршрут…',
+  );
 
   try {
     const path = await measureWaterChain(waypoints);
     lastRoutePath = path.points;
     lastCumKm = path.waypointCumKm ?? [];
+
+    let returnKm: number | null = null;
+    lastReturnPath = null;
+    if (showReturnInput.checked) {
+      const back = await measureWaterChain([...waypoints].reverse());
+      if (back.method !== 'direct' && back.points.length >= 2) {
+        lastReturnPath = back.points;
+        returnKm = back.lengthKm;
+      } else if (path.points.length >= 2) {
+        // Fallback: reverse of forward geometry
+        lastReturnPath = [...path.points].reverse();
+        returnKm = path.lengthKm;
+      }
+    }
+
     redrawWaypoints(path.points);
     renderWaypointList();
     const methodLabel =
@@ -493,11 +595,14 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
         : path.method === 'lake'
           ? 'по водоёму'
           : 'вода не связана';
-    showStats(path.lengthKm, path.waterName ?? methodLabel);
+    const waterLabel = path.waterName ?? methodLabel;
+    showStats(path.lengthKm, waterLabel, returnKm);
     setStatus(
       path.method === 'direct'
         ? 'Не удалось найти связанный водный путь между точками. Кликните ближе к фарватеру (середине реки/канала) или выберите пример ниже.'
-        : `Готово: ${waypoints.length} точ., ${methodLabel}${path.waterName ? ` (${path.waterName})` : ''}.`,
+        : showReturnInput.checked && returnKm != null
+          ? `Готово: туда ${formatKm(path.lengthKm)}, обратно ${formatKm(returnKm)}${path.waterName ? ` (${path.waterName})` : ''}. Двойной клик по точке — удалить.`
+          : `Готово: ${waypoints.length} точ., ${methodLabel}${path.waterName ? ` (${path.waterName})` : ''}. Двойной клик по точке — удалить.`,
       path.method === 'direct',
     );
     if (fit && path.points.length >= 2) {
@@ -508,11 +613,12 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
   } catch (err) {
     console.error(err);
     lastRoutePath = null;
+    lastReturnPath = null;
     lastCumKm = [];
     redrawWaypoints();
     const km = pathLengthKm(waypoints);
     showStats(km, 'ошибка сети');
-    setStatus('Ошибка запроса OSM. Подождите пару секунд и нажмите «Проложить» ещё раз.', true);
+    setStatus('Ошибка запроса маршрута. Подождите пару секунд и нажмите «Проложить» ещё раз.', true);
   } finally {
     busy = false;
     syncControls();
@@ -534,14 +640,20 @@ function computeRuler(opts: { fit?: boolean } = {}): void {
     cum.push(sum);
   }
   lastCumKm = cum;
+  lastReturnPath = showReturnInput.checked ? [...lastRoutePath].reverse() : null;
+  const returnKm = showReturnInput.checked ? sum : null;
   redrawWaypoints(lastRoutePath);
   renderWaypointList();
   let maxLeg = 0;
   for (let i = 1; i < waypoints.length; i++) {
     maxLeg = Math.max(maxLeg, haversineKm(waypoints[i - 1]!, waypoints[i]!));
   }
-  showStats(sum, `${waypoints.length - 1} отр., макс. ${formatKm(maxLeg)}`);
-  setStatus('Линейка: сумма отрезков между кликами.');
+  showStats(sum, `${waypoints.length - 1} отр., макс. ${formatKm(maxLeg)}`, returnKm);
+  setStatus(
+    showReturnInput.checked
+      ? 'Линейка туда и обратно. Двойной клик по точке — удалить.'
+      : 'Линейка: сумма отрезков. Двойной клик по точке — удалить.',
+  );
   if (fit) {
     map.fitBounds(L.latLngBounds(waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2));
   }
@@ -619,16 +731,18 @@ function setMode(next: AppMode): void {
   destination = null;
   waypoints = [];
   lastRoutePath = null;
+  lastReturnPath = null;
   lastCumKm = [];
   drawLayer.clearLayers();
   clearStats();
   renderPresets();
   syncControls();
+  syncReturnUi();
   setStatus(
     next === 'sea'
       ? 'Кликните по карте или выберите порт.'
       : next === 'inland'
-        ? 'Кликайте точки на воде. Маршрут перестроится при добавлении и перетаскивании.'
+        ? 'Кликайте точки на воде. Двойной клик по точке — удалить. Можно включить обратный маршрут.'
         : 'Кликайте точки для измерения в километрах.',
   );
   if (next === 'inland') warmInlandCache();
@@ -708,6 +822,7 @@ routeBtn.addEventListener('click', () => {
 undoBtn.addEventListener('click', () => {
   waypoints.pop();
   lastRoutePath = null;
+  lastReturnPath = null;
   lastCumKm = [];
   if (waypoints.length >= 2) {
     if (mode === 'inland') void computeInlandRoute({ fit: false });
@@ -726,6 +841,7 @@ clearBtn.addEventListener('click', () => {
   pickTarget = 'origin';
   activePreset = null;
   lastRoutePath = null;
+  lastReturnPath = null;
   lastCumKm = [];
   drawLayer.clearLayers();
   clearStats();
@@ -751,10 +867,18 @@ function restyleRouteLine(): void {
 
 lineColorInput.addEventListener('input', () => restyleRouteLine());
 lineWeightInput.addEventListener('input', () => restyleRouteLine());
+returnColorInput.addEventListener('input', () => restyleRouteLine());
 showKmLabelsInput.addEventListener('change', () => {
   redrawCurrent();
   renderWaypointList();
 });
+showReturnInput.addEventListener('change', () => {
+  syncReturnUi();
+  if (mode === 'inland' && waypoints.length >= 2) void computeInlandRoute({ fit: false });
+  else if (mode === 'ruler' && waypoints.length >= 2) computeRuler({ fit: false });
+  else restyleRouteLine();
+});
+syncReturnUi();
 
 for (const input of [avoidSuez, avoidPanama, allowArctic]) {
   input.addEventListener('change', () => {

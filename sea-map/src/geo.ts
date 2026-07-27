@@ -42,6 +42,32 @@ export function etaHours(distanceKm: number, speedKmh: number): number {
   return distanceKm / speed;
 }
 
+/** Offset a path sideways (meters). Positive = left of travel direction. */
+export function offsetPathMeters(points: LngLat[], meters: number): LngLat[] {
+  if (points.length < 2 || meters === 0) return points.map((p) => ({ ...p }));
+
+  const out: LngLat[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = points[Math.max(0, i - 1)]!;
+    const next = points[Math.min(points.length - 1, i + 1)]!;
+    const cur = points[i]!;
+    // Approximate local east/north in meters
+    const meanLat = toRad(cur.lat);
+    const cosLat = Math.max(0.2, Math.cos(meanLat));
+    const dx = (next.lon - prev.lon) * 111320 * cosLat;
+    const dy = (next.lat - prev.lat) * 110540;
+    const len = Math.hypot(dx, dy) || 1;
+    // Left normal
+    const nx = -dy / len;
+    const ny = dx / len;
+    out.push({
+      lon: cur.lon + (nx * meters) / (111320 * cosLat),
+      lat: cur.lat + (ny * meters) / 110540,
+    });
+  }
+  return out;
+}
+
 /** Closest point on segment AB to P, and distance in km. */
 export function closestOnSegment(
   p: LngLat,
