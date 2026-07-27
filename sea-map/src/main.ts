@@ -116,9 +116,12 @@ let lastCumKm: number[] = [];
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
-/** Parallel gap stays inside a typical river channel (~5–28 m). */
-const RETURN_GAP_MIN_M = 5;
-const RETURN_GAP_MAX_M = 28;
+/**
+ * Fixed geographic offset (meters) left of travel for opposing legs.
+ * Must not depend on zoom — otherwise lines appear to move apart/together.
+ * Outbound and return both offset left of their direction → ~2× this gap between them.
+ */
+const RETURN_PARALLEL_OFFSET_M = 6;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
@@ -393,21 +396,9 @@ function deleteWaypointById(id: string): void {
   }
 }
 
-/**
- * Parallel offset for opposing legs: about half the drawn stroke on screen,
- * hard-capped so lanes never sit wider than a typical river channel.
- */
+/** Constant meters — independent of map scale. */
 function parallelGapMeters(): number {
-  try {
-    const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
-    const targetPx = Math.max(4, weight * 0.45);
-    const a = map.containerPointToLatLng(L.point(0, 0));
-    const b = map.containerPointToLatLng(L.point(targetPx, 0));
-    const m = map.distance(a, b);
-    return Math.min(RETURN_GAP_MAX_M, Math.max(RETURN_GAP_MIN_M, m));
-  } catch {
-    return 12;
-  }
+  return RETURN_PARALLEL_OFFSET_M;
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
@@ -465,7 +456,8 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
     cum.push(cum[i - 1]! + haversineKm(points[i - 1]!, points[i]!) * 1000);
   }
   const total = cum[cum.length - 1] || 1;
-  const taperM = Math.min(Math.max(total * 0.18, 40), 250);
+  // Short taper relative to the small fixed offset so most of the leg stays parallel and close.
+  const taperM = Math.min(Math.max(total * 0.08, meters * 5, 15), 60);
 
   return points.map((p, i) => {
     const d = cum[i]!;
@@ -956,7 +948,8 @@ map.on('moveend', () => {
 });
 
 map.on('zoomend', () => {
-  if (showReturnInput.checked && lastRoutePath && lastRoutePath.length >= 2) {
+  // Rebuild arrows for screen spacing only — parallel gap is fixed in meters, so geometry does not change with zoom.
+  if (lastRoutePath && lastRoutePath.length >= 2) {
     redrawWaypoints(lastRoutePath);
   }
 });
