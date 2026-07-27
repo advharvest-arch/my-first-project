@@ -270,8 +270,8 @@ body {
 }
 
 .route-arrow {
-  width: var(--arrow-size, 18px);
-  height: var(--arrow-size, 18px);
+  width: var(--arrow-size, 16px);
+  height: var(--arrow-size, 16px);
   transform: rotate(var(--brg, 0deg));
   filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
   pointer-events: none;

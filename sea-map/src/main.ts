@@ -509,12 +509,16 @@ function buildDisplayPath(path: LngLat[]): LngLat[] {
   return out.length >= 2 ? out : path;
 }
 
+/** Constant on-screen arrow layout (CSS pixels) — same at every zoom. */
+const ARROW_STEP_PX = 160;
+const ARROW_SIZE_PX = 16;
+
 function arrowLayoutForScale(): { stepM: number; sizePx: number } {
-  const zoom = map.getZoom();
-  // Constant screen spacing at every zoom — geographic meters follow scale.
-  const stepM = Math.min(6000, Math.max(80, metersForPixels(160)));
-  const sizePx = Math.round(Math.min(26, Math.max(10, 8 + (zoom - 8) * 1.5)));
-  return { stepM, sizePx };
+  // Convert fixed screen gap to meters for the current scale; size stays fixed in px.
+  return {
+    stepM: Math.max(1, metersForPixels(ARROW_STEP_PX)),
+    sizePx: ARROW_SIZE_PX,
+  };
 }
 
 function drawDirectionArrows(path: LngLat[], color: string): void {
