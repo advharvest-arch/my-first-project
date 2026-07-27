@@ -103,6 +103,7 @@ let pickTarget: 'origin' | 'destination' = 'origin';
 let activePreset: 'origin' | 'destination' | null = null;
 let waypoints: Waypoint[] = [];
 let busy = false;
+let pendingRebuild = false;
 let suppressMapClick = false;
 /** Last computed route distance — used for live ETA when speed changes */
 let lastDistanceKm: number | null = null;
@@ -470,8 +471,13 @@ async function computeSeaRoute(): Promise<void> {
 
 async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
   const fit = opts.fit ?? false;
-  if (waypoints.length < 2 || busy) return;
+  if (waypoints.length < 2) return;
+  if (busy) {
+    pendingRebuild = true;
+    return;
+  }
   busy = true;
+  pendingRebuild = false;
   routeBtn.disabled = true;
   setStatus('Строим маршрут…');
 
@@ -510,6 +516,10 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
   } finally {
     busy = false;
     syncControls();
+    if (pendingRebuild && waypoints.length >= 2) {
+      pendingRebuild = false;
+      void computeInlandRoute({ fit: false });
+    }
   }
 }
 
@@ -637,10 +647,11 @@ map.on('moveend', () => {
 });
 
 map.on('click', (e: L.LeafletMouseEvent) => {
-  if (busy || suppressMapClick) return;
+  if (suppressMapClick) return;
   const { lat, lng } = e.latlng;
 
   if (mode === 'sea') {
+    if (busy) return;
     if (pickTarget === 'origin' || !origin) {
       setSeaPoint('origin', lng, lat);
       pickTarget = 'destination';
