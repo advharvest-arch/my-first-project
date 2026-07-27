@@ -12,7 +12,7 @@
       media="print"
       onload="this.media='all'"
     />
-    <script type="module" crossorigin src="./assets/index-B9Bo1ON1.js"></script>
+    <script type="module" crossorigin src="./assets/index-D4EtHVEU.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-BJmZ9soF.css">
   </head>
   <body>
@@ -26,8 +26,7 @@
         </header>
 
         <div class="mode-switch" role="tablist" aria-label="Режим">
-          <button type="button" class="mode-btn active" data-mode="sea">Море</button>
-          <button type="button" class="mode-btn" data-mode="inland">Реки и озёра</button>
+          <button type="button" class="mode-btn active" data-mode="water">По воде</button>
           <button type="button" class="mode-btn" data-mode="ruler">Линейка</button>
         </div>
 
@@ -42,19 +41,8 @@
         </label>
 
         <p class="hint" id="hint">
-          Режим «Море»: кликните отправление и прибытие для морского маршрута.
+          Кликайте точки на реке или море — маршрут склеит речные и морские участки.
         </p>
-
-        <div class="fields" id="sea-fields">
-          <label class="field">
-            <span>Откуда</span>
-            <input id="origin-input" type="text" readonly placeholder="Выберите на карте" />
-          </label>
-          <label class="field">
-            <span>Куда</span>
-            <input id="dest-input" type="text" readonly placeholder="Выберите на карте" />
-          </label>
-        </div>
 
         <div class="presets" id="presets" aria-label="Быстрый выбор"></div>
 
@@ -74,11 +62,11 @@
           </fieldset>
         </div>
 
-        <div class="inland-help" id="inland-help" hidden>
+        <div class="inland-help" id="inland-help">
           <p>
-            Кликайте точки на воде. Любое число участков (2, 3, …) можно развести
-            параллельными полосами с постоянным зазором на экране; у каждой — стрелки
-            направления. Перетаскивание — сдвиг, <strong>двойной клик</strong> — удаление.
+            Точки на реках, озёрах и море. Участки стыкуются автоматически (BRouter + морская сеть).
+            Можно развести параллельные полосы и включить стрелки. Перетаскивание — сдвиг,
+            <strong>двойной клик</strong> — удаление.
           </p>
           <p class="muted" id="waypoint-count">Точек: 0</p>
           <div class="waypoint-list" id="waypoint-list" hidden></div>
