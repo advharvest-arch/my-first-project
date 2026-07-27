@@ -204,6 +204,7 @@ body {
 .route-marker-wrap {
   background: transparent !important;
   border: none !important;
+  overflow: visible !important;
 }
 
 .route-marker-label {

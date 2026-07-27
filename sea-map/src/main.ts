@@ -54,6 +54,7 @@ const map = L.map(mapEl, {
 }).setView([55.75, 37.62], 5);
 
 map.getContainer().style.cursor = 'default';
+map.doubleClickZoom.disable();
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
 const basemaps = createBasemaps();
@@ -114,13 +115,15 @@ let lastDistanceKm: number | null = null;
 let lastReturnKm: number | null = null;
 let lastWaterLabel = '—';
 let lastRoutePath: LngLat[] | null = null;
-let lastReturnPath: LngLat[] | null = null;
 let lastCumKm: number[] = [];
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
-/** Parallel offset between туда/обратно lines, metres */
-const RETURN_OFFSET_M = 28;
+/** Parallel gap between туда/обратно — ~18 screen px, at least 60 m */
+const RETURN_GAP_MIN_M = 60;
+
+let markerClickGuardUntil = 0;
+let lastMarkerTap: { id: string; at: number } | null = null;
 
 function speedKmh(): number {
   return Math.max(1, Number(speedInput.value) || 20);
@@ -169,7 +172,25 @@ function pointLabel(lon: number, lat: number): string {
 
 function defaultWaypointName(index: number): string {
   if (index === 0) return 'Старт';
+  if (index === waypoints.length - 1 && waypoints.length > 1) return 'Финиш';
   return `Точка ${index + 1}`;
+}
+
+function isAutoWaypointName(name: string): boolean {
+  return (
+    name === 'Старт' ||
+    name === 'Финиш' ||
+    /^Точка\s+\d+$/.test(name)
+  );
+}
+
+/** Keep auto names unique after delete/reorder; preserve custom names. */
+function renormalizeWaypointNames(): void {
+  waypoints.forEach((wp, index) => {
+    if (!wp.name || isAutoWaypointName(wp.name)) {
+      wp.name = defaultWaypointName(index);
+    }
+  });
 }
 
 function makeWaypoint(lon: number, lat: number, name?: string): Waypoint {
@@ -215,7 +236,6 @@ function clearStats(): void {
   lastReturnKm = null;
   lastWaterLabel = '—';
   lastRoutePath = null;
-  lastReturnPath = null;
   lastCumKm = [];
 }
 
@@ -345,9 +365,12 @@ function deleteWaypointById(id: string): void {
   const idx = waypoints.findIndex((w) => w.id === id);
   if (idx < 0) return;
   waypoints.splice(idx, 1);
+  renormalizeWaypointNames();
   lastRoutePath = null;
-  lastReturnPath = null;
   lastCumKm = [];
+  lastMarkerTap = null;
+  markerClickGuardUntil = Date.now() + 450;
+
   if (waypoints.length >= 2) {
     if (mode === 'inland') void computeInlandRoute({ fit: false });
     else if (mode === 'ruler') computeRuler({ fit: false });
@@ -371,68 +394,104 @@ function syncReturnUi(): void {
   returnColorField.hidden = !showReturnInput.checked;
 }
 
+/** Visible gap between parallel routes in meters (grows when zoomed out). */
+function parallelGapMeters(): number {
+  try {
+    const a = map.containerPointToLatLng(L.point(0, 0));
+    const b = map.containerPointToLatLng(L.point(20, 0));
+    const m = map.distance(a, b);
+    return Math.max(RETURN_GAP_MIN_M, m);
+  } catch {
+    return RETURN_GAP_MIN_M;
+  }
+}
+
+function attachWaypointMarker(wp: Waypoint, index: number): void {
+  const kind = index === 0 ? 'origin' : index === waypoints.length - 1 ? 'dest' : 'way';
+  const marker = L.marker([wp.lat, wp.lon], {
+    icon: markerIcon(kind, waypointLabelHtml(wp, index)),
+    draggable: true,
+    autoPan: true,
+  });
+
+  marker.on('add', () => {
+    const el = marker.getElement();
+    if (!el) return;
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+  });
+
+  marker
+    .on('mousedown', () => {
+      markerClickGuardUntil = Date.now() + 600;
+    })
+    .on('dragstart', () => {
+      suppressMapClick = true;
+      markerClickGuardUntil = Date.now() + 1000;
+    })
+    .on('drag', (e: L.LeafletEvent) => {
+      const ll = (e.target as L.Marker).getLatLng();
+      wp.lon = ll.lng;
+      wp.lat = ll.lat;
+    })
+    .on('dragend', () => {
+      window.setTimeout(() => {
+        suppressMapClick = false;
+      }, 250);
+      markerClickGuardUntil = Date.now() + 450;
+      scheduleRebuildAfterDrag();
+    })
+    .on('click', (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stop(e);
+      markerClickGuardUntil = Date.now() + 450;
+      const now = Date.now();
+      if (lastMarkerTap && lastMarkerTap.id === wp.id && now - lastMarkerTap.at < 400) {
+        lastMarkerTap = null;
+        deleteWaypointById(wp.id);
+        return;
+      }
+      lastMarkerTap = { id: wp.id, at: now };
+    })
+    .on('dblclick', (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stop(e);
+      markerClickGuardUntil = Date.now() + 450;
+      lastMarkerTap = null;
+      deleteWaypointById(wp.id);
+    })
+    .bindTooltip('Двойной клик — удалить', { direction: 'bottom', opacity: 0.85 })
+    .addTo(drawLayer);
+}
+
 function redrawWaypoints(path?: LngLat[]): void {
   drawLayer.clearLayers();
-  waypoints.forEach((wp, i) => {
-    const kind = i === 0 ? 'origin' : i === waypoints.length - 1 ? 'dest' : 'way';
-    const marker = L.marker([wp.lat, wp.lon], {
-      icon: markerIcon(kind, waypointLabelHtml(wp, i)),
-      draggable: true,
-      autoPan: true,
-    });
-    marker
-      .on('dragstart', () => {
-        suppressMapClick = true;
-      })
-      .on('drag', (e: L.LeafletEvent) => {
-        const ll = (e.target as L.Marker).getLatLng();
-        wp.lon = ll.lng;
-        wp.lat = ll.lat;
-      })
-      .on('dragend', () => {
-        window.setTimeout(() => {
-          suppressMapClick = false;
-        }, 200);
-        scheduleRebuildAfterDrag();
-      })
-      .on('dblclick', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stop(e);
-        suppressMapClick = true;
-        window.setTimeout(() => {
-          suppressMapClick = false;
-        }, 300);
-        deleteWaypointById(wp.id);
-      })
-      .bindTooltip('Двойной клик — удалить', { direction: 'bottom', opacity: 0.85 })
-      .addTo(drawLayer);
-  });
+  waypoints.forEach((wp, i) => attachWaypointMarker(wp, i));
 
   const style = lineStyle();
   const forward = path && path.length >= 2 ? path : null;
   if (forward) {
     if (showReturnInput.checked) {
-      const half = RETURN_OFFSET_M / 2;
-      const outPath = offsetPathMeters(forward, -half);
-      const backSource = lastReturnPath ?? [...forward].reverse();
-      const backPath = offsetPathMeters(backSource, half);
+      // Opposite sides of the same geometry → clearly parallel, separated lines.
+      const sep = parallelGapMeters();
+      const outPath = offsetPathMeters(forward, -sep);
+      const backPath = offsetPathMeters(forward, sep);
       L.polyline(
         outPath.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-        style,
+        { ...style, interactive: false },
       ).addTo(drawLayer);
       L.polyline(
         backPath.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-        returnLineStyle(),
+        { ...returnLineStyle(), interactive: false },
       ).addTo(drawLayer);
     } else {
       L.polyline(
         forward.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-        style,
+        { ...style, interactive: false },
       ).addTo(drawLayer);
     }
   } else if (waypoints.length >= 2) {
     L.polyline(
       waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      { ...style, opacity: 0.55 },
+      { ...style, opacity: 0.55, interactive: false },
     ).addTo(drawLayer);
   }
 }
@@ -574,16 +633,15 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
     lastCumKm = path.waypointCumKm ?? [];
 
     let returnKm: number | null = null;
-    lastReturnPath = null;
-    if (showReturnInput.checked) {
-      const back = await measureWaterChain([...waypoints].reverse());
-      if (back.method !== 'direct' && back.points.length >= 2) {
-        lastReturnPath = back.points;
-        returnKm = back.lengthKm;
-      } else if (path.points.length >= 2) {
-        // Fallback: reverse of forward geometry
-        lastReturnPath = [...path.points].reverse();
-        returnKm = path.lengthKm;
+    if (showReturnInput.checked && path.points.length >= 2) {
+      // Display uses parallel offset of the forward geometry (stable separation).
+      // Length «обратно» from a reverse BRouter call when available.
+      returnKm = path.lengthKm;
+      try {
+        const back = await measureWaterChain([...waypoints].reverse());
+        if (back.method !== 'direct' && back.lengthKm > 0) returnKm = back.lengthKm;
+      } catch {
+        // keep forward length as estimate
       }
     }
 
@@ -613,7 +671,6 @@ async function computeInlandRoute(opts: { fit?: boolean } = {}): Promise<void> {
   } catch (err) {
     console.error(err);
     lastRoutePath = null;
-    lastReturnPath = null;
     lastCumKm = [];
     redrawWaypoints();
     const km = pathLengthKm(waypoints);
@@ -640,7 +697,6 @@ function computeRuler(opts: { fit?: boolean } = {}): void {
     cum.push(sum);
   }
   lastCumKm = cum;
-  lastReturnPath = showReturnInput.checked ? [...lastRoutePath].reverse() : null;
   const returnKm = showReturnInput.checked ? sum : null;
   redrawWaypoints(lastRoutePath);
   renderWaypointList();
@@ -731,7 +787,6 @@ function setMode(next: AppMode): void {
   destination = null;
   waypoints = [];
   lastRoutePath = null;
-  lastReturnPath = null;
   lastCumKm = [];
   drawLayer.clearLayers();
   clearStats();
@@ -760,8 +815,15 @@ map.on('moveend', () => {
   inlandPrefetchTimer = window.setTimeout(() => warmInlandCache(), 350);
 });
 
+map.on('zoomend', () => {
+  if (showReturnInput.checked && lastRoutePath && lastRoutePath.length >= 2) {
+    redrawWaypoints(lastRoutePath);
+  }
+});
+
 map.on('click', (e: L.LeafletMouseEvent) => {
   if (suppressMapClick) return;
+  if (Date.now() < markerClickGuardUntil) return;
   const { lat, lng } = e.latlng;
 
   if (mode === 'sea') {
@@ -822,7 +884,6 @@ routeBtn.addEventListener('click', () => {
 undoBtn.addEventListener('click', () => {
   waypoints.pop();
   lastRoutePath = null;
-  lastReturnPath = null;
   lastCumKm = [];
   if (waypoints.length >= 2) {
     if (mode === 'inland') void computeInlandRoute({ fit: false });
@@ -841,7 +902,6 @@ clearBtn.addEventListener('click', () => {
   pickTarget = 'origin';
   activePreset = null;
   lastRoutePath = null;
-  lastReturnPath = null;
   lastCumKm = [];
   drawLayer.clearLayers();
   clearStats();

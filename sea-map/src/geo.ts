@@ -46,26 +46,53 @@ export function etaHours(distanceKm: number, speedKmh: number): number {
 export function offsetPathMeters(points: LngLat[], meters: number): LngLat[] {
   if (points.length < 2 || meters === 0) return points.map((p) => ({ ...p }));
 
-  const out: LngLat[] = [];
+  const toLocal = (p: LngLat, origin: LngLat) => {
+    const cosLat = Math.max(0.2, Math.cos(toRad(origin.lat)));
+    return {
+      x: (p.lon - origin.lon) * 111320 * cosLat,
+      y: (p.lat - origin.lat) * 110540,
+    };
+  };
+  const fromLocal = (x: number, y: number, origin: LngLat): LngLat => {
+    const cosLat = Math.max(0.2, Math.cos(toRad(origin.lat)));
+    return {
+      lon: origin.lon + x / (111320 * cosLat),
+      lat: origin.lat + y / 110540,
+    };
+  };
+
+  // Unit tangents sampled over ~25 m so tiny segments don't flip the normal.
+  const tangents: Array<{ x: number; y: number }> = [];
   for (let i = 0; i < points.length; i++) {
-    const prev = points[Math.max(0, i - 1)]!;
-    const next = points[Math.min(points.length - 1, i + 1)]!;
     const cur = points[i]!;
-    // Approximate local east/north in meters
-    const meanLat = toRad(cur.lat);
-    const cosLat = Math.max(0.2, Math.cos(meanLat));
-    const dx = (next.lon - prev.lon) * 111320 * cosLat;
-    const dy = (next.lat - prev.lat) * 110540;
+    let back = i;
+    let fwd = i;
+    while (back > 0 && haversineKm(points[back]!, cur) * 1000 < 25) back -= 1;
+    while (fwd < points.length - 1 && haversineKm(points[fwd]!, cur) * 1000 < 25) fwd += 1;
+    if (back === i && i > 0) back = i - 1;
+    if (fwd === i && i < points.length - 1) fwd = i + 1;
+    const a = toLocal(points[back]!, cur);
+    const b = toLocal(points[fwd]!, cur);
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
-    // Left normal
-    const nx = -dy / len;
-    const ny = dx / len;
-    out.push({
-      lon: cur.lon + (nx * meters) / (111320 * cosLat),
-      lat: cur.lat + (ny * meters) / 110540,
-    });
+    tangents.push({ x: dx / len, y: dy / len });
   }
-  return out;
+
+  // Smooth tangents to keep parallel lines stable
+  const smooth = tangents.map((t, i) => {
+    const prev = tangents[Math.max(0, i - 1)]!;
+    const next = tangents[Math.min(tangents.length - 1, i + 1)]!;
+    let x = prev.x + t.x + next.x;
+    let y = prev.y + t.y + next.y;
+    const len = Math.hypot(x, y) || 1;
+    return { x: x / len, y: y / len };
+  });
+
+  return points.map((cur, i) => {
+    const t = smooth[i]!;
+    return fromLocal(-t.y * meters, t.x * meters, cur);
+  });
 }
 
 /** Closest point on segment AB to P, and distance in km. */
