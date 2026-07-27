@@ -12,8 +12,8 @@
       media="print"
       onload="this.media='all'"
     />
-    <script type="module" crossorigin src="./assets/index-Dm2860d6.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DVr3-ZSQ.css">
+    <script type="module" crossorigin src="./assets/index-CRyC9Ssz.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-B4ymEGaf.css">
   </head>
   <body>
     <div id="app">
@@ -55,12 +55,6 @@
               <option value="sea">Море</option>
             </select>
           </label>
-          <fieldset class="restrictions">
-            <legend>Ограничения (море)</legend>
-            <label><input type="checkbox" id="avoid-suez" /> Без Суэца</label>
-            <label><input type="checkbox" id="avoid-panama" /> Без Панамы</label>
-            <label><input type="checkbox" id="allow-arctic" /> Арктические проходы</label>
-          </fieldset>
         </div>
 
         <div class="waypoints-block" id="waypoints-block">
@@ -108,19 +102,26 @@
           </div>
         </section>
 
+        <section class="route-desc" id="route-desc" hidden>
+          <header class="route-desc-head">
+            <h2 class="route-desc-title">Описание маршрута</h2>
+            <button type="button" class="btn ghost route-desc-copy" id="route-desc-copy">
+              Копировать
+            </button>
+          </header>
+          <textarea
+            id="route-desc-body"
+            class="route-desc-body"
+            readonly
+            rows="4"
+            spellcheck="false"
+            aria-label="Описание маршрута"
+          ></textarea>
+        </section>
+
         <p class="status" id="status" role="status"></p>
         <button type="button" class="btn ghost collapse-btn" id="collapse-btn">Свернуть панель</button>
       </aside>
-
-      <section class="route-desc" id="route-desc" hidden>
-        <header class="route-desc-head">
-          <h2 class="route-desc-title">Маршрут</h2>
-          <button type="button" class="route-desc-close" id="route-desc-close" aria-label="Скрыть">
-            ×
-          </button>
-        </header>
-        <p class="route-desc-body" id="route-desc-body"></p>
-      </section>
 
       <button type="button" class="panel-toggle" id="panel-toggle" aria-label="Показать панель">
         ☰
