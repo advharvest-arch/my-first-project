@@ -117,18 +117,12 @@ let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
 /**
- * Parallel opposing legs: keep a constant on-screen gap whenever the
- * river is wide enough; only tighten when more offset would leave the water.
+ * Parallel opposing legs use a constant on-screen gap (CSS px) at every zoom.
+ * Geographic meters grow when zoomed out so the visual split stays the same.
  * Both legs offset left of travel → gap between them ≈ 2 × offset.
  */
-/** Desired clear gap between opposing centerlines (CSS px). */
-const PARALLEL_GAP_PX = 12;
-/**
- * Max total centerline separation (m). Navigable rivers are often 100–300 m
- * wide; 160 m keeps lanes in-channel while still visible around zoom 11–14
- * (the previous ~28 m cap only looked separated when tightly zoomed in).
- */
-const RIVER_CHANNEL_MAX_M = 160;
+/** Clear gap between opposing centerlines (CSS px), independent of zoom. */
+const PARALLEL_GAP_PX = 16;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
@@ -413,17 +407,12 @@ function deleteWaypointById(id: string): void {
   }
 }
 
-/**
- * Prefer constant screen gap; clamp to channel width so we don't go ashore.
- * At very low zoom even the max channel offset is <~2 px — that's the
- * "would have to leave the water" case, so separation looks minimal.
- */
+/** Constant screen gap at every zoom — no geographic cap (that hid the split when zoomed out). */
 function parallelGapMeters(): number {
   const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
-  const gapPx = Math.max(PARALLEL_GAP_PX, weight + 6);
-  const desiredOffsetM = metersForPixels(gapPx) / 2;
-  const maxOffsetM = RIVER_CHANNEL_MAX_M / 2;
-  return Math.min(maxOffsetM, Math.max(0.5, desiredOffsetM));
+  const gapPx = Math.max(PARALLEL_GAP_PX, weight + 8);
+  // Each leg shifts by half the gap; out + back → full gapPx on screen.
+  return Math.max(0.5, metersForPixels(gapPx) / 2);
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
@@ -481,7 +470,8 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
     cum.push(cum[i - 1]! + haversineKm(points[i - 1]!, points[i]!) * 1000);
   }
   const total = cum[cum.length - 1] || 1;
-  const taperM = Math.min(Math.max(total * 0.1, meters * 6, 18), 90);
+  // Short taper vs leg length so the parallel section is visible (do not tie to offset meters).
+  const taperM = Math.min(Math.max(total * 0.1, 16), total * 0.22, 70);
 
   return points.map((p, i) => {
     const d = cum[i]!;
@@ -497,23 +487,17 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
   });
 }
 
-/** Continuous display path: optional parallel separation of opposing legs. */
-function buildDisplayPath(path: LngLat[]): LngLat[] {
-  const separate = showReturnInput.checked && waypoints.length >= 3;
-  if (!separate) return path;
-
+/**
+ * Offset each leg left of travel so out/back sit a constant screen gap apart.
+ * Returns null when parallel mode is off.
+ */
+function buildParallelLegs(path: LngLat[]): LngLat[][] | null {
+  if (!showReturnInput.checked || waypoints.length < 3) return null;
   const indices = waypointPathIndices(path, waypoints);
   const legs = splitPathLegs(path, indices);
-  if (legs.length < 2) return path;
-
+  if (legs.length < 2) return null;
   const sep = parallelGapMeters();
-  const out: LngLat[] = [];
-  for (const leg of legs) {
-    const tapered = offsetPathTapered(leg, sep);
-    if (out.length === 0) out.push(...tapered);
-    else out.push(...tapered.slice(1));
-  }
-  return out.length >= 2 ? out : path;
+  return legs.map((leg) => offsetPathTapered(leg, sep));
 }
 
 /** Constant on-screen arrow layout (CSS pixels) — same at every zoom. */
@@ -572,17 +556,29 @@ function drawDirectionArrows(path: LngLat[], color: string): void {
 }
 
 /**
- * One continuous same-color line; opposing legs can be parallel-separated;
- * arrows show travel direction.
+ * Same-color route; opposing legs drawn as separate parallel polylines
+ * with a constant on-screen gap at every zoom.
  */
 function drawRouteGeometry(path: LngLat[]): void {
   const style = lineStyle();
-  const display = buildDisplayPath(path);
+  const color = String(style.color ?? '#2ec4b6');
+  const parallelLegs = buildParallelLegs(path);
+  if (parallelLegs) {
+    for (const leg of parallelLegs) {
+      if (leg.length < 2) continue;
+      L.polyline(
+        leg.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+        { ...style, interactive: false },
+      ).addTo(drawLayer);
+      drawDirectionArrows(leg, color);
+    }
+    return;
+  }
   L.polyline(
-    display.map((p) => [p.lat, p.lon] as L.LatLngTuple),
+    path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
     { ...style, interactive: false },
   ).addTo(drawLayer);
-  drawDirectionArrows(display, String(style.color ?? '#2ec4b6'));
+  drawDirectionArrows(path, color);
 }
 
 function attachWaypointMarker(wp: Waypoint, index: number): void {
@@ -975,12 +971,18 @@ map.on('moveend', () => {
   inlandPrefetchTimer = window.setTimeout(() => warmInlandCache(), 350);
 });
 
-map.on('zoomend', () => {
-  // Parallel gap, arrow step and arrow size all depend on scale.
-  if (lastRoutePath && lastRoutePath.length >= 2) {
-    redrawWaypoints(lastRoutePath);
-  }
-});
+let parallelRedrawTimer: number | null = null;
+function scheduleScaleDependentRedraw(): void {
+  if (!lastRoutePath || lastRoutePath.length < 2) return;
+  if (parallelRedrawTimer != null) window.clearTimeout(parallelRedrawTimer);
+  parallelRedrawTimer = window.setTimeout(() => {
+    parallelRedrawTimer = null;
+    if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
+  }, 40);
+}
+
+map.on('zoom', () => scheduleScaleDependentRedraw());
+map.on('zoomend', () => scheduleScaleDependentRedraw());
 
 map.on('click', (e: L.LeafletMouseEvent) => {
   if (suppressMapClick) return;
