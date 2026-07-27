@@ -14,7 +14,12 @@ import {
 import { measureHybridChain, type RoutePrefer } from './hybrid';
 import { PORTS, nearestPortName } from './ports';
 import { getPresetRoute, type PresetRouteId } from './presets';
-import { prefetchWaterBbox, prefetchWaterNear } from './waterways';
+import {
+  describeWaterItinerary,
+  formatItinerary,
+  prefetchWaterBbox,
+  prefetchWaterNear,
+} from './waterways';
 import './style.css';
 
 type AppMode = 'water' | 'ruler';
@@ -22,6 +27,7 @@ type Waypoint = { id: string; lon: number; lat: number; name: string };
 
 const KM_PER_KNOT = 1.852;
 
+/** Hidden demo presets (URL ?demo=…) — not shown in the panel. */
 const INLAND_PRESETS: Array<{
   id: PresetRouteId;
   label: string;
@@ -86,12 +92,10 @@ window.addEventListener('orientationchange', refreshSize);
 
 const drawLayer = L.layerGroup().addTo(map);
 
-const hintEl = document.querySelector<HTMLParagraphElement>('#hint')!;
 const statusEl = document.querySelector<HTMLParagraphElement>('#status')!;
 const statsEl = document.querySelector<HTMLElement>('#stats')!;
 const distanceEl = document.querySelector<HTMLElement>('#stat-distance')!;
 const etaEl = document.querySelector<HTMLElement>('#stat-eta')!;
-const passagesEl = document.querySelector<HTMLElement>('#stat-passages')!;
 const routeBtn = document.querySelector<HTMLButtonElement>('#route-btn')!;
 const clearBtn = document.querySelector<HTMLButtonElement>('#clear-btn')!;
 const undoBtn = document.querySelector<HTMLButtonElement>('#undo-btn')!;
@@ -100,13 +104,11 @@ const avoidSuez = document.querySelector<HTMLInputElement>('#avoid-suez')!;
 const avoidPanama = document.querySelector<HTMLInputElement>('#avoid-panama')!;
 const allowArctic = document.querySelector<HTMLInputElement>('#allow-arctic')!;
 const routePreferSelect = document.querySelector<HTMLSelectElement>('#route-prefer')!;
-const presetsEl = document.querySelector<HTMLElement>('#presets')!;
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const panelToggle = document.querySelector<HTMLButtonElement>('#panel-toggle')!;
 const collapseBtn = document.querySelector<HTMLButtonElement>('#collapse-btn')!;
 const basemapSelect = document.querySelector<HTMLSelectElement>('#basemap-select')!;
 const seaControls = document.querySelector<HTMLElement>('#sea-controls')!;
-const inlandHelp = document.querySelector<HTMLElement>('#inland-help')!;
 const waypointCountEl = document.querySelector<HTMLElement>('#waypoint-count')!;
 const waypointListEl = document.querySelector<HTMLElement>('#waypoint-list')!;
 const lineColorInput = document.querySelector<HTMLInputElement>('#line-color')!;
@@ -114,6 +116,9 @@ const lineWeightInput = document.querySelector<HTMLInputElement>('#line-weight')
 const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-labels')!;
 const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
 const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')!;
+const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
+const routeDescBody = document.querySelector<HTMLElement>('#route-desc-body')!;
+const routeDescClose = document.querySelector<HTMLButtonElement>('#route-desc-close')!;
 
 let mode: AppMode = 'water';
 let waypoints: Waypoint[] = [];
@@ -122,7 +127,6 @@ let pendingRebuild = false;
 let suppressMapClick = false;
 /** Last computed route distance — used for live ETA when speed changes */
 let lastDistanceKm: number | null = null;
-let lastWaterLabel = '—';
 let lastRoutePath: LngLat[] | null = null;
 let lastCumKm: number[] = [];
 let dragRebuildTimer: number | null = null;
@@ -169,7 +173,6 @@ function refreshEtaFromSpeed(): void {
   if (lastDistanceKm == null || statsEl.hidden) return;
   distanceEl.textContent = formatKm(lastDistanceKm);
   etaEl.textContent = formatDuration(etaHours(lastDistanceKm, speedKmh()));
-  passagesEl.textContent = lastWaterLabel;
 }
 
 function defaultWaypointName(index: number): string {
@@ -241,36 +244,58 @@ function clearStats(): void {
   statsEl.hidden = true;
   distanceEl.textContent = '—';
   etaEl.textContent = '—';
-  passagesEl.textContent = '—';
   lastDistanceKm = null;
-  lastWaterLabel = '—';
   lastRoutePath = null;
   lastCumKm = [];
+  hideRouteDesc();
 }
 
-function showStats(distanceKm: number, water: string): void {
+function showStats(distanceKm: number): void {
   lastDistanceKm = distanceKm;
-  lastWaterLabel = water;
-  // Unhide first — refreshEtaFromSpeed bails out while stats are hidden.
   statsEl.hidden = false;
   refreshEtaFromSpeed();
 }
 
-function updateHint(): void {
-  if (mode === 'water') {
-    hintEl.textContent =
-      'По воде: кликайте точки на реке или море. Участки склеятся. Двойной клик — удалить точку.';
-  } else {
-    hintEl.textContent =
-      'Линейка: кликайте точки. Двойной клик — удалить. Отрезки можно развести параллельно.';
+function hideRouteDesc(): void {
+  routeDescEl.hidden = true;
+  routeDescBody.textContent = '';
+}
+
+function showRouteDesc(text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    hideRouteDesc();
+    return;
   }
+  routeDescBody.textContent = trimmed;
+  routeDescEl.hidden = false;
+}
+
+async function updateRouteItinerary(path: LngLat[], fallback: string | null): Promise<void> {
+  try {
+    const quick = await describeWaterItinerary(path, { remote: false });
+    if (quick.length) showRouteDesc(formatItinerary(quick));
+    else showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
+  } catch {
+    showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
+  }
+
+  try {
+    const names = await describeWaterItinerary(path, { remote: true });
+    if (names.length) {
+      showRouteDesc(formatItinerary(names));
+      return;
+    }
+  } catch (err) {
+    console.warn(err);
+  }
+  // Keep whatever is already shown (quick / fallback).
 }
 
 function syncControls(): void {
   routeBtn.disabled = waypoints.length < 2 || busy;
   undoBtn.hidden = false;
   waypointCountEl.textContent = `Точек: ${waypoints.length}`;
-  updateHint();
   renderWaypointList();
 }
 
@@ -763,7 +788,8 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       .filter(Boolean)
       .join(' · ') || netLabel;
 
-    showStats(path.lengthKm, waterLabel);
+    showStats(path.lengthKm);
+    void updateRouteItinerary(path.points, path.method === 'direct' ? null : waterLabel);
     const parallelNote =
       showReturnInput.checked && waypoints.length >= 3
         ? ` Участки разведены в ${waypoints.length - 1} паралл. полос.`
@@ -777,8 +803,8 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     } else {
       setStatus(
         path.method === 'direct' && !netParts.length
-          ? 'Не удалось найти водный путь. Проверьте доступ к brouter.de или выберите пресет (офлайн).'
-          : `Готово: ${waypoints.length} точ., ${netLabel}.${parallelNote}`,
+          ? 'Не удалось найти водный путь. Кликните ближе к фарватеру или берегу.'
+          : `Готово: ${waypoints.length} точ.${parallelNote}`,
         path.method === 'direct' && !netParts.length,
       );
     }
@@ -796,7 +822,8 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       lastCumKm = [];
       redrawWaypoints();
       const km = pathLengthKm(waypoints);
-      showStats(km, 'ошибка сети');
+      showStats(km);
+      hideRouteDesc();
       setStatus('Ошибка запроса маршрута. Подождите и нажмите «Проложить» ещё раз.', true);
     }
   } finally {
@@ -822,15 +849,12 @@ function computeRuler(opts: { fit?: boolean } = {}): void {
   lastCumKm = cum;
   redrawWaypoints(lastRoutePath);
   renderWaypointList();
-  let maxLeg = 0;
-  for (let i = 1; i < waypoints.length; i++) {
-    maxLeg = Math.max(maxLeg, haversineKm(waypoints[i - 1]!, waypoints[i]!));
-  }
-  showStats(sum, `${waypoints.length - 1} отр., макс. ${formatKm(maxLeg)}`);
+  showStats(sum);
+  hideRouteDesc();
   setStatus(
     showReturnInput.checked && waypoints.length >= 3
-      ? `Линейка: ${waypoints.length - 1} паралл. полос. Двойной клик по точке — удалить.`
-      : 'Линейка: сумма отрезков. Двойной клик по точке — удалить.',
+      ? `Линейка: ${waypoints.length - 1} паралл. полос.`
+      : 'Линейка: сумма отрезков.',
   );
   if (fit) {
     map.fitBounds(L.latLngBounds(waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2));
@@ -848,7 +872,7 @@ function fitRouteBounds(points: LngLat[]): void {
   });
 }
 
-/** Apply a bundled offline track — no brouter.de (works when the API is blocked). */
+/** Apply a bundled offline track (URL ?demo=…) — no brouter.de. */
 function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
   const canned = getPresetRoute(preset.id);
   if (!canned || canned.points.length < 2) return false;
@@ -863,8 +887,8 @@ function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
   lastCumKm = [0, canned.lengthKm];
   redrawWaypoints(canned.points);
   renderWaypointList();
-  showStats(canned.lengthKm, 'река/канал');
-  setStatus(`Готово (офлайн-пресет): 2 точ., река/канал.`);
+  showStats(canned.lengthKm);
+  setStatus('Готово.');
   syncControls();
   map.setView(
     [(canned.a.lat + canned.b.lat) / 2, (canned.a.lon + canned.b.lon) / 2],
@@ -872,56 +896,8 @@ function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
     { animate: false },
   );
   fitRouteBounds(canned.points);
+  void updateRouteItinerary(canned.points, 'река/канал');
   return true;
-}
-
-function renderPresets(): void {
-  presetsEl.innerHTML = '';
-  if (mode !== 'water') return;
-
-  for (const preset of INLAND_PRESETS) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = preset.label;
-    chip.addEventListener('click', () => {
-      // Prefer bundled geometry — instant and independent of brouter.de.
-      if (applyOfflinePreset(preset)) return;
-
-      waypoints = [
-        makeWaypoint(preset.a.lon, preset.a.lat, 'Старт'),
-        makeWaypoint(preset.b.lon, preset.b.lat, 'Финиш'),
-      ];
-      map.setView([(preset.a.lat + preset.b.lat) / 2, (preset.a.lon + preset.b.lon) / 2], preset.zoom);
-      lastRoutePath = null;
-      lastCumKm = [];
-      redrawWaypoints();
-      syncControls();
-      prefetchWaterNear(preset.a);
-      prefetchWaterNear(preset.b);
-      void computeWaterRoute({ fit: true });
-    });
-    presetsEl.appendChild(chip);
-  }
-
-  for (const port of PORTS.slice(0, 12)) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = port.city;
-    chip.title = `Добавить порт: ${port.name}`;
-    chip.addEventListener('click', () => {
-      const name = nearestPortName(port.coords[0], port.coords[1]) ?? port.city;
-      waypoints.push(makeWaypoint(port.coords[0], port.coords[1], name));
-      renormalizeWaypointNames();
-      map.panTo([port.coords[1], port.coords[0]]);
-      redrawWaypoints(lastRoutePath ?? undefined);
-      syncControls();
-      if (waypoints.length >= 2) void computeWaterRoute({ fit: waypoints.length === 2 });
-      else setStatus(`Порт «${name}» добавлен. Добавьте следующую точку.`);
-    });
-    presetsEl.appendChild(chip);
-  }
 }
 
 function setMode(next: AppMode): void {
@@ -931,22 +907,15 @@ function setMode(next: AppMode): void {
   });
   const water = next === 'water';
   seaControls.hidden = !water;
-  inlandHelp.hidden = false;
   routeBtn.textContent = next === 'ruler' ? 'Измерить' : 'Проложить';
-  speedInput.value = water ? '20' : '20';
 
   waypoints = [];
   lastRoutePath = null;
   lastCumKm = [];
   drawLayer.clearLayers();
   clearStats();
-  renderPresets();
   syncControls();
-  setStatus(
-    water
-      ? 'Кликайте точки на реке или море — маршрут объединит водные сети.'
-      : 'Кликайте точки для измерения в километрах.',
-  );
+  setStatus(water ? 'Кликните точки маршрута на воде.' : 'Кликните точки для измерения.');
   if (water) warmWaterCache();
 }
 
@@ -1077,6 +1046,7 @@ document.querySelectorAll('.mode-btn').forEach((btn) => {
 
 panelToggle.addEventListener('click', () => panel.classList.remove('collapsed'));
 collapseBtn.addEventListener('click', () => panel.classList.add('collapsed'));
+routeDescClose.addEventListener('click', () => hideRouteDesc());
 
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
@@ -1123,8 +1093,7 @@ function bootFromQuery(): void {
   void computeWaterRoute({ fit: true });
 }
 
-renderPresets();
 syncControls();
-setStatus('Кликайте точки на реке или море — маршрут объединит сети.');
+setStatus('Кликните точки маршрута на воде.');
 warmWaterCache();
 bootFromQuery();

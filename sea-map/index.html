@@ -20,7 +20,6 @@
       <aside class="panel" id="panel">
         <header class="brand">
           <p class="brand-mark">AquaRoute</p>
-          <p class="brand-sub">Маршруты и измерения по воде</p>
         </header>
 
         <div class="mode-switch" role="tablist" aria-label="Режим">
@@ -38,12 +37,6 @@
           </select>
         </label>
 
-        <p class="hint" id="hint">
-          Кликайте точки на реке или море — маршрут склеит речные и морские участки.
-        </p>
-
-        <div class="presets" id="presets" aria-label="Быстрый выбор"></div>
-
         <div class="controls" id="shared-controls">
           <label class="field inline">
             <span>Скорость, км/ч</span>
@@ -55,9 +48,9 @@
           <label class="field">
             <span>Сеть маршрута</span>
             <select id="route-prefer">
-              <option value="river" selected>Реки и каналы (море — только если нельзя по реке)</option>
-              <option value="shortest">Кратчайший (сравнить реку и море)</option>
-              <option value="sea">Море (морская сеть)</option>
+              <option value="river" selected>Реки и каналы</option>
+              <option value="shortest">Кратчайший (река / море)</option>
+              <option value="sea">Море</option>
             </select>
           </label>
           <fieldset class="restrictions">
@@ -68,12 +61,7 @@
           </fieldset>
         </div>
 
-        <div class="inland-help" id="inland-help">
-          <p>
-            Точки на реках, озёрах и море. По умолчанию — реки/каналы (BRouter); море
-            подключается в режиме «Кратчайший» или «Море». Параллельные полосы и стрелки —
-            в настройках линии. Перетаскивание — сдвиг, <strong>двойной клик</strong> — удаление.
-          </p>
+        <div class="waypoints-block" id="waypoints-block">
           <p class="muted" id="waypoint-count">Точек: 0</p>
           <div class="waypoint-list" id="waypoint-list" hidden></div>
         </div>
@@ -116,15 +104,21 @@
             <span class="stat-label">Время</span>
             <strong id="stat-eta">—</strong>
           </div>
-          <div class="stat">
-            <span class="stat-label">По воде</span>
-            <strong id="stat-passages">—</strong>
-          </div>
         </section>
 
         <p class="status" id="status" role="status"></p>
         <button type="button" class="btn ghost collapse-btn" id="collapse-btn">Свернуть панель</button>
       </aside>
+
+      <section class="route-desc" id="route-desc" hidden>
+        <header class="route-desc-head">
+          <h2 class="route-desc-title">Маршрут</h2>
+          <button type="button" class="route-desc-close" id="route-desc-close" aria-label="Скрыть">
+            ×
+          </button>
+        </header>
+        <p class="route-desc-body" id="route-desc-body"></p>
+      </section>
 
       <button type="button" class="panel-toggle" id="panel-toggle" aria-label="Показать панель">
         ☰

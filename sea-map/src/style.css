@@ -131,7 +131,7 @@ body {
 
 .mode-switch {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 0.35rem;
   margin: 1rem 0 0.75rem;
 }
@@ -513,7 +513,7 @@ body {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 0.55rem;
   margin-top: 1rem;
   animation: rise 0.45s ease both;
@@ -538,6 +538,73 @@ body {
   font-size: 1.15rem;
   font-weight: 400;
   line-height: 1.15;
+}
+
+.waypoints-block {
+  margin-top: 0.75rem;
+}
+
+.waypoints-block .muted {
+  margin: 0;
+  color: rgba(232, 244, 242, 0.55);
+  font-size: 0.88rem;
+}
+
+.route-desc {
+  position: absolute;
+  z-index: 500;
+  right: 1.25rem;
+  top: 1.25rem;
+  width: min(380px, calc(100vw - 2.5rem));
+  max-height: min(42vh, 320px);
+  overflow: auto;
+  padding: 1rem 1.1rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(160deg, rgba(20, 102, 122, 0.22), transparent 48%),
+    var(--panel);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+  animation: rise 0.4s ease both;
+}
+
+.route-desc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.route-desc-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--foam);
+}
+
+.route-desc-close {
+  border: 0;
+  background: transparent;
+  color: rgba(232, 244, 242, 0.7);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+}
+
+.route-desc-close:hover {
+  color: #fff;
+}
+
+.route-desc-body {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: rgba(232, 244, 242, 0.92);
 }
 
 .status {
@@ -637,7 +704,12 @@ body {
     grid-template-columns: 1fr 1fr;
   }
 
-  .stat:last-child {
-    grid-column: 1 / -1;
+  .route-desc {
+    top: auto;
+    bottom: calc(48vh + 0.65rem);
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+    max-height: 28vh;
   }
 }

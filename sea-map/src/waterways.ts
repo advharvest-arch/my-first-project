@@ -1018,6 +1018,244 @@ function waterNameFromTags(tags: string[]): string | null {
   return kinds.size ? [...kinds].join(', ') : null;
 }
 
+type NamedHit = {
+  name: string;
+  kind: 'river' | 'lake';
+  lon: number;
+  lat: number;
+};
+
+type NamedLine = {
+  name: string;
+  kind: 'river' | 'lake';
+  coords: LngLat[];
+};
+
+function itineraryNamesQuery(points: LngLat[]): string {
+  const span = pathLength(points);
+  const sampleCount = Math.min(22, Math.max(4, Math.ceil(span / 28) + 1));
+  const gapKm = span / Math.max(1, sampleCount - 1);
+  const radius = Math.min(2200, Math.max(900, Math.ceil(gapKm * 1000 * 0.35)));
+  const blocks = sampleAlongPath(points, sampleCount)
+    .map((p) => {
+      const { lat, lon } = p;
+      // Names for reservoirs / lakes — rivers usually already in water-core.
+      return `
+  way(around:${radius},${lat},${lon})["name"]["natural"="water"]["water"~"^(lake|reservoir|basin)$"];
+  way(around:${radius},${lat},${lon})["name"]["landuse"~"^(reservoir|basin)$"];
+  relation(around:${radius},${lat},${lon})["name"]["natural"="water"];
+  relation(around:${radius},${lat},${lon})["name"]["landuse"~"^(reservoir|basin)$"];
+  way(around:${radius},${lat},${lon})["name"]["waterway"~"^(river|canal|fairway|ship_canal)$"];`;
+    })
+    .join('\n');
+
+  return `
+[out:json][timeout:18];
+(
+${blocks}
+);
+out tags center;
+`;
+}
+
+function namedLinesNearPath(path: LngLat[]): NamedLine[] {
+  const cells = cellsAlong(path);
+  const lines = mergeLines(
+    cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
+  );
+  const out: NamedLine[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (!line.name || seen.has(line.id)) continue;
+    seen.add(line.id);
+    out.push({
+      name: line.name,
+      kind: line.kind === 'lake' ? 'lake' : 'river',
+      coords: line.coords,
+    });
+  }
+  return out;
+}
+
+function hitsFromOverpassElements(elements: OverpassElement[]): NamedHit[] {
+  const hits: NamedHit[] = [];
+  for (const el of elements) {
+    const name = el.tags?.['name:ru'] ?? el.tags?.name;
+    if (!name) continue;
+    const center = (el as OverpassElement & { center?: { lat: number; lon: number } }).center;
+    let lon: number | null = null;
+    let lat: number | null = null;
+    if (center) {
+      lon = center.lon;
+      lat = center.lat;
+    } else if (el.geometry?.length) {
+      const g = el.geometry[Math.floor(el.geometry.length / 2)]!;
+      lon = g.lon;
+      lat = g.lat;
+    }
+    if (lon == null || lat == null) continue;
+    const lake =
+      isWaterArea(el.tags) ||
+      el.tags?.landuse === 'reservoir' ||
+      el.tags?.landuse === 'basin' ||
+      el.tags?.water === 'reservoir' ||
+      el.tags?.water === 'lake' ||
+      el.tags?.water === 'basin';
+    hits.push({ name, kind: lake ? 'lake' : 'river', lon, lat });
+  }
+  return hits;
+}
+
+function distToLine(sample: LngLat, coords: LngLat[]): number {
+  let best = Infinity;
+  if (coords.length < 2) {
+    return coords[0] ? haversineKm(sample, coords[0]) : best;
+  }
+  const stride = Math.max(1, Math.floor(coords.length / 48));
+  for (let j = stride; j < coords.length; j += stride) {
+    const c = closestOnSegment(sample, coords[j - stride]!, coords[j]!);
+    if (c.distKm < best) best = c.distKm;
+  }
+  return best;
+}
+
+function pickCandidatesAt(
+  sample: LngLat,
+  lines: NamedLine[],
+  centers: NamedHit[],
+): Array<{ name: string; kind: 'river' | 'lake'; d: number }> {
+  const opts: Array<{ name: string; kind: 'river' | 'lake'; d: number }> = [];
+  for (const line of lines) {
+    const d = distToLine(sample, line.coords);
+    const limit = line.kind === 'lake' ? 1.8 : 0.32;
+    if (d <= limit) opts.push({ name: line.name, kind: line.kind, d });
+  }
+  for (const hit of centers) {
+    const d = haversineKm(sample, hit);
+    const limit = hit.kind === 'lake' ? 2.0 : 0.4;
+    if (d <= limit) opts.push({ name: hit.name, kind: hit.kind, d });
+  }
+  return opts;
+}
+
+function collapseItinerary(names: Array<string | null>): string[] {
+  const out: string[] = [];
+  for (const raw of names) {
+    if (!raw) continue;
+    const name = raw.trim();
+    if (!name) continue;
+    if (out.length && out[out.length - 1]!.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru')) {
+      continue;
+    }
+    out.push(name);
+  }
+  return out;
+}
+
+function itineraryFromSources(
+  path: LngLat[],
+  lines: NamedLine[],
+  centers: NamedHit[],
+): string[] {
+  if (path.length < 2) return [];
+  const span = pathLength(path);
+  const sampleCount = Math.min(42, Math.max(5, Math.ceil(span / 16) + 1));
+  const samples = sampleAlongPath(path, sampleCount);
+  const candidateSets = samples.map((p) => pickCandidatesAt(p, lines, centers));
+
+  // Prefer waterways that hug more of the route (drops random tributaries like «Филька»).
+  const score = new Map<string, number>();
+  for (const opts of candidateSets) {
+    const seen = new Set<string>();
+    for (const o of opts) {
+      const key = o.name.toLocaleLowerCase('ru');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      score.set(key, (score.get(key) ?? 0) + 1);
+    }
+  }
+
+  const raw = candidateSets.map((opts) => {
+    if (!opts.length) return null;
+    const lakes = opts.filter((o) => o.kind === 'lake').sort((a, b) => a.d - b.d);
+    if (lakes[0] && lakes[0].d <= 1.4) return lakes[0].name;
+
+    const rivers = opts
+      .filter((o) => o.kind === 'river')
+      .sort((a, b) => {
+        const sa = score.get(a.name.toLocaleLowerCase('ru')) ?? 0;
+        const sb = score.get(b.name.toLocaleLowerCase('ru')) ?? 0;
+        if (sb !== sa) return sb - sa;
+        return a.d - b.d;
+      });
+    return rivers[0]?.name ?? lakes[0]?.name ?? null;
+  });
+
+  const collapsed = collapseItinerary(raw);
+  const maxScore = Math.max(0, ...score.values());
+  const minKeep = Math.max(2, Math.round(sampleCount * 0.14));
+  return collapsed.filter((name) => {
+    const s = score.get(name.toLocaleLowerCase('ru')) ?? 0;
+    if (s >= maxScore && maxScore > 0) return true;
+    if (s >= minKeep) return true;
+    return /водохран|вдхр|озеро|плёс|плес|море|залив/i.test(name);
+  });
+}
+
+export type ItineraryOptions = {
+  /** Fetch Overpass / warm cells for reservoirs (slower). Default true. */
+  remote?: boolean;
+};
+
+/**
+ * Ordered chain of named waterways / reservoirs along a route geometry,
+ * e.g. «Волга — Иваньковское водохранилище — Волга — …».
+ */
+export async function describeWaterItinerary(
+  path: LngLat[],
+  opts: ItineraryOptions = {},
+): Promise<string[]> {
+  if (path.length < 2) return [];
+  const remote = opts.remote !== false;
+
+  let lines = namedLinesNearPath(path);
+  let chain = itineraryFromSources(path, lines, []);
+
+  if (!remote) return chain;
+
+  // Pull corridor waterway geometry into cache (helps outside water-core coverage).
+  try {
+    await Promise.race([
+      fetchWaterNetwork(sampleAlongPath(path, Math.min(12, Math.max(3, path.length))), {
+        forceRefresh: false,
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 7000)),
+    ]);
+    lines = namedLinesNearPath(path);
+    chain = itineraryFromSources(path, lines, []);
+  } catch {
+    // keep current
+  }
+
+  try {
+    const els = await Promise.race([
+      overpassQuery(itineraryNamesQuery(path)),
+      new Promise<OverpassElement[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+    ]);
+    const centers = hitsFromOverpassElements(els);
+    if (centers.length) chain = itineraryFromSources(path, lines, centers);
+  } catch {
+    // Keep geometry chain.
+  }
+
+  return chain;
+}
+
+/** Format itinerary for UI. */
+export function formatItinerary(names: string[]): string {
+  return names.filter(Boolean).join(' — ');
+}
+
 export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {
   return measureWaterChain([origin, destination]);
 }
