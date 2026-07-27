@@ -8,9 +8,12 @@ export type BrouterResult = {
 
 const BROUTER_URL = 'https://brouter.de/brouter';
 
-/** Above this span, one-shot BRouter is often killed by the public watchdog. */
-const ADAPTIVE_SPLIT_KM = 180;
-const MAX_SPLIT_DEPTH = 4;
+/**
+ * Public brouter.de often kills long one-shot river searches (watchdog).
+ * We try once, then bisect — halves usually succeed with a near-optimal path.
+ */
+const LONG_SPAN_KM = 200;
+const MAX_SPLIT_DEPTH = 6;
 
 function parseWayTags(raw: string | undefined): string[] {
   if (!raw) return [];
@@ -32,10 +35,8 @@ export function routeSpanKm(waypoints: LngLat[]): number {
   return Math.max(chain, farthest);
 }
 
-function brouterTimeoutMs(waypoints: LngLat[]): number {
-  const span = routeSpanKm(waypoints);
-  // Long inland corridors (Seliger→Vetluga scale) need room; public API is bursty.
-  return Math.min(120_000, Math.max(15_000, 12_000 + span * 40));
+function brouterTimeoutMs(spanKm: number): number {
+  return Math.min(90_000, Math.max(12_000, 10_000 + spanKm * 35));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -88,7 +89,7 @@ function parseBrouterPayload(text: string): BrouterResult | null {
   const feature = data.features?.[0];
   if (!feature?.geometry) return null;
   const points = flattenCoords(feature.geometry);
-  if (!points) return null;
+  if (!points || points.length < 2) return null;
 
   const trackM = Number(feature.properties?.['track-length']);
   let lengthKm = Number.isFinite(trackM) && trackM > 0 ? trackM / 1000 : 0;
@@ -98,32 +99,27 @@ function parseBrouterPayload(text: string): BrouterResult | null {
 
   const wayTags = new Set<string>();
   const messages = feature.properties?.messages ?? [];
-  for (let i = 1; i < messages.length; i++) {
+  const tagLimit = Math.min(messages.length, 120);
+  for (let i = 1; i < tagLimit; i++) {
     for (const tag of parseWayTags(messages[i]?.[9])) wayTags.add(tag);
   }
 
   return { points, lengthKm, wayTags: [...wayTags] };
 }
 
-/**
- * Single BRouter request. Public server often returns 400 "watchdog" on first try
- * for long river graphs — caller should retry / split.
- */
 async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
-
+  const span = routeSpanKm(waypoints);
   const lonlats = waypoints.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join('|');
   const url =
     `${BROUTER_URL}?format=geojson&profile=river&alternativeidx=0&lonlats=` +
     encodeURIComponent(lonlats);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), brouterTimeoutMs(waypoints));
+  const timer = setTimeout(() => controller.abort(), brouterTimeoutMs(span));
   try {
     const res = await fetch(url, { signal: controller.signal });
     const text = await res.text();
-    // 400 + watchdog body still happens with a "successful" connection.
-    if (!res.ok) return parseBrouterPayload(text);
     return parseBrouterPayload(text);
   } catch {
     return null;
@@ -132,77 +128,79 @@ async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
   }
 }
 
-/** Retry a single BRouter request (watchdog / flaky public API). */
+/**
+ * Short/medium request with retries. Long spans: only 1 attempt — fail fast, then bisect.
+ */
 export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
   const span = routeSpanKm(waypoints);
-  const attempts = span > ADAPTIVE_SPLIT_KM ? 4 : 2;
+  // Long one-shots are often killed in ~1–2s; don't burn 10s+ on retries.
+  const attempts = span >= LONG_SPAN_KM ? 1 : 3;
   for (let i = 0; i < attempts; i++) {
-    if (i > 0) await sleep(350 * i);
+    if (i > 0) await sleep(400 * i);
     const hit = await brouterOnce(waypoints);
     if (hit && hit.points.length >= 2 && hit.lengthKm > 0) return hit;
   }
   return null;
 }
 
+function interpolate(a: LngLat, b: LngLat, t: number): LngLat {
+  return { lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t };
+}
+
+function stitchResults(parts: BrouterResult[]): BrouterResult {
+  const points: LngLat[] = [];
+  let lengthKm = 0;
+  const wayTags = new Set<string>();
+  for (const part of parts) {
+    if (points.length === 0) points.push(...part.points);
+    else points.push(...part.points.slice(1));
+    lengthKm += part.lengthKm;
+    for (const t of part.wayTags) wayTags.add(t);
+  }
+  return { points, lengthKm, wayTags: [...wayTags] };
+}
+
 /**
- * For long corridors the public BRouter often kills the full request.
- * Bisect geographically and stitch — each half usually succeeds.
+ * Try A→B; on failure bisect geographically and stitch.
+ * Prefer few large halves (better path) over many geodesic vias (huge detours).
  */
+async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
+  const span = haversineKm(a, b);
+  const hit = await routeWithBrouter([a, b]);
+  if (hit) return hit;
+
+  if (depth >= MAX_SPLIT_DEPTH || span < 50) return null;
+
+  const mid = interpolate(a, b, 0.5);
+  const left = await routePairAdaptive(a, mid, depth + 1);
+  if (!left) return null;
+  const right = await routePairAdaptive(mid, b, depth + 1);
+  if (!right) return null;
+  return stitchResults([left, right]);
+}
+
+/** Reliable river routing for lakes and long inland corridors (Seliger→Vokhma). */
 export async function routeWithBrouterAdaptive(
   waypoints: LngLat[],
-  depth = 0,
 ): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
 
-  const direct = await routeWithBrouter(waypoints);
-  if (direct) return direct;
-
-  if (waypoints.length > 2) {
-    const chunked = await routeWithBrouterChunked(waypoints);
-    if (chunked) return chunked;
+  if (waypoints.length === 2) {
+    return routePairAdaptive(waypoints[0]!, waypoints[1]!, 0);
   }
 
-  if (waypoints.length !== 2 || depth >= MAX_SPLIT_DEPTH) return null;
-  const a = waypoints[0]!;
-  const b = waypoints[1]!;
-  const span = haversineKm(a, b);
-  if (span < ADAPTIVE_SPLIT_KM) return null;
-
-  const mid: LngLat = { lon: (a.lon + b.lon) / 2, lat: (a.lat + b.lat) / 2 };
-  const left = await routeWithBrouterAdaptive([a, mid], depth + 1);
-  if (!left) return null;
-  const right = await routeWithBrouterAdaptive([mid, b], depth + 1);
-  if (!right) return null;
-
-  const points = left.points.concat(right.points.slice(1));
-  const wayTags = [...new Set([...left.wayTags, ...right.wayTags])];
-  return {
-    points,
-    lengthKm: left.lengthKm + right.lengthKm,
-    wayTags,
-  };
+  const parts: BrouterResult[] = [];
+  for (let i = 1; i < waypoints.length; i++) {
+    const leg = await routePairAdaptive(waypoints[i - 1]!, waypoints[i]!, 0);
+    if (!leg) return null;
+    parts.push(leg);
+  }
+  return stitchResults(parts);
 }
 
-/** Stitch per-leg BRouter results when the full-chain request fails. */
 export async function routeWithBrouterChunked(
   waypoints: LngLat[],
 ): Promise<BrouterResult | null> {
-  if (waypoints.length < 2) return null;
-  if (waypoints.length === 2) return routeWithBrouter(waypoints);
-
-  const allPoints: LngLat[] = [];
-  let lengthKm = 0;
-  const wayTags = new Set<string>();
-
-  for (let i = 1; i < waypoints.length; i++) {
-    const leg = await routeWithBrouterAdaptive([waypoints[i - 1]!, waypoints[i]!]);
-    if (!leg || leg.points.length < 2) return null;
-    if (allPoints.length === 0) allPoints.push(...leg.points);
-    else allPoints.push(...leg.points.slice(1));
-    lengthKm += leg.lengthKm;
-    for (const t of leg.wayTags) wayTags.add(t);
-  }
-
-  return { points: allPoints, lengthKm, wayTags: [...wayTags] };
+  return routeWithBrouterAdaptive(waypoints);
 }

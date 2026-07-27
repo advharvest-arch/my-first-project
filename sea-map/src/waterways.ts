@@ -1,5 +1,5 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
-import { routeWithBrouterAdaptive } from './brouter';
+import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
 import waterCore from './water-core.json';
 
 export type WaterPath = {
@@ -523,6 +523,18 @@ function simplifyPath(points: LngLat[], minKm = 0.04): LngLat[] {
   const out: LngLat[] = [points[0]!];
   for (let i = 1; i < points.length - 1; i++) {
     if (haversineKm(out[out.length - 1]!, points[i]!) >= minKm) out.push(points[i]!);
+  }
+  out.push(points[points.length - 1]!);
+  return out;
+}
+
+/** Keep Leaflet / parallel / arrows responsive on 2000+ km tracks. */
+function downsamplePath(points: LngLat[], maxPoints: number): LngLat[] {
+  if (points.length <= maxPoints) return points;
+  const out: LngLat[] = [points[0]!];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 1; i < maxPoints - 1; i++) {
+    out.push(points[Math.round(i * step)]!);
   }
   out.push(points[points.length - 1]!);
   return out;
@@ -1067,14 +1079,19 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   };
 
-  // 1) BRouter — retries + adaptive split for long inland corridors.
+  // 1) BRouter — short legs OK as-is; long corridors are split before the request.
   const brouted = await routeWithBrouterAdaptive(waypoints);
 
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
     const minSimplifyKm =
-      brouted.lengthKm > 800 ? 0.35 : brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
-    const simplified = simplifyPath(brouted.points, minSimplifyKm);
-    // Tags only — never scan the full water-core graph for names (freezes the tab).
+      brouted.lengthKm > 800
+        ? 0.55
+        : brouted.lengthKm > 250
+          ? 0.2
+          : brouted.lengthKm > 80
+            ? 0.08
+            : 0.03;
+    const simplified = downsamplePath(simplifyPath(brouted.points, minSimplifyKm), 2200);
     const named =
       waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(simplified);
     return {
@@ -1084,6 +1101,12 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       method: 'waterway',
       waypointCumKm: cumKmAlongPath(simplified, waypoints),
     };
+  }
+
+  // Long inland trips only work via BRouter. Overpass cell crawl cannot connect
+  // Seliger→Vokhma and only hangs the UI for minutes before returning "direct".
+  if (routeSpanKm(waypoints) > 120) {
+    return directFallback();
   }
 
   // 2) Instant local fallback from water-core already in memory (no network).

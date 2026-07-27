@@ -40,6 +40,12 @@ const INLAND_PRESETS: Array<{ label: string; a: LngLat; b: LngLat; zoom: number 
     b: { lon: 48.55, lat: 54.4 },
     zoom: 10,
   },
+  {
+    label: 'Селигер → Вохма',
+    a: { lon: 33.080173, lat: 57.438374 },
+    b: { lon: 46.731219, lat: 59.404186 },
+    zoom: 5,
+  },
 ];
 
 const mapEl = document.getElementById('map');
