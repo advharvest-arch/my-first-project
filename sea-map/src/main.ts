@@ -117,11 +117,13 @@ let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
 /**
- * Multi-leg parallel lanes: constant on-screen gap (CSS px) between adjacent
- * legs at every zoom. Lane offsets are in a shared geographic frame so any
- * number of legs (2, 3, …) fan out side-by-side.
+ * Multi-leg parallel lanes: prefer a constant on-screen gap, but never let the
+ * lane fan exceed a typical aquatory width — when that would require going
+ * ashore, shrink the gap (lanes may partially overlap).
  */
 const PARALLEL_GAP_PX = 16;
+/** Max total width (m) of all parallel lanes combined (outermost to outermost). */
+const AQUATORY_MAX_SPAN_M = 80;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
@@ -406,11 +408,17 @@ function deleteWaypointById(id: string): void {
   }
 }
 
-/** Adjacent-lane spacing in meters for the current zoom (full gap, not half). */
-function parallelGapMeters(): number {
+/**
+ * Adjacent-lane spacing (m). Uses full screen gap when it fits in the aquatory;
+ * otherwise shrinks so the fan stays on water (may overlap when zoomed out).
+ */
+function parallelGapMeters(laneCount: number): number {
+  if (laneCount <= 1) return 0;
   const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
   const gapPx = Math.max(PARALLEL_GAP_PX, weight + 8);
-  return Math.max(0.5, metersForPixels(gapPx));
+  const desired = metersForPixels(gapPx);
+  const maxSep = AQUATORY_MAX_SPAN_M / (laneCount - 1);
+  return Math.min(desired, Math.max(0, maxSep));
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
@@ -497,7 +505,7 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
 
 /**
  * Fan every route leg onto its own parallel lane (2, 3, … N).
- * Lane offsets share a geographic frame so opposing legs don't collapse.
+ * Shared geographic frame; spacing shrinks to stay inside the aquatory.
  */
 function buildParallelLegs(path: LngLat[]): LngLat[][] | null {
   if (!showReturnInput.checked || waypoints.length < 3) return null;
@@ -505,9 +513,9 @@ function buildParallelLegs(path: LngLat[]): LngLat[][] | null {
   const legs = splitPathLegs(path, indices);
   if (legs.length < 2) return null;
 
-  const sep = parallelGapMeters();
-  const ref = legs[0]!;
   const n = legs.length;
+  const sep = parallelGapMeters(n);
+  const ref = legs[0]!;
   return legs.map((leg, i) => {
     const lane = i - (n - 1) / 2;
     const geoOffset = lane * sep; // + = left of reference travel
