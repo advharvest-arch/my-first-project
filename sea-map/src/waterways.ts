@@ -1,5 +1,5 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
-import { routeWithBrouter } from './brouter';
+import { routeWithBrouter, routeWithBrouterChunked, routeSpanKm } from './brouter';
 import waterCore from './water-core.json';
 
 export type WaterPath = {
@@ -966,18 +966,24 @@ function cumKmAlongPath(path: LngLat[], waypoints: LngLat[]): number[] {
   const cum = [0];
   for (let i = 1; i < path.length; i++) cum.push(cum[i - 1]! + haversineKm(path[i - 1]!, path[i]!));
 
-  return waypoints.map((wp) => {
-    let bestI = 0;
+  // Forward-only nearest vertex — O(path) total, stable for long one-way rivers.
+  const out: number[] = [];
+  let from = 0;
+  for (let w = 0; w < waypoints.length; w++) {
+    const wp = waypoints[w]!;
+    let bestI = from;
     let bestD = Infinity;
-    for (let i = 0; i < path.length; i++) {
+    for (let i = from; i < path.length; i++) {
       const d = haversineKm(wp, path[i]!);
       if (d < bestD) {
         bestD = d;
         bestI = i;
       }
     }
-    return cum[bestI] ?? 0;
-  });
+    out.push(cum[bestI] ?? 0);
+    from = bestI;
+  }
+  return out;
 }
 
 function waterNameFromTags(tags: string[]): string | null {
@@ -1006,16 +1012,44 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   }
 
-  // Primary: BRouter river profile (same stack as wetmeter.online) — typically <1s.
-  const brouted = await routeWithBrouter(waypoints);
+  const spanKm = routeSpanKm(waypoints);
+
+  // Primary: one BRouter call for the whole chain (timeout scales with length).
+  let brouted = await routeWithBrouter(waypoints);
+  // Long / multi-stop fallback: stitch per-leg BRouter results instead of Overpass.
+  if (!brouted) brouted = await routeWithBrouterChunked(waypoints);
+
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
-    const named = namesAlongPath(brouted.points) ?? waterNameFromTags(brouted.wayTags);
+    const minSimplifyKm = brouted.lengthKm > 250 ? 0.15 : brouted.lengthKm > 80 ? 0.08 : 0.03;
+    const simplified = simplifyPath(brouted.points, minSimplifyKm);
+    // namesAlongPath is expensive on long corridors — prefer BRouter tags first.
+    const named =
+      brouted.lengthKm > 120
+        ? waterNameFromTags(brouted.wayTags) ?? namesAlongPath(simplified)
+        : namesAlongPath(simplified) ?? waterNameFromTags(brouted.wayTags);
     return {
-      points: simplifyPath(brouted.points, 0.03),
+      points: simplified,
       lengthKm: brouted.lengthKm,
       waterName: named,
       method: 'waterway',
       waypointCumKm: cumKmAlongPath(brouted.points, waypoints),
+    };
+  }
+
+  // Local OSM graph only for short corridors — Overpass cannot cover long rivers.
+  if (spanKm > 90) {
+    const cum = [0];
+    let sum = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+      sum += haversineKm(waypoints[i - 1]!, waypoints[i]!);
+      cum.push(sum);
+    }
+    return {
+      points: waypoints.slice(),
+      lengthKm: sum,
+      waterName: null,
+      method: 'direct',
+      waypointCumKm: cum,
     };
   }
 
@@ -1056,7 +1090,6 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
     if (!anyRouted) method = 'direct';
     const path = simplifyPath(allPoints);
-    // Names only from geometry actually followed — never from incidental snap rivers.
     const waterName = method === 'direct' ? null : namesAlongPath(path);
 
     return {
