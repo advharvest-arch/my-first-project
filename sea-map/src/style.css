@@ -201,6 +201,111 @@ body {
   background: #7ec8ff;
 }
 
+.route-marker-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.route-marker-label {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font: 600 0.72rem/1.2 var(--font-body);
+  color: var(--ink);
+  background: rgba(232, 244, 242, 0.92);
+  border: 1px solid rgba(7, 24, 33, 0.12);
+  border-radius: 8px;
+  padding: 0.18rem 0.4rem;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.route-marker-label .km {
+  display: block;
+  margin-top: 0.1rem;
+  font-weight: 700;
+  color: var(--sea-mid);
+}
+
+.waypoint-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.waypoint-row {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.waypoint-idx {
+  font-size: 0.75rem;
+  color: rgba(232, 244, 242, 0.55);
+  text-align: center;
+}
+
+.waypoint-name {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  background: rgba(7, 24, 33, 0.95);
+  color: var(--foam);
+  font: 500 0.82rem/1.2 var(--font-body);
+  outline: none;
+}
+
+.waypoint-name:focus {
+  border-color: rgba(46, 196, 182, 0.55);
+}
+
+.waypoint-km {
+  min-width: 3.5rem;
+  text-align: right;
+  font-size: 0.75rem;
+  color: rgba(232, 244, 242, 0.7);
+}
+
+.route-style {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.route-style input[type='color'] {
+  width: 3rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.route-style input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(232, 244, 242, 0.88);
+  cursor: pointer;
+}
+
+.check-row input {
+  accent-color: var(--accent);
+}
+
 .fields {
   display: grid;
   gap: 0.65rem;
@@ -417,15 +522,9 @@ body {
   background: var(--sand);
 }
 
-.route-line {
-  stroke-dasharray: 14 10;
-  animation: dash 1.8s linear infinite;
-}
-
-@keyframes dash {
-  to {
-    stroke-dashoffset: -48;
-  }
+.leaflet-container .leaflet-overlay-pane path.route-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 @keyframes rise {

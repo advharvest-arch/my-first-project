@@ -6,6 +6,8 @@ export type WaterPath = {
   lengthKm: number;
   waterName: string | null;
   method: 'waterway' | 'lake' | 'direct';
+  /** Cumulative distance at each input waypoint (km), length = waypoints.length */
+  waypointCumKm?: number[];
 };
 
 type OverpassElement = {
@@ -720,11 +722,16 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
   }
   points.push(destination);
 
-  const named =
-    [snapA.line.name, snapB.line.name]
-      .filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i)
-      .join(', ') || null;
+  const namedParts: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [snapA.line.name, snapB.line.name]) {
+    if (!raw) continue;
+    const key = raw.toLocaleLowerCase('ru');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    namedParts.push(raw);
+  }
+  const named = namedParts.length ? namedParts.join(', ') : null;
 
   return {
     points: simplifyPath(points),
@@ -741,33 +748,61 @@ export async function routeAlongWater(origin: LngLat, destination: LngLat): Prom
 
 export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath> {
   if (waypoints.length < 2) {
-    return { points: waypoints.slice(), lengthKm: 0, waterName: null, method: 'direct' };
+    return {
+      points: waypoints.slice(),
+      lengthKm: 0,
+      waterName: null,
+      method: 'direct',
+      waypointCumKm: waypoints.map(() => 0),
+    };
   }
 
   const lines = await fetchWaterNetwork(waypoints);
   if (lines.length === 0) {
+    const cum = [0];
+    let sum = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+      sum += haversineKm(waypoints[i - 1]!, waypoints[i]!);
+      cum.push(sum);
+    }
     return {
       points: waypoints.slice(),
-      lengthKm: pathLength(waypoints),
+      lengthKm: sum,
       waterName: null,
       method: 'direct',
+      waypointCumKm: cum,
     };
   }
 
   const allPoints: LngLat[] = [];
   let lengthKm = 0;
-  const names = new Set<string>();
+  const waypointCumKm = [0];
+  const nameOrder: string[] = [];
+  const nameSeen = new Set<string>();
   let method: WaterPath['method'] = 'waterway';
   let anyRouted = false;
+
+  const addNames = (raw: string | null) => {
+    if (!raw) return;
+    for (const part of raw.split(',')) {
+      const name = part.trim();
+      if (!name) continue;
+      const key = name.toLocaleLowerCase('ru');
+      if (nameSeen.has(key)) continue;
+      nameSeen.add(key);
+      nameOrder.push(name);
+    }
+  };
 
   for (let i = 1; i < waypoints.length; i++) {
     const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
     if (leg.method !== 'direct') anyRouted = true;
     if (leg.method === 'lake' && method === 'waterway') method = 'lake';
-    if (leg.waterName) names.add(leg.waterName);
+    addNames(leg.waterName);
     const chunk = i === 1 ? leg.points : leg.points.slice(1);
     allPoints.push(...chunk);
     lengthKm += leg.lengthKm;
+    waypointCumKm.push(lengthKm);
   }
 
   if (!anyRouted) method = 'direct';
@@ -775,7 +810,8 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   return {
     points: simplifyPath(allPoints),
     lengthKm,
-    waterName: names.size ? [...names].slice(0, 4).join(', ') : null,
+    waterName: nameOrder.length ? nameOrder.join(', ') : null,
     method,
+    waypointCumKm,
   };
 }

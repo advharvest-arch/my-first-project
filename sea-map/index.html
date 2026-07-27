@@ -74,10 +74,26 @@
 
         <div class="inland-help" id="inland-help" hidden>
           <p>
-            Кликните <strong>две точки прямо на воде</strong> (река, озеро, водохранилище). Маршрут
-            строится по данным OpenStreetMap. Ниже — готовые примеры.
+            Кликайте точки на воде — маршрут перестраивается сам. Точки можно перетаскивать и
+            переименовывать в списке ниже.
           </p>
           <p class="muted" id="waypoint-count">Точек: 0</p>
+          <div class="waypoint-list" id="waypoint-list" hidden></div>
+        </div>
+
+        <div class="controls route-style" id="route-style">
+          <label class="field inline">
+            <span>Цвет линии</span>
+            <input id="line-color" type="color" value="#2ec4b6" />
+          </label>
+          <label class="field inline">
+            <span>Толщина</span>
+            <input id="line-weight" type="range" min="2" max="12" step="1" value="5" />
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="show-km-labels" />
+            <span>Километраж у точек</span>
+          </label>
         </div>
 
         <div class="actions">
