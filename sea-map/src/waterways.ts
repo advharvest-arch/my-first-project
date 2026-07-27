@@ -1,4 +1,5 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
+import { routeWithBrouter } from './brouter';
 import waterCore from './water-core.json';
 
 export type WaterPath = {
@@ -910,14 +911,88 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
   };
 }
 
-export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {
-  let lines = await fetchWaterNetwork([origin, destination]);
-  let path = routeOnLines(origin, destination, lines);
-  if (path.method === 'direct') {
-    lines = await fetchWaterNetwork([origin, destination], { forceRefresh: true });
-    path = routeOnLines(origin, destination, lines);
+function linesNearPath(path: LngLat[]): WaterLine[] {
+  const cells = cellsAlong(path);
+  return mergeLines(
+    cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
+  );
+}
+
+/**
+ * Names of waterways the geometry actually follows — not every river near a click.
+ * A name is kept only if a meaningful share of the route runs along that waterway.
+ */
+function namesAlongPath(path: LngLat[]): string | null {
+  if (path.length < 2) return null;
+  const lines = linesNearPath(path).filter((l) => l.name && l.kind === 'waterway');
+  if (!lines.length) return null;
+
+  const totalKm = pathLength(path);
+  if (totalKm <= 0) return null;
+
+  const scored = new Map<string, number>();
+  const step = Math.max(1, Math.floor(path.length / 80));
+  for (let i = step; i < path.length; i += step) {
+    const a = path[i - step]!;
+    const b = path[i]!;
+    const mid = { lon: (a.lon + b.lon) / 2, lat: (a.lat + b.lat) / 2 };
+    const segKm = haversineKm(a, b);
+    let bestName: string | null = null;
+    let bestD = 0.12; // 120 m — must hug the river, not a parallel tributary
+    for (const line of lines) {
+      for (let j = 1; j < line.coords.length; j++) {
+        const c = closestOnSegment(mid, line.coords[j - 1]!, line.coords[j]!);
+        if (c.distKm < bestD) {
+          bestD = c.distKm;
+          bestName = line.name;
+        }
+      }
+    }
+    if (!bestName) continue;
+    scored.set(bestName, (scored.get(bestName) ?? 0) + segKm);
   }
-  return path;
+
+  const minKm = Math.max(0.35, totalKm * 0.12);
+  const names = [...scored.entries()]
+    .filter(([, km]) => km >= minKm)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name]) => name);
+
+  return names.length ? names.join(', ') : null;
+}
+
+function cumKmAlongPath(path: LngLat[], waypoints: LngLat[]): number[] {
+  if (!path.length) return waypoints.map(() => 0);
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1]! + haversineKm(path[i - 1]!, path[i]!));
+
+  return waypoints.map((wp) => {
+    let bestI = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < path.length; i++) {
+      const d = haversineKm(wp, path[i]!);
+      if (d < bestD) {
+        bestD = d;
+        bestI = i;
+      }
+    }
+    return cum[bestI] ?? 0;
+  });
+}
+
+function waterNameFromTags(tags: string[]): string | null {
+  const kinds = new Set<string>();
+  for (const t of tags) {
+    if (t === 'waterway=river') kinds.add('река');
+    else if (t === 'waterway=canal') kinds.add('канал');
+    else if (t === 'waterway=fairway') kinds.add('фарватер');
+    else if (t.startsWith('waterway=')) kinds.add(t.slice('waterway='.length));
+  }
+  return kinds.size ? [...kinds].join(', ') : null;
+}
+
+export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {
+  return measureWaterChain([origin, destination]);
 }
 
 export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath> {
@@ -931,6 +1006,20 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   }
 
+  // Primary: BRouter river profile (same stack as wetmeter.online) — typically <1s.
+  const brouted = await routeWithBrouter(waypoints);
+  if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
+    const named = namesAlongPath(brouted.points) ?? waterNameFromTags(brouted.wayTags);
+    return {
+      points: simplifyPath(brouted.points, 0.03),
+      lengthKm: brouted.lengthKm,
+      waterName: named,
+      method: 'waterway',
+      waypointCumKm: cumKmAlongPath(brouted.points, waypoints),
+    };
+  }
+
+  // Fallback: local OSM graph (slower, used if BRouter is unavailable).
   const run = async (forceRefresh: boolean): Promise<WaterPath> => {
     const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
     if (lines.length === 0) {
@@ -952,28 +1041,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     const allPoints: LngLat[] = [];
     let lengthKm = 0;
     const waypointCumKm = [0];
-    const nameOrder: string[] = [];
-    const nameSeen = new Set<string>();
     let method: WaterPath['method'] = 'waterway';
     let anyRouted = false;
-
-    const addNames = (raw: string | null) => {
-      if (!raw) return;
-      for (const part of raw.split(',')) {
-        const name = part.trim();
-        if (!name) continue;
-        const key = name.toLocaleLowerCase('ru');
-        if (nameSeen.has(key)) continue;
-        nameSeen.add(key);
-        nameOrder.push(name);
-      }
-    };
 
     for (let i = 1; i < waypoints.length; i++) {
       const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
       if (leg.method !== 'direct') anyRouted = true;
       if (leg.method === 'lake' && method === 'waterway') method = 'lake';
-      addNames(leg.waterName);
       const chunk = i === 1 ? leg.points : leg.points.slice(1);
       allPoints.push(...chunk);
       lengthKm += leg.lengthKm;
@@ -981,11 +1055,14 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     }
 
     if (!anyRouted) method = 'direct';
+    const path = simplifyPath(allPoints);
+    // Names only from geometry actually followed — never from incidental snap rivers.
+    const waterName = method === 'direct' ? null : namesAlongPath(path);
 
     return {
-      points: simplifyPath(allPoints),
+      points: path,
       lengthKm,
-      waterName: nameOrder.length ? nameOrder.join(', ') : null,
+      waterName,
       method,
       waypointCumKm,
     };
