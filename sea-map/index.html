@@ -74,8 +74,9 @@
 
         <div class="inland-help" id="inland-help" hidden>
           <p>
-            Кликайте точки на воде — маршрут строится быстро. Перетаскивание — сдвиг точки,
-            <strong>двойной клик</strong> — удаление. Можно включить обратный маршрут параллельной линией.
+            Кликайте точки на воде. Пример: точка&nbsp;1 → точка&nbsp;2 → снова к старту (точка&nbsp;3) —
+            туда и обратно рисуются <strong>параллельно</strong>. Перетаскивание — сдвиг,
+            <strong>двойной клик</strong> — удаление.
           </p>
           <p class="muted" id="waypoint-count">Точек: 0</p>
           <div class="waypoint-list" id="waypoint-list" hidden></div>
@@ -95,12 +96,12 @@
             <span>Километраж у точек</span>
           </label>
           <label class="check-row">
-            <input type="checkbox" id="show-return" />
-            <span>Обратный маршрут (параллельно)</span>
+            <input type="checkbox" id="show-return" checked />
+            <span>Развести встречные участки</span>
           </label>
-          <label class="field inline" id="return-color-field" hidden>
-            <span>Цвет обратно</span>
-            <input id="return-color" type="color" value="#d9c3a0" />
+          <label class="field inline" id="return-color-field">
+            <span>Цвет обратного участка</span>
+            <input id="return-color" type="color" value="#e8a87c" />
           </label>
         </div>
 
