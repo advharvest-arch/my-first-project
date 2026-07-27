@@ -117,14 +117,18 @@ let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
 /**
- * Parallel opposing legs: keep a constant on-screen gap when possible,
- * but never offset more than a typical river channel (stay off land).
+ * Parallel opposing legs: keep a constant on-screen gap whenever the
+ * river is wide enough; only tighten when more offset would leave the water.
  * Both legs offset left of travel → gap between them ≈ 2 × offset.
  */
 /** Desired clear gap between opposing centerlines (CSS px). */
-const PARALLEL_GAP_PX = 8;
-/** Max total centerline separation (m) inside a typical inland channel. */
-const RIVER_CHANNEL_MAX_M = 28;
+const PARALLEL_GAP_PX = 12;
+/**
+ * Max total centerline separation (m). Navigable rivers are often 100–300 m
+ * wide; 160 m keeps lanes in-channel while still visible around zoom 11–14
+ * (the previous ~28 m cap only looked separated when tightly zoomed in).
+ */
+const RIVER_CHANNEL_MAX_M = 160;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
@@ -410,16 +414,16 @@ function deleteWaypointById(id: string): void {
 }
 
 /**
- * Constant screen gap when the river is wide enough; otherwise use the
- * largest offset that still fits in the channel (never onto land).
+ * Prefer constant screen gap; clamp to channel width so we don't go ashore.
+ * At very low zoom even the max channel offset is <~2 px — that's the
+ * "would have to leave the water" case, so separation looks minimal.
  */
 function parallelGapMeters(): number {
   const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
-  // Keep strokes from visually merging: gap ≥ stroke + a few px.
-  const gapPx = Math.max(PARALLEL_GAP_PX, weight + 4);
+  const gapPx = Math.max(PARALLEL_GAP_PX, weight + 6);
   const desiredOffsetM = metersForPixels(gapPx) / 2;
   const maxOffsetM = RIVER_CHANNEL_MAX_M / 2;
-  return Math.min(maxOffsetM, Math.max(0.8, desiredOffsetM));
+  return Math.min(maxOffsetM, Math.max(0.5, desiredOffsetM));
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
