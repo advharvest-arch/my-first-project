@@ -240,8 +240,9 @@ function clearStats(): void {
 function showStats(distanceKm: number, water: string): void {
   lastDistanceKm = distanceKm;
   lastWaterLabel = water;
-  refreshEtaFromSpeed();
+  // Unhide first — refreshEtaFromSpeed bails out while stats are hidden.
   statsEl.hidden = false;
+  refreshEtaFromSpeed();
 }
 
 function updateHint(): void {
@@ -456,11 +457,15 @@ function buildParallelLegs(path: LngLat[]): LngLat[][] | null {
 /** Constant on-screen arrow layout (CSS pixels) — same at every zoom. */
 const ARROW_STEP_PX = 160;
 const ARROW_SIZE_PX = 16;
+/** Hard cap — long routes at high zoom used to create 2000+ DOM markers and freeze the tab. */
+const MAX_ROUTE_ARROWS = 48;
 
-function arrowLayoutForScale(): { stepM: number; sizePx: number } {
-  // Convert fixed screen gap to meters for the current scale; size stays fixed in px.
+function arrowLayoutForScale(pathLengthM: number): { stepM: number; sizePx: number } {
+  const screenStep = Math.max(1, metersForPixels(ARROW_STEP_PX));
+  const capped =
+    pathLengthM > 0 ? Math.max(screenStep, pathLengthM / MAX_ROUTE_ARROWS) : screenStep;
   return {
-    stepM: Math.max(1, metersForPixels(ARROW_STEP_PX)),
+    stepM: capped,
     sizePx: ARROW_SIZE_PX,
   };
 }
@@ -468,12 +473,16 @@ function arrowLayoutForScale(): { stepM: number; sizePx: number } {
 function drawDirectionArrows(path: LngLat[], color: string): void {
   if (!showArrowsInput.checked) return;
   if (path.length < 2) return;
-  const { stepM, sizePx } = arrowLayoutForScale();
+  let totalM = 0;
+  for (let i = 1; i < path.length; i++) totalM += haversineKm(path[i - 1]!, path[i]!) * 1000;
+  const { stepM, sizePx } = arrowLayoutForScale(totalM);
   const safeColor = escapeHtml(color);
   const half = sizePx / 2;
   let acc = 0;
   let nextAt = stepM * 0.5;
+  let drawn = 0;
   for (let i = 1; i < path.length; i++) {
+    if (drawn >= MAX_ROUTE_ARROWS) break;
     const a = path[i - 1]!;
     const b = path[i]!;
     const segM = haversineKm(a, b) * 1000;
@@ -483,7 +492,7 @@ function drawDirectionArrows(path: LngLat[], color: string): void {
     }
     const segStart = acc;
     acc += segM;
-    while (nextAt <= acc) {
+    while (nextAt <= acc && drawn < MAX_ROUTE_ARROWS) {
       const t = (nextAt - segStart) / segM;
       const lon = a.lon + (b.lon - a.lon) * t;
       const lat = a.lat + (b.lat - a.lat) * t;
@@ -504,6 +513,7 @@ function drawDirectionArrows(path: LngLat[], color: string): void {
           iconAnchor: [half, half],
         }),
       }).addTo(drawLayer);
+      drawn += 1;
       nextAt += stepM;
     }
   }
@@ -762,9 +772,14 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       );
     }
     if (fit && path.points.length >= 2) {
-      map.fitBounds(
-        L.latLngBounds(path.points.map((p) => [p.lat, p.lon] as L.LatLngTuple)).pad(0.2),
-      );
+      const mobile = window.matchMedia('(max-width: 720px)').matches;
+      map.fitBounds(L.latLngBounds(path.points.map((p) => [p.lat, p.lon] as L.LatLngTuple)), {
+        paddingTopLeft: [24, 24],
+        // Bottom sheet covers ~half the phone screen — keep the track visible above it.
+        paddingBottomRight: mobile ? [24, Math.round(window.innerHeight * 0.42)] : [24, 24],
+        maxZoom: 8,
+        animate: true,
+      });
     }
   } catch (err) {
     console.error(err);
