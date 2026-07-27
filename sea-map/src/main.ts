@@ -117,13 +117,14 @@ let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
 /**
- * Parallel offset scales with zoom (screen px), but is capped so out/back
- * stay within a typical river channel (~22 m total width).
+ * Parallel opposing legs: keep a constant on-screen gap when possible,
+ * but never offset more than a typical river channel (stay off land).
  * Both legs offset left of travel → gap between them ≈ 2 × offset.
  */
-const RIVER_CHANNEL_MAX_M = 22;
-const PARALLEL_OFFSET_MAX_M = RIVER_CHANNEL_MAX_M / 2;
-const PARALLEL_OFFSET_MIN_M = 2.5;
+/** Desired clear gap between opposing centerlines (CSS px). */
+const PARALLEL_GAP_PX = 8;
+/** Max total centerline separation (m) inside a typical inland channel. */
+const RIVER_CHANNEL_MAX_M = 28;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
@@ -409,14 +410,16 @@ function deleteWaypointById(id: string): void {
 }
 
 /**
- * Screen-based gap so separation tracks zoom, hard-capped to river channel width.
+ * Constant screen gap when the river is wide enough; otherwise use the
+ * largest offset that still fits in the channel (never onto land).
  */
 function parallelGapMeters(): number {
   const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
-  // About half the stroke on screen — lanes sit inside the drawn river band.
-  const targetPx = Math.max(3, weight * 0.5);
-  const m = metersForPixels(targetPx);
-  return Math.min(PARALLEL_OFFSET_MAX_M, Math.max(PARALLEL_OFFSET_MIN_M, m));
+  // Keep strokes from visually merging: gap ≥ stroke + a few px.
+  const gapPx = Math.max(PARALLEL_GAP_PX, weight + 4);
+  const desiredOffsetM = metersForPixels(gapPx) / 2;
+  const maxOffsetM = RIVER_CHANNEL_MAX_M / 2;
+  return Math.min(maxOffsetM, Math.max(0.8, desiredOffsetM));
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
