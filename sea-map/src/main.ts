@@ -13,6 +13,7 @@ import {
 } from './geo';
 import { measureHybridChain, type RoutePrefer } from './hybrid';
 import { PORTS, nearestPortName } from './ports';
+import { getPresetRoute, type PresetRouteId } from './presets';
 import { prefetchWaterBbox, prefetchWaterNear } from './waterways';
 import './style.css';
 
@@ -21,26 +22,36 @@ type Waypoint = { id: string; lon: number; lat: number; name: string };
 
 const KM_PER_KNOT = 1.852;
 
-const INLAND_PRESETS: Array<{ label: string; a: LngLat; b: LngLat; zoom: number }> = [
+const INLAND_PRESETS: Array<{
+  id: PresetRouteId;
+  label: string;
+  a: LngLat;
+  b: LngLat;
+  zoom: number;
+}> = [
   {
+    id: 'moscow',
     label: 'Москва-река',
     a: { lon: 37.505, lat: 55.742 },
     b: { lon: 37.645, lat: 55.749 },
     zoom: 12,
   },
   {
+    id: 'volga-nn',
     label: 'Волга (Н.Новгород)',
     a: { lon: 43.95, lat: 56.33 },
     b: { lon: 44.15, lat: 56.29 },
     zoom: 11,
   },
   {
+    id: 'kuybyshev',
     label: 'Куйбышевское вдхр.',
     a: { lon: 48.42, lat: 54.36 },
     b: { lon: 48.55, lat: 54.4 },
     zoom: 10,
   },
   {
+    id: 'seliger-vokhma',
     label: 'Селигер → Вохма',
     a: { lon: 33.080173, lat: 57.438374 },
     b: { lon: 46.731219, lat: 59.404186 },
@@ -766,20 +777,13 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     } else {
       setStatus(
         path.method === 'direct' && !netParts.length
-          ? 'Не удалось найти водный путь. Кликните ближе к фарватеру, порту или береговой линии.'
+          ? 'Не удалось найти водный путь. Проверьте доступ к brouter.de или выберите пресет (офлайн).'
           : `Готово: ${waypoints.length} точ., ${netLabel}.${parallelNote}`,
         path.method === 'direct' && !netParts.length,
       );
     }
     if (fit && path.points.length >= 2) {
-      const mobile = window.matchMedia('(max-width: 720px)').matches;
-      map.fitBounds(L.latLngBounds(path.points.map((p) => [p.lat, p.lon] as L.LatLngTuple)), {
-        paddingTopLeft: [24, 24],
-        // Bottom sheet covers ~half the phone screen — keep the track visible above it.
-        paddingBottomRight: mobile ? [24, Math.round(window.innerHeight * 0.42)] : [24, 24],
-        maxZoom: 8,
-        animate: true,
-      });
+      fitRouteBounds(path.points);
     }
   } catch (err) {
     console.error(err);
@@ -833,6 +837,44 @@ function computeRuler(opts: { fit?: boolean } = {}): void {
   }
 }
 
+function fitRouteBounds(points: LngLat[]): void {
+  if (points.length < 2) return;
+  const mobile = window.matchMedia('(max-width: 720px)').matches;
+  map.fitBounds(L.latLngBounds(points.map((p) => [p.lat, p.lon] as L.LatLngTuple)), {
+    paddingTopLeft: [24, 24],
+    paddingBottomRight: mobile ? [24, Math.round(window.innerHeight * 0.42)] : [24, 24],
+    maxZoom: 8,
+    animate: true,
+  });
+}
+
+/** Apply a bundled offline track — no brouter.de (works when the API is blocked). */
+function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
+  const canned = getPresetRoute(preset.id);
+  if (!canned || canned.points.length < 2) return false;
+
+  busy = false;
+  pendingRebuild = false;
+  waypoints = [
+    makeWaypoint(canned.a.lon, canned.a.lat, 'Старт'),
+    makeWaypoint(canned.b.lon, canned.b.lat, 'Финиш'),
+  ];
+  lastRoutePath = canned.points;
+  lastCumKm = [0, canned.lengthKm];
+  redrawWaypoints(canned.points);
+  renderWaypointList();
+  showStats(canned.lengthKm, 'река/канал');
+  setStatus(`Готово (офлайн-пресет): 2 точ., река/канал.`);
+  syncControls();
+  map.setView(
+    [(canned.a.lat + canned.b.lat) / 2, (canned.a.lon + canned.b.lon) / 2],
+    preset.zoom,
+    { animate: false },
+  );
+  fitRouteBounds(canned.points);
+  return true;
+}
+
 function renderPresets(): void {
   presetsEl.innerHTML = '';
   if (mode !== 'water') return;
@@ -843,6 +885,9 @@ function renderPresets(): void {
     chip.className = 'chip';
     chip.textContent = preset.label;
     chip.addEventListener('click', () => {
+      // Prefer bundled geometry — instant and independent of brouter.de.
+      if (applyOfflinePreset(preset)) return;
+
       waypoints = [
         makeWaypoint(preset.a.lon, preset.a.lat, 'Старт'),
         makeWaypoint(preset.b.lon, preset.b.lat, 'Финиш'),
@@ -1041,16 +1086,21 @@ function bootFromQuery(): void {
 
   const demo = params.get('demo');
   if (demo && mode === 'water') {
-    const preset = INLAND_PRESETS.find((p) => p.label.toLowerCase().includes(demo.toLowerCase()));
+    const preset = INLAND_PRESETS.find((p) => {
+      const q = demo.toLowerCase();
+      return p.id === q || p.id.includes(q) || p.label.toLowerCase().includes(q);
+    });
     if (preset) {
-      waypoints = [
-        makeWaypoint(preset.a.lon, preset.a.lat, 'Старт'),
-        makeWaypoint(preset.b.lon, preset.b.lat, 'Финиш'),
-      ];
-      map.setView([(preset.a.lat + preset.b.lat) / 2, (preset.a.lon + preset.b.lon) / 2], preset.zoom);
-      redrawWaypoints();
-      syncControls();
-      void computeWaterRoute({ fit: true });
+      if (!applyOfflinePreset(preset)) {
+        waypoints = [
+          makeWaypoint(preset.a.lon, preset.a.lat, 'Старт'),
+          makeWaypoint(preset.b.lon, preset.b.lat, 'Финиш'),
+        ];
+        map.setView([(preset.a.lat + preset.b.lat) / 2, (preset.a.lon + preset.b.lon) / 2], preset.zoom);
+        redrawWaypoints();
+        syncControls();
+        void computeWaterRoute({ fit: true });
+      }
       return;
     }
   }
