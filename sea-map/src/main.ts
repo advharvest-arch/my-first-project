@@ -117,14 +117,26 @@ let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
 /**
- * Fixed geographic offset (meters) left of travel for opposing legs.
- * Must not depend on zoom — otherwise lines appear to move apart/together.
- * Outbound and return both offset left of their direction → ~2× this gap between them.
+ * Parallel offset scales with zoom (screen px), but is capped so out/back
+ * stay within a typical river channel (~22 m total width).
+ * Both legs offset left of travel → gap between them ≈ 2 × offset.
  */
-const RETURN_PARALLEL_OFFSET_M = 6;
+const RIVER_CHANNEL_MAX_M = 22;
+const PARALLEL_OFFSET_MAX_M = RIVER_CHANNEL_MAX_M / 2;
+const PARALLEL_OFFSET_MIN_M = 2.5;
 
 let markerClickGuardUntil = 0;
 let lastMarkerTap: { id: string; at: number } | null = null;
+
+function metersForPixels(px: number): number {
+  try {
+    const a = map.containerPointToLatLng(L.point(0, 0));
+    const b = map.containerPointToLatLng(L.point(px, 0));
+    return Math.max(0.05, map.distance(a, b));
+  } catch {
+    return px * 2;
+  }
+}
 
 function speedKmh(): number {
   return Math.max(1, Number(speedInput.value) || 20);
@@ -396,9 +408,15 @@ function deleteWaypointById(id: string): void {
   }
 }
 
-/** Constant meters — independent of map scale. */
+/**
+ * Screen-based gap so separation tracks zoom, hard-capped to river channel width.
+ */
 function parallelGapMeters(): number {
-  return RETURN_PARALLEL_OFFSET_M;
+  const weight = Math.max(2, Math.min(14, Number(lineWeightInput.value) || 5));
+  // About half the stroke on screen — lanes sit inside the drawn river band.
+  const targetPx = Math.max(3, weight * 0.5);
+  const m = metersForPixels(targetPx);
+  return Math.min(PARALLEL_OFFSET_MAX_M, Math.max(PARALLEL_OFFSET_MIN_M, m));
 }
 
 function bearingDeg(a: LngLat, b: LngLat): number {
@@ -456,8 +474,7 @@ function offsetPathTapered(points: LngLat[], meters: number): LngLat[] {
     cum.push(cum[i - 1]! + haversineKm(points[i - 1]!, points[i]!) * 1000);
   }
   const total = cum[cum.length - 1] || 1;
-  // Short taper relative to the small fixed offset so most of the leg stays parallel and close.
-  const taperM = Math.min(Math.max(total * 0.08, meters * 5, 15), 60);
+  const taperM = Math.min(Math.max(total * 0.1, meters * 6, 18), 90);
 
   return points.map((p, i) => {
     const d = cum[i]!;
@@ -492,21 +509,22 @@ function buildDisplayPath(path: LngLat[]): LngLat[] {
   return out.length >= 2 ? out : path;
 }
 
+function arrowLayoutForScale(): { stepM: number; sizePx: number } {
+  const zoom = map.getZoom();
+  // Sparse screen spacing — geographic step shrinks when zoomed in.
+  const stepM = Math.min(2800, Math.max(200, metersForPixels(180)));
+  // Arrow size grows with zoom.
+  const sizePx = Math.round(Math.min(26, Math.max(10, 8 + (zoom - 8) * 1.5)));
+  return { stepM, sizePx };
+}
+
 function drawDirectionArrows(path: LngLat[], color: string): void {
   if (path.length < 2) return;
-  let stepM = 800;
-  try {
-    const a = map.containerPointToLatLng(L.point(0, 0));
-    const b = map.containerPointToLatLng(L.point(200, 0));
-    // Sparse arrows — only a few along the route at typical zooms.
-    stepM = Math.min(2500, Math.max(500, map.distance(a, b)));
-  } catch {
-    /* keep default */
-  }
-
+  const { stepM, sizePx } = arrowLayoutForScale();
   const safeColor = escapeHtml(color);
+  const half = sizePx / 2;
   let acc = 0;
-  let nextAt = stepM * 0.55;
+  let nextAt = stepM * 0.5;
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1]!;
     const b = path[i]!;
@@ -528,14 +546,14 @@ function drawDirectionArrows(path: LngLat[], color: string): void {
         zIndexOffset: 200,
         icon: L.divIcon({
           className: 'route-arrow-wrap',
-          html: `<div class="route-arrow" style="--brg:${brg.toFixed(1)}deg">
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          html: `<div class="route-arrow" style="--brg:${brg.toFixed(1)}deg;--arrow-size:${sizePx}px">
+            <svg viewBox="0 0 24 24" width="${sizePx}" height="${sizePx}" aria-hidden="true">
               <path d="M12 2.5 L21 20.5 L12 16.2 L3 20.5 Z"
                 fill="${safeColor}" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
             </svg>
           </div>`,
-          iconSize: [22, 22],
-          iconAnchor: [11, 11],
+          iconSize: [sizePx, sizePx],
+          iconAnchor: [half, half],
         }),
       }).addTo(drawLayer);
       nextAt += stepM;
@@ -948,7 +966,7 @@ map.on('moveend', () => {
 });
 
 map.on('zoomend', () => {
-  // Rebuild arrows for screen spacing only — parallel gap is fixed in meters, so geometry does not change with zoom.
+  // Parallel gap, arrow step and arrow size all depend on scale.
   if (lastRoutePath && lastRoutePath.length >= 2) {
     redrawWaypoints(lastRoutePath);
   }
