@@ -58,9 +58,20 @@ body {
   font: inherit;
 }
 
-/* Leaflet 1.9+ uses plus-lighter; against custom backgrounds tiles can vanish */
-.leaflet-container img.leaflet-tile {
-  mix-blend-mode: normal !important;
+/* Always arrow cursor on the map (not the hand / grab). */
+.leaflet-container,
+.leaflet-container.leaflet-grab,
+.leaflet-container .leaflet-grab,
+.leaflet-container.leaflet-drag-target,
+.leaflet-dragging .leaflet-grab,
+.leaflet-dragging .leaflet-grab .leaflet-interactive,
+.leaflet-grabbing {
+  cursor: default !important;
+}
+
+.leaflet-container .leaflet-marker-pane .leaflet-interactive,
+.leaflet-container .leaflet-overlay-pane path.leaflet-interactive {
+  cursor: pointer !important;
 }
 
 .leaflet-land-pane path {

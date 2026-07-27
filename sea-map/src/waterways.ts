@@ -1,4 +1,5 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
+import waterCore from './water-core.json';
 
 export type WaterPath = {
   points: LngLat[];
@@ -35,41 +36,75 @@ const MERGE_KM = 0.06;
 const SNAP_MAX_KM = 10;
 const LAKE_CONNECT_KM = 0.2;
 
+// Mail.ru first — usually has RU data; CH often returns empty 200s (skip as primary).
 const OVERPASS_ENDPOINTS = [
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  'https://overpass.osm.ch/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
 ];
 
 function keyCell(lon: number, lat: number): string {
   return `${Math.round(lon / GRID)},${Math.round(lat / GRID)}`;
 }
 
-async function overpassQuery(query: string): Promise<OverpassElement[]> {
-  let lastError: unknown;
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 18000);
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-          'User-Agent': 'AquaRoute/1.2 (inland waterways; https://advharvest-arch.github.io)',
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      const text = await res.text();
-      if (!res.ok) throw new Error(`Overpass ${res.status} @ ${endpoint}`);
-      const data = JSON.parse(text) as { elements?: OverpassElement[] };
-      return data.elements ?? [];
-    } catch (err) {
-      lastError = err;
-    }
+async function fetchOneOverpass(endpoint: string, body: string, ms: number): Promise<OverpassElement[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'User-Agent': 'AquaRoute/1.4 (inland waterways; https://advharvest-arch.github.io)',
+      },
+      body,
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`Overpass ${res.status} @ ${endpoint}`);
+    const data = JSON.parse(text) as { elements?: OverpassElement[] };
+    return data.elements ?? [];
+  } finally {
+    clearTimeout(timer);
   }
-  throw lastError instanceof Error ? lastError : new Error('Overpass failed');
+}
+
+/**
+ * Race mirrors; ignore empty 200s (some mirrors answer fast with zero elements).
+ * First non-empty wins. If all empty/fail, return [] or throw.
+ */
+async function overpassQuery(query: string): Promise<OverpassElement[]> {
+  const body = `data=${encodeURIComponent(query)}`;
+  return await new Promise<OverpassElement[]>((resolve, reject) => {
+    let pending = OVERPASS_ENDPOINTS.length;
+    let empty: OverpassElement[] | null = null;
+    let done = false;
+    const errors: unknown[] = [];
+
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      fetchOneOverpass(endpoint, body, 14000)
+        .then((els) => {
+          if (done) return;
+          if (els.length > 0) {
+            done = true;
+            resolve(els);
+            return;
+          }
+          empty = els;
+          pending -= 1;
+          if (pending === 0) resolve(empty ?? []);
+        })
+        .catch((err) => {
+          if (done) return;
+          errors.push(err);
+          pending -= 1;
+          if (pending === 0) {
+            if (empty) resolve(empty);
+            else reject(errors[errors.length - 1] ?? new Error('Overpass failed'));
+          }
+        });
+    }
+  });
 }
 
 function isWaterArea(tags: Record<string, string> | undefined): boolean {
@@ -383,20 +418,6 @@ function dijkstra(start: number, goal: number, nodeCount: number, edges: GraphEd
   return path;
 }
 
-function bboxOf(points: LngLat[], padDeg: number): [number, number, number, number] {
-  let s = Infinity;
-  let n = -Infinity;
-  let w = Infinity;
-  let e = -Infinity;
-  for (const p of points) {
-    s = Math.min(s, p.lat);
-    n = Math.max(n, p.lat);
-    w = Math.min(w, p.lon);
-    e = Math.max(e, p.lon);
-  }
-  return [s - padDeg, w - padDeg, n + padDeg, e + padDeg];
-}
-
 function pathLength(points: LngLat[]): number {
   let sum = 0;
   for (let i = 1; i < points.length; i++) sum += haversineKm(points[i - 1]!, points[i]!);
@@ -413,149 +434,241 @@ function simplifyPath(points: LngLat[], minKm = 0.04): LngLat[] {
   return out;
 }
 
-function escapeOverpass(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+/** Intermediate points along a path */
+function densifyPoints(points: LngLat[], stepKm: number): LngLat[] {
+  if (points.length < 2) return points;
+  const out: LngLat[] = [points[0]!];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const d = haversineKm(a, b);
+    const n = Math.max(1, Math.ceil(d / stepKm));
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      out.push({
+        lon: a.lon + (b.lon - a.lon) * t,
+        lat: a.lat + (b.lat - a.lat) * t,
+      });
+    }
+  }
+  return out;
 }
 
-/** Fast local lookup around a click */
-function aroundQuery(p: LngLat, radiusM: number): string {
-  return `
-[out:json][timeout:25];
-(
-  way(around:${radiusM},${p.lat},${p.lon})["waterway"~"^(river|canal|fairway|ship_canal|link|stream)$"];
-  way(around:${radiusM},${p.lat},${p.lon})["landuse"="reservoir"];
-  way(around:${radiusM},${p.lat},${p.lon})["natural"="water"]["water"~"^(lake|reservoir|basin)$"];
-  way(around:${radiusM},${p.lat},${p.lon})["natural"="water"]["name"];
-  relation(around:${radiusM},${p.lat},${p.lon})["landuse"="reservoir"];
-  relation(around:${radiusM},${p.lat},${p.lon})["natural"="water"]["name"];
-  relation(around:${radiusM},${p.lat},${p.lon})["waterway"~"^(river|canal)$"];
-  relation(around:${radiusM},${p.lat},${p.lon})["type"="waterway"];
-);
-out geom;
-`;
+/** ~22 km cells — reuse between nearby routes */
+const CELL_DEG = 0.2;
+const cellCache = new Map<string, WaterLine[]>();
+const EMPTY_CELL_TTL_MS = 45_000;
+const emptyCellUntil = new Map<string, number>();
+const cellInflight = new Map<string, Promise<WaterLine[]>>();
+
+type CoreLine = { id: string; n: string | null; k: 'w' | 'l'; c: Array<[number, number]> };
+
+function seedCoreWaterways(): void {
+  const raw = waterCore as CoreLine[];
+  const lines: WaterLine[] = raw.map((row) => ({
+    id: row.id,
+    name: row.n,
+    kind: row.k === 'l' ? 'lake' : 'waterway',
+    coords: row.c.map(([lon, lat]) => ({ lon, lat })),
+    closed: row.k === 'l' && row.c.length > 3,
+  }));
+  rememberLinesInCells(lines);
 }
 
-function namedWaterwayQuery(
-  names: string[],
-  s: number,
-  w: number,
-  n: number,
-  e: number,
-): string {
-  const nameFilters = names
-    .slice(0, 6)
-    .map((name) => {
-      const q = escapeOverpass(name);
+function cellKey(cx: number, cy: number): string {
+  return `${cx}:${cy}`;
+}
+
+function pointCell(p: LngLat): { cx: number; cy: number } {
+  return { cx: Math.floor(p.lon / CELL_DEG), cy: Math.floor(p.lat / CELL_DEG) };
+}
+
+function cellsAlong(points: LngLat[]): Array<{ cx: number; cy: number }> {
+  const seen = new Set<string>();
+  const out: Array<{ cx: number; cy: number }> = [];
+  for (const p of densifyPoints(points, 10)) {
+    const { cx, cy } = pointCell(p);
+    const k = cellKey(cx, cy);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ cx, cy });
+  }
+  return out;
+}
+
+function sampleAlongPath(points: LngLat[], count: number): LngLat[] {
+  if (points.length === 0) return [];
+  if (count <= 1 || points.length === 1) return [points[0]!];
+  const densified = densifyPoints(points, 0.5);
+  if (densified.length <= count) return densified;
+  const out: LngLat[] = [];
+  const step = (densified.length - 1) / (count - 1);
+  for (let i = 0; i < count; i++) out.push(densified[Math.round(i * step)]!);
+  return out;
+}
+
+/** Compact around-query for a route corridor (one request). */
+function aroundWaterQuery(points: LngLat[]): string {
+  const span = pathLength(points);
+  const sampleCount = Math.min(10, Math.max(2, Math.ceil(span / 5) + 1));
+  const gapKm = span / Math.max(1, sampleCount - 1);
+  const radius = Math.min(4500, Math.max(1500, Math.ceil(gapKm * 1000 * 0.7)));
+  const blocks = sampleAlongPath(points, sampleCount)
+    .map((p) => {
+      const { lat, lon } = p;
       return `
-  way["waterway"~"^(river|canal)$"]["name"="${q}"](${s},${w},${n},${e});
-  way["waterway"~"^(river|canal)$"]["name:ru"="${q}"](${s},${w},${n},${e});
-  relation["waterway"~"^(river|canal)$"]["name"="${q}"](${s},${w},${n},${e});
-  relation["waterway"~"^(river|canal)$"]["name:ru"="${q}"](${s},${w},${n},${e});
-  relation["type"="waterway"]["name"="${q}"](${s},${w},${n},${e});
-  way["landuse"="reservoir"]["name"="${q}"](${s},${w},${n},${e});
-  relation["landuse"="reservoir"]["name"="${q}"](${s},${w},${n},${e});
-  way["natural"="water"]["name"="${q}"](${s},${w},${n},${e});
-  relation["natural"="water"]["name"="${q}"](${s},${w},${n},${e});`;
+  way(around:${radius},${lat},${lon})["waterway"~"^(river|canal|fairway|ship_canal|link)$"];
+  way(around:${radius},${lat},${lon})["landuse"="reservoir"];
+  way(around:${radius},${lat},${lon})["natural"="water"]["water"~"^(lake|reservoir|basin)$"];
+  way(around:${radius},${lat},${lon})["natural"="water"]["name"];`;
     })
     .join('\n');
 
   return `
-[out:json][timeout:35];
+[out:json][timeout:12];
 (
-${nameFilters}
+${blocks}
 );
 out geom;
 `;
 }
 
-function corridorQuery(s: number, w: number, n: number, e: number): string {
+function cellBboxQuery(cx: number, cy: number): string {
+  const pad = 0.015;
+  const w = cx * CELL_DEG - pad;
+  const s = cy * CELL_DEG - pad;
+  const e = (cx + 1) * CELL_DEG + pad;
+  const n = (cy + 1) * CELL_DEG + pad;
   return `
-[out:json][timeout:30];
+[out:json][timeout:10];
 (
-  way["waterway"="river"](${s},${w},${n},${e});
-  way["waterway"="canal"](${s},${w},${n},${e});
-  way["waterway"="fairway"](${s},${w},${n},${e});
-  way["waterway"="ship_canal"](${s},${w},${n},${e});
+  way["waterway"~"^(river|canal|fairway|ship_canal|link)$"](${s},${w},${n},${e});
+  way["landuse"="reservoir"](${s},${w},${n},${e});
+  way["natural"="water"]["water"~"^(lake|reservoir|basin)$"](${s},${w},${n},${e});
+  way["natural"="water"]["name"](${s},${w},${n},${e});
 );
 out geom;
 `;
+}
+
+function rememberLinesInCells(lines: WaterLine[]): void {
+  if (!lines.length) return;
+  const byCell = new Map<string, WaterLine[]>();
+  for (const line of lines) {
+    const cells = new Set<string>();
+    for (const p of line.coords) {
+      const { cx, cy } = pointCell(p);
+      cells.add(cellKey(cx, cy));
+    }
+    for (const id of cells) {
+      const arr = byCell.get(id) ?? [];
+      arr.push(line);
+      byCell.set(id, arr);
+    }
+  }
+  for (const [id, group] of byCell) {
+    const prev = cellCache.get(id) ?? [];
+    const seen = new Set(prev.map((l) => l.id));
+    const merged = prev.slice();
+    for (const l of group) {
+      if (seen.has(l.id)) continue;
+      seen.add(l.id);
+      merged.push(l);
+    }
+    cellCache.set(id, merged);
+  }
+  while (cellCache.size > 400) {
+    const first = cellCache.keys().next().value;
+    if (!first) break;
+    cellCache.delete(first);
+  }
+}
+
+seedCoreWaterways();
+
+function mergeLines(groups: WaterLine[][]): WaterLine[] {
+  const seen = new Set<string>();
+  const out: WaterLine[] = [];
+  for (const g of groups) {
+    for (const line of g) {
+      if (seen.has(line.id)) continue;
+      seen.add(line.id);
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+async function loadCell(cx: number, cy: number): Promise<WaterLine[]> {
+  const id = cellKey(cx, cy);
+  const hit = cellCache.get(id);
+  if (hit?.length) return hit;
+
+  const emptyUntil = emptyCellUntil.get(id) ?? 0;
+  if (emptyUntil > Date.now()) return [];
+
+  const inflight = cellInflight.get(id);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    try {
+      const lines = linesFromElements(await overpassQuery(cellBboxQuery(cx, cy)));
+      if (lines.length) rememberLinesInCells(lines);
+      else emptyCellUntil.set(id, Date.now() + EMPTY_CELL_TTL_MS);
+      return cellCache.get(id) ?? lines;
+    } finally {
+      cellInflight.delete(id);
+    }
+  })();
+
+  cellInflight.set(id, task);
+  return task;
 }
 
 async function fetchWaterNetwork(points: LngLat[]): Promise<WaterLine[]> {
-  const byId = new Map<string, WaterLine>();
-  const add = (lines: WaterLine[]) => {
-    for (const line of lines) {
-      if (!byId.has(line.id)) byId.set(line.id, line);
-    }
-  };
+  const cells = cellsAlong(points);
+  const fromCache = mergeLines(
+    cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
+  );
+  const missing = cells.filter((c) => !cellCache.get(cellKey(c.cx, c.cy))?.length);
 
-  const names = new Set<string>();
+  // Full cache hit — skip Overpass.
+  if (missing.length === 0 && fromCache.length > 0) return fromCache;
 
-  // One fast parallel around-pass (2 km)
-  {
-    const batches = await Promise.all(
-      points.map(async (p) => {
-        try {
-          return linesFromElements(await overpassQuery(aroundQuery(p, 2000)));
-        } catch {
-          return [] as WaterLine[];
-        }
-      }),
-    );
-    for (const lines of batches) {
-      add(lines);
-      for (const line of lines) if (line.name) names.add(line.name);
-    }
-  }
-
-  // Retry farther only if nothing found
-  if (byId.size === 0) {
-    const batches = await Promise.all(
-      points.map(async (p) => {
-        try {
-          return linesFromElements(await overpassQuery(aroundQuery(p, 5000)));
-        } catch {
-          return [] as WaterLine[];
-        }
-      }),
-    );
-    for (const lines of batches) {
-      add(lines);
-      for (const line of lines) if (line.name) names.add(line.name);
-    }
-  }
-
-  const span = pathLength(points);
-  const pad = Math.min(1.2, Math.max(0.06, span / 180 + 0.06));
-  const [s, w, n, e] = bboxOf(points, pad);
-
-  // Pull full named rivers/reservoirs across the short corridor
-  if (names.size > 0) {
-    try {
-      add(
-        linesFromElements(
-          await overpassQuery(namedWaterwayQuery([...names].slice(0, 4), s, w, n, e)),
-        ),
-      );
-    } catch {
-      // ignore
-    }
-  }
-
-  // Early exit if already routable between endpoints
-  if (points.length >= 2) {
-    const probe = routeOnLines(points[0]!, points[points.length - 1]!, [...byId.values()]);
-    if (probe.method !== 'direct') return [...byId.values()];
-  }
-
-  // Lightweight corridor fill for missing links
+  // One corridor query — then seed the cell cache for next routes.
   try {
-    add(linesFromElements(await overpassQuery(corridorQuery(s, w, n, e))));
+    const lines = linesFromElements(await overpassQuery(aroundWaterQuery(points)));
+    if (lines.length) {
+      rememberLinesInCells(lines);
+      return mergeLines([fromCache, lines]);
+    }
   } catch {
-    // ignore
+    // fall through
   }
 
-  return [...byId.values()];
+  if (fromCache.length) return fromCache;
+
+  const ends = [points[0]!, points[points.length - 1]!].map(pointCell);
+  const unique = new Map(ends.map((c) => [cellKey(c.cx, c.cy), c]));
+  const loaded = await Promise.all([...unique.values()].map((c) => loadCell(c.cx, c.cy)));
+  return mergeLines(loaded);
+}
+
+/** Warm waterway cache around a point (call after inland click / demo). */
+export function prefetchWaterNear(point: LngLat): void {
+  const { cx, cy } = pointCell(point);
+  void loadCell(cx, cy);
+}
+
+/** Warm cache for the visible map (call on inland moveend). */
+export function prefetchWaterBbox(south: number, west: number, north: number, east: number): void {
+  const cx0 = Math.floor(west / CELL_DEG);
+  const cx1 = Math.floor(east / CELL_DEG);
+  const cy0 = Math.floor(south / CELL_DEG);
+  const cy1 = Math.floor(north / CELL_DEG);
+  const midX = Math.round((cx0 + cx1) / 2);
+  const midY = Math.round((cy0 + cy1) / 2);
+  void loadCell(midX, midY);
 }
 
 function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): WaterPath {
