@@ -148,9 +148,14 @@ const VOLGA_BALTIC_VIAS: LngLat[] = [
  * BRouter's river graph often leaves the Moscow Canal shipping fairway and loops
  * east through Пироговское / Пестовское / Клязьминское before rejoining near Iksha.
  * Replace that spur with the main-stem canal corridor.
+ *
+ * IMPORTANT: lonMax is required. Without it, every Volga point with
+ * lon≥37.545 and lat∈[55.9,56.14] (Чебоксары/Куйбышев!) matched as a "spur"
+ * and got rewritten through the Moscow Canal → 10× bogus length → route fail.
  */
 const MOSCOW_CANAL_EAST_SPUR = {
   lonMin: 37.545,
+  lonMax: 37.88,
   latMin: 55.9,
   latMax: 56.14,
 };
@@ -167,6 +172,7 @@ const MOSCOW_CANAL_FAIRWAY: LngLat[] = [
 function inMoscowCanalEastSpur(p: LngLat): boolean {
   return (
     p.lon >= MOSCOW_CANAL_EAST_SPUR.lonMin &&
+    p.lon <= MOSCOW_CANAL_EAST_SPUR.lonMax &&
     p.lat >= MOSCOW_CANAL_EAST_SPUR.latMin &&
     p.lat <= MOSCOW_CANAL_EAST_SPUR.latMax
   );
@@ -952,7 +958,7 @@ async function routeViaVolgaFairway(a: LngLat, b: LngLat): Promise<BrouterResult
       return null;
     }
     const userGeo = haversineKm(a, b);
-    if (userGeo >= 25 && route.lengthKm > userGeo * 4.5) return null;
+    if (userGeo >= 15 && route.lengthKm > userGeo * 3.5) return null;
     return route;
   };
 
@@ -989,12 +995,11 @@ async function routeAlongVias(
     seen.add(key);
     const oneshot = await routeWithBrouter([a, ...trimmed, b]);
     if (oneshot && oneshot.points.length >= 2 && oneshot.lengthKm > 0) {
-      if (
+      const ok =
         depth > 0 ||
-        !isSuspiciousVolgaPath(oneshot.points, a, b, oneshot.lengthKm)
-      ) {
-        return oneshot;
-      }
+        !(inVolgaBasin(a) && inVolgaBasin(b)) ||
+        !isSuspiciousVolgaPath(oneshot.points, a, b, oneshot.lengthKm);
+      if (ok) return oneshot;
     }
   }
 
@@ -1019,7 +1024,12 @@ async function routeAlongVias(
   }
   if (!parts.length) return null;
   const stitched = stitchResults(parts);
-  if (depth === 0 && isSuspiciousVolgaPath(stitched.points, a, b, stitched.lengthKm)) {
+  if (
+    depth === 0 &&
+    inVolgaBasin(a) &&
+    inVolgaBasin(b) &&
+    isSuspiciousVolgaPath(stitched.points, a, b, stitched.lengthKm)
+  ) {
     return null;
   }
   return stitched;
@@ -1041,8 +1051,21 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
     if (depth === 0 && moscowSpb && !looksLikeVolgaBaltic(route.points)) {
       return null;
     }
-    if (depth === 0 && isSuspiciousVolgaPath(route.points, a, b, route.lengthKm)) {
+    // Volga-specific heuristics only inside the basin — near-geo/excess must not
+    // kill Rhine/Don/Ladoga (or any non-Volga) fairway that happens to be straight.
+    if (
+      depth === 0 &&
+      inVolgaBasin(a) &&
+      inVolgaBasin(b) &&
+      isSuspiciousVolgaPath(route.points, a, b, route.lengthKm)
+    ) {
       return null;
+    }
+    // Universal: collapsed BRouter snap (track << geodesic).
+    if (depth === 0) {
+      const geo = haversineKm(a, b);
+      if (geo >= 12 && route.lengthKm < geo * 0.85) return null;
+      if (geo >= 8 && route.points.length <= 2) return null;
     }
     return route;
   };
