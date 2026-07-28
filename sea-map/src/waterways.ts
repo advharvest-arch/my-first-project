@@ -1238,8 +1238,28 @@ const TRUNK_RIVERS = new Set(
   ),
 );
 
+/** Named corridors that must not be permanently locked on a Volga confluence flicker. */
+const CORRIDOR_TRIBUTARIES = new Set(
+  [
+    'ветлуга',
+    'вохма',
+    'селижаровка',
+    'белая',
+    'шексна',
+    'свирь',
+    'нева',
+    'ковжа',
+    'вытегра',
+    'волхов',
+  ].map((s) => s.toLocaleLowerCase('ru')),
+);
+
 function isTrunkRiver(name: string): boolean {
   return TRUNK_RIVERS.has(name.toLocaleLowerCase('ru'));
+}
+
+function isCorridorTributary(name: string): boolean {
+  return CORRIDOR_TRIBUTARIES.has(name.toLocaleLowerCase('ru'));
 }
 
 function nameAtSample(
@@ -1248,11 +1268,60 @@ function nameAtSample(
   stickyOutsideKm: number,
   usedNames: Set<string>,
   stepKm: number,
-): { name: string | null; stickyLake: string | null; stickyOutsideKm: number } {
+  stickyRiver: string | null,
+  stickyRiverOutsideKm: number,
+): {
+  name: string | null;
+  stickyLake: string | null;
+  stickyOutsideKm: number;
+  stickyRiver: string | null;
+  stickyRiverOutsideKm: number;
+} {
+  // Sticky tributary (Ветлуга, Селижаровка…): stay on it through Volga-bbox overlap.
+  if (stickyRiver) {
+    const body = catalogBodyByName(stickyRiver);
+    if (body && pointInCatalog(p, body)) {
+      // Mouth: Ветлуга south of 56.5 is really Volga — release sticky.
+      if (
+        stickyRiver.toLocaleLowerCase('ru') === 'ветлуга' &&
+        p.lat < 56.5
+      ) {
+        // fall through to normal pick below
+      } else {
+        return {
+          name: stickyRiver,
+          stickyLake: null,
+          stickyOutsideKm: 0,
+          stickyRiver,
+          stickyRiverOutsideKm: 0,
+        };
+      }
+    } else {
+      const outside = stickyRiverOutsideKm + stepKm;
+      if (outside < 6) {
+        return {
+          name: stickyRiver,
+          stickyLake: null,
+          stickyOutsideKm: 0,
+          stickyRiver,
+          stickyRiverOutsideKm: outside,
+        };
+      }
+      stickyRiver = null;
+      stickyRiverOutsideKm = 0;
+    }
+  }
+
   if (stickyLake) {
     const body = catalogBodyByName(stickyLake);
     if (body && pointInCatalog(p, body)) {
-      return { name: stickyLake, stickyLake, stickyOutsideKm: 0 };
+      return {
+        name: stickyLake,
+        stickyLake,
+        stickyOutsideKm: 0,
+        stickyRiver,
+        stickyRiverOutsideKm,
+      };
     }
 
     // Leaving a lake into a named tributary / outflow (Селижаровка, Нева, Белая…):
@@ -1267,14 +1336,30 @@ function nameAtSample(
         catalogArea(riverBody) < catalogArea(volga) * 0.45
       ) {
         usedNames.add(stickyLake.toLocaleLowerCase('ru'));
-        return { name: catalogNow.name, stickyLake: null, stickyOutsideKm: 0 };
+        const riverSticky = isCorridorTributary(catalogNow.name)
+          ? catalogNow.name
+          : null;
+        return {
+          name: catalogNow.name,
+          stickyLake: null,
+          stickyOutsideKm: 0,
+          stickyRiver: riverSticky,
+          stickyRiverOutsideKm: 0,
+        };
       }
     }
 
-    // Hysteresis for brief gaps inside the same reservoir corridor.
+    // Short hysteresis — long 8 km made Селигер/Селижаровка split differ by route.
     const outside = stickyOutsideKm + stepKm;
-    if (outside < 8) {
-      return { name: stickyLake, stickyLake, stickyOutsideKm: outside };
+    const hystKm = stickyLake.toLocaleLowerCase('ru').includes('селигер') ? 2 : 5;
+    if (outside < hystKm) {
+      return {
+        name: stickyLake,
+        stickyLake,
+        stickyOutsideKm: outside,
+        stickyRiver,
+        stickyRiverOutsideKm,
+      };
     }
     usedNames.add(stickyLake.toLocaleLowerCase('ru'));
     stickyLake = null;
@@ -1284,12 +1369,31 @@ function nameAtSample(
   // Catalog only — never pull random OSM tributaries (e.g. «Ить»).
   const catalog = pickCatalogName(p, usedNames);
   if (catalog?.kind === 'lake') {
-    return { name: catalog.name, stickyLake: catalog.name, stickyOutsideKm: 0 };
+    return {
+      name: catalog.name,
+      stickyLake: catalog.name,
+      stickyOutsideKm: 0,
+      stickyRiver: null,
+      stickyRiverOutsideKm: 0,
+    };
   }
   if (catalog?.kind === 'river') {
-    return { name: catalog.name, stickyLake: null, stickyOutsideKm: 0 };
+    const riverSticky = isCorridorTributary(catalog.name) ? catalog.name : null;
+    return {
+      name: catalog.name,
+      stickyLake: null,
+      stickyOutsideKm: 0,
+      stickyRiver: riverSticky ?? stickyRiver,
+      stickyRiverOutsideKm: riverSticky ? 0 : stickyRiverOutsideKm,
+    };
   }
-  return { name: null, stickyLake: null, stickyOutsideKm: 0 };
+  return {
+    name: null,
+    stickyLake: null,
+    stickyOutsideKm: 0,
+    stickyRiver,
+    stickyRiverOutsideKm,
+  };
 }
 
 /** Fold tiny noise stretches into neighbours (keeps cascade readable). */
@@ -1425,6 +1529,8 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
 
   let stickyLake: string | null = null;
   let stickyOutsideKm = 0;
+  let stickyRiver: string | null = null;
+  let stickyRiverOutsideKm = 0;
   const usedNames = new Set<string>();
   const segments: ItinerarySegment[] = [];
   // Suppress «Канал имени Москвы» until after Иваньковское when the route
@@ -1433,9 +1539,19 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   let seenIvankovo = false;
 
   const labelAt = (p: LngLat, stepKm: number): string | null => {
-    const hit = nameAtSample(p, stickyLake, stickyOutsideKm, usedNames, stepKm);
+    const hit = nameAtSample(
+      p,
+      stickyLake,
+      stickyOutsideKm,
+      usedNames,
+      stepKm,
+      stickyRiver,
+      stickyRiverOutsideKm,
+    );
     stickyLake = hit.stickyLake;
     stickyOutsideKm = hit.stickyOutsideKm;
+    stickyRiver = hit.stickyRiver;
+    stickyRiverOutsideKm = hit.stickyRiverOutsideKm;
     if (!hit.name) return null;
     const key = hit.name.toLocaleLowerCase('ru');
     if (usedNames.has(key)) return null;
@@ -1504,8 +1620,11 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
         if (isLakeCatalogName(currentName)) {
           usedNames.add(currentName.toLocaleLowerCase('ru'));
         } else if (
+          // Never lock Ветлуга/Селижаровка/… on a Volga confluence flicker —
+          // that turned the whole Vetluga climb into «Волга (500 км)».
           !isTrunkRiver(currentName) &&
-          (isLakeCatalogName(name) || isTrunkRiver(name))
+          !isCorridorTributary(currentName) &&
+          isLakeCatalogName(name)
         ) {
           usedNames.add(currentName.toLocaleLowerCase('ru'));
         }
