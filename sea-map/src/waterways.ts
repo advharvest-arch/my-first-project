@@ -1219,8 +1219,26 @@ function pickCatalogName(
   // Ветлуга box overlaps the Volga / Cheboksary band — don't label the stem as Ветлуга.
   if (bestKey === 'ветлуга') {
     const volga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'волга');
-    if (volga && sample.lat < 56.5) {
+    const lake = hits.find((h) => h.k === 'l');
+    if (lake) {
+      return { name: lake.n, kind: 'lake' };
+    }
+    if (volga && sample.lat < 56.52) {
       return { name: 'Волга', kind: 'river' };
+    }
+  }
+  // While climbing a corridor, never let the giant Волга box win over Ветлуга/Вохма.
+  if (bestKey === 'волга') {
+    const trib = hits.find((h) => {
+      const k = h.n.toLocaleLowerCase('ru');
+      return k === 'ветлуга' || k === 'вохма' || k === 'селижаровка' || k === 'белая';
+    });
+    if (trib) {
+      const k = trib.n.toLocaleLowerCase('ru');
+      if (k === 'ветлуга' && sample.lat < 56.52) {
+        return { name: 'Волга', kind: 'river' };
+      }
+      return { name: trib.n, kind: 'river' };
     }
   }
 
@@ -1262,6 +1280,12 @@ function isCorridorTributary(name: string): boolean {
   return CORRIDOR_TRIBUTARIES.has(name.toLocaleLowerCase('ru'));
 }
 
+/** Long climbs (Ветлуга→Вохма, Белая) — keep label even outside a tight bbox. */
+function isStrongCorridorSticky(name: string): boolean {
+  const k = name.toLocaleLowerCase('ru');
+  return k === 'ветлуга' || k === 'вохма' || k === 'белая';
+}
+
 function nameAtSample(
   p: LngLat,
   stickyLake: string | null,
@@ -1277,13 +1301,50 @@ function nameAtSample(
   stickyRiver: string | null;
   stickyRiverOutsideKm: number;
 } {
-  // Sticky tributary (Ветлуга, Селижаровка…): stay on it through Volga-bbox overlap.
+  // Sticky tributary: must not flip to Волга every time the track leaves a narrow bbox.
   if (stickyRiver) {
+    const key = stickyRiver.toLocaleLowerCase('ru');
     const body = catalogBodyByName(stickyRiver);
     const inBody = !!(body && pointInCatalog(p, body));
-    const vetlugaMouth =
-      stickyRiver.toLocaleLowerCase('ru') === 'ветлуга' && p.lat < 56.5;
-    if (inBody && !vetlugaMouth) {
+
+    // Prefer a more specific corridor ahead (Ветлуга → Вохма).
+    const peek = pickCatalogName(p, usedNames);
+    if (
+      peek?.kind === 'river' &&
+      isCorridorTributary(peek.name) &&
+      peek.name.toLocaleLowerCase('ru') !== key &&
+      catalogBodyByName(peek.name) &&
+      catalogArea(catalogBodyByName(peek.name)!) <=
+        (body ? catalogArea(body) : Infinity)
+    ) {
+      return {
+        name: peek.name,
+        stickyLake: null,
+        stickyOutsideKm: 0,
+        stickyRiver: peek.name,
+        stickyRiverOutsideKm: 0,
+      };
+    }
+
+    // Reservoir / lake always wins over a sticky river.
+    if (peek?.kind === 'lake') {
+      return {
+        name: peek.name,
+        stickyLake: peek.name,
+        stickyOutsideKm: 0,
+        stickyRiver: null,
+        stickyRiverOutsideKm: 0,
+      };
+    }
+
+    // Terminal / mouth: release back to the trunk.
+    const atVetlugaMouth = key === 'ветлуга' && p.lat < 56.5;
+    const pastSelizharovka =
+      key === 'селижаровка' && (p.lon > 33.72 || p.lat < 56.76);
+    if (atVetlugaMouth || pastSelizharovka) {
+      stickyRiver = null;
+      stickyRiverOutsideKm = 0;
+    } else if (inBody) {
       return {
         name: stickyRiver,
         stickyLake: null,
@@ -1291,10 +1352,12 @@ function nameAtSample(
         stickyRiver,
         stickyRiverOutsideKm: 0,
       };
-    }
-    if (!vetlugaMouth) {
+    } else {
       const outside = stickyRiverOutsideKm + stepKm;
-      if (outside < 6) {
+      // Strong corridors: keep labeling through long meanders outside the box
+      // (otherwise Волга bbox swallows hundreds of km: «Ветлуга—Волга—Ветлуга»).
+      const holdKm = isStrongCorridorSticky(stickyRiver) ? 90 : 3;
+      if (outside < holdKm) {
         return {
           name: stickyRiver,
           stickyLake: null,
@@ -1303,9 +1366,9 @@ function nameAtSample(
           stickyRiverOutsideKm: outside,
         };
       }
+      stickyRiver = null;
+      stickyRiverOutsideKm = 0;
     }
-    stickyRiver = null;
-    stickyRiverOutsideKm = 0;
   }
 
   if (stickyLake) {
@@ -1345,9 +1408,9 @@ function nameAtSample(
       }
     }
 
-    // Short hysteresis — long 8 km made Селигер/Селижаровка split differ by route.
+    // Short hysteresis — long hold made Селигер/Селижаровка split unstable.
     const outside = stickyOutsideKm + stepKm;
-    const hystKm = stickyLake.toLocaleLowerCase('ru').includes('селигер') ? 2 : 5;
+    const hystKm = stickyLake.toLocaleLowerCase('ru').includes('селигер') ? 1.5 : 4;
     if (outside < hystKm) {
       return {
         name: stickyLake,
