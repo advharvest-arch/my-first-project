@@ -240,8 +240,9 @@ function isVolgaBalticLongCorridor(a: LngLat, b: LngLat): boolean {
 function isVolgaStemCorridor(a: LngLat, b: LngLat): boolean {
   if (isVolgaBalticLongCorridor(a, b) || isMoscowSpbCorridor(a, b)) return false;
   if (!inVolgaBasin(a) || !inVolgaBasin(b)) return false;
-  if (haversineKm(a, b) < 250) return false;
-  return Math.abs(a.lon - b.lon) >= 3.5;
+  const span = haversineKm(a, b);
+  if (span < 80) return false;
+  return nearestStemIndex(a) !== nearestStemIndex(b) || Math.abs(a.lon - b.lon) >= 1;
 }
 
 function pickViasAlong(
@@ -394,15 +395,16 @@ function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
 
 function corridorViasBetween(a: LngLat, b: LngLat): LngLat[] {
   const span = haversineKm(a, b);
-  if (span < 250) return [];
 
   if (isMoscowSpbCorridor(a, b)) {
+    if (span < 250) return [];
     const forward = nearMoscow(a) && nearSpb(b);
     const vias = pickViasAlong(a, b, VOLGA_BALTIC_VIAS, { preserveOrder: true });
     return forward ? vias : vias.slice().reverse();
   }
 
   if (isVolgaBalticLongCorridor(a, b)) {
+    if (span < 250) return [];
     return volgaBalticCorridorVias(a, b);
   }
 
@@ -412,7 +414,7 @@ function corridorViasBetween(a: LngLat, b: LngLat): LngLat[] {
 
   const minLon = Math.min(a.lon, b.lon);
   const maxLon = Math.max(a.lon, b.lon);
-  if (maxLon - minLon < 4) return [];
+  if (span < 250 || maxLon - minLon < 4) return [];
   if (maxLon < 39 || minLon > 50) return [];
   if (maxLon < 32 || Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) return [];
 
@@ -693,12 +695,12 @@ function looksLikeUglichBeforeRybinsk(points: LngLat[], a: LngLat, b: LngLat): b
 }
 
 /**
- * Куйбышев→Рыбинск (and similar) must not dip into Москва-река /
- * canal latitude — that is the Oka/Москва cutoff, not the Volga cascade.
+ * Any hit on Москва-река when neither endpoint is near Moscow means the
+ * router left the Volga cascade (Ока cutoff / air chord densified wrong).
+ * Do NOT require endpoints to straddle lon 40 — Куйбышев↔Чебоксары are both east.
  */
 function looksLikeMoskvaDetour(points: LngLat[], a: LngLat, b: LngLat): boolean {
   if (nearMoscow(a) || nearMoscow(b)) return false;
-  if (Math.max(a.lon, b.lon) < 44 || Math.min(a.lon, b.lon) > 40) return false;
   const moskva = firstIndexInBox(points, {
     lonMin: 35.8,
     lonMax: 38.0,
@@ -708,14 +710,34 @@ function looksLikeMoskvaDetour(points: LngLat[], a: LngLat, b: LngLat): boolean 
   return moskva >= 0;
 }
 
-function isSuspiciousVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
+/** Path length wildly longer than the geodesic — loop / wrong basin. */
+function looksLikeExcessDetour(
+  points: LngLat[],
+  a: LngLat,
+  b: LngLat,
+  lengthKm?: number,
+): boolean {
+  const geo = haversineKm(a, b);
+  if (geo < 40) return false;
+  const len = lengthKm ?? pathLengthKm(points);
+  // Cascade winding is typically <1.6×; Ока/Москва loops are 2.5×–10×.
+  return len > geo * 2.4;
+}
+
+function isSuspiciousVolgaPath(
+  points: LngLat[],
+  a: LngLat,
+  b: LngLat,
+  lengthKm?: number,
+): boolean {
   return (
     looksLikeCanalBeforeCascade(points, a, b) ||
     looksLikeOkaMoskvaCutoff(points, a, b) ||
     looksLikeUpperVolgaTrap(points, a, b) ||
     looksLikeMissingCascade(points, a, b) ||
     looksLikeUglichBeforeRybinsk(points, a, b) ||
-    looksLikeMoskvaDetour(points, a, b)
+    looksLikeMoskvaDetour(points, a, b) ||
+    looksLikeExcessDetour(points, a, b, lengthKm)
   );
 }
 
@@ -751,7 +773,10 @@ async function routeAlongVias(
     seen.add(key);
     const oneshot = await routeWithBrouter([a, ...trimmed, b]);
     if (oneshot && oneshot.points.length >= 2 && oneshot.lengthKm > 0) {
-      if (depth > 0 || !isSuspiciousVolgaPath(oneshot.points, a, b)) {
+      if (
+        depth > 0 ||
+        !isSuspiciousVolgaPath(oneshot.points, a, b, oneshot.lengthKm)
+      ) {
         return oneshot;
       }
     }
@@ -779,7 +804,9 @@ async function routeAlongVias(
   }
   if (!parts.length) return null;
   const stitched = stitchResults(parts);
-  if (depth === 0 && isSuspiciousVolgaPath(stitched.points, a, b)) return null;
+  if (depth === 0 && isSuspiciousVolgaPath(stitched.points, a, b, stitched.lengthKm)) {
+    return null;
+  }
   return stitched;
 }
 
@@ -798,7 +825,7 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
     if (depth === 0 && isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(route.points)) {
       return null;
     }
-    if (depth === 0 && isSuspiciousVolgaPath(route.points, a, b)) {
+    if (depth === 0 && isSuspiciousVolgaPath(route.points, a, b, route.lengthKm)) {
       return null;
     }
     return route;

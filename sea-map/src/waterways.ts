@@ -1306,6 +1306,9 @@ export type ItineraryOptions = {
    * so the description matches the distance shown in stats.
    */
   totalKm?: number;
+  /** Route endpoints — used to reject impossible cascade/Москва mixes. */
+  origin?: LngLat;
+  destination?: LngLat;
 };
 
 /**
@@ -1318,20 +1321,46 @@ export async function describeWaterItinerary(
 ): Promise<ItinerarySegment[]> {
   if (path.length < 2) return [];
   let chain = itineraryFromPath(path);
-  // Drop bogus «Москва» / canal labels on pure Volga-cascade itineraries.
+
   const hasMoskva = chain.some((s) => {
     const k = s.name.toLocaleLowerCase('ru');
     return k === 'москва' || k.includes('канал имени москвы');
   });
   const hasCascade = chain.some((s) => {
     const k = s.name.toLocaleLowerCase('ru');
-    return k.includes('куйбышев') || k.includes('чебоксар') || k.includes('горьков');
+    return (
+      k.includes('куйбышев') ||
+      k.includes('чебоксар') ||
+      k.includes('горьков') ||
+      k.includes('рыбин') ||
+      k.includes('углич') ||
+      k.includes('иваньков')
+    );
   });
-  const hasRybinsk = chain.some((s) => s.name.toLocaleLowerCase('ru').includes('рыбин'));
-  if (hasMoskva && hasCascade && hasRybinsk) {
-    // Path dipped to Москва-река — not a real cascade description.
+
+  const origin = opts.origin ?? path[0]!;
+  const destination = opts.destination ?? path[path.length - 1]!;
+  const nearMos =
+    origin.lat >= 55.4 &&
+    origin.lat <= 56.35 &&
+    origin.lon >= 36.9 &&
+    origin.lon <= 38.1;
+  const nearMosB =
+    destination.lat >= 55.4 &&
+    destination.lat <= 56.35 &&
+    destination.lon >= 36.9 &&
+    destination.lon <= 38.1;
+
+  // «Москва» on a cascade itinerary = wrong geometry (unless endpoint is Moscow).
+  if (hasMoskva && hasCascade && !nearMos && !nearMosB) {
     return [];
   }
+
+  const geo = haversineKm(origin, destination);
+  if (opts.totalKm && geo > 40 && opts.totalKm > geo * 2.4) {
+    return [];
+  }
+
   if (opts.totalKm && opts.totalKm > 0) {
     chain = scaleSegmentsToTotal(chain, opts.totalKm);
   }
@@ -1414,6 +1443,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   const brouted = await routeWithBrouterAdaptive(waypoints);
 
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
+    // Guard: never accept a path that is an obvious basin-hopping loop.
+    if (waypoints.length === 2) {
+      const geo = haversineKm(waypoints[0]!, waypoints[1]!);
+      if (geo > 40 && brouted.lengthKm > geo * 2.4) {
+        return directFallback();
+      }
+    }
     const minSimplifyKm =
       brouted.lengthKm > 800
         ? 0.55

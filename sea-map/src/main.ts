@@ -298,15 +298,24 @@ async function updateRouteItinerary(
     return;
   }
   try {
-    const segments = await describeWaterItinerary(path, { totalKm });
+    const segments = await describeWaterItinerary(path, {
+      totalKm,
+      origin: waypoints[0],
+      destination: waypoints[waypoints.length - 1],
+    });
     if (segments.length) {
       showRouteDesc(formatItinerary(segments));
       return;
     }
-    showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
+    // Empty segments after filters = bad geometry; don't show a stale water label.
+    if (fallback?.trim() && !fallback.includes('прямо')) {
+      hideRouteDesc();
+      return;
+    }
+    hideRouteDesc();
   } catch (err) {
     console.warn(err);
-    showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
+    hideRouteDesc();
   }
 }
 
