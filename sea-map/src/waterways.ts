@@ -1177,6 +1177,49 @@ type CatalogBody = {
   b: [number, number, number, number]; // west, south, east, north
 };
 
+/**
+ * Navigational reservoir extents (ship fairway):
+ * - End = dam + lock: below the lock the stretch is river, not the reservoir.
+ * - Start = where the river channel begins to widen into the backwater
+ *   (often the previous hydroelectric dam, when the next reservoir backs up to it).
+ *
+ * `below` is the cardinal side of the lower pool relative to the dam point.
+ */
+type ReservoirLock = {
+  lon: number;
+  lat: number;
+  below: 'N' | 'S' | 'E' | 'W';
+};
+
+const RESERVOIR_LOCKS: Record<string, ReservoirLock> = {
+  'иваньковское водохранилище': { lon: 37.14, lat: 56.725, below: 'E' }, // Дубна
+  'угличское водохранилище': { lon: 38.314, lat: 57.526, below: 'N' }, // Углич
+  'рыбинское водохранилище': { lon: 38.83, lat: 58.09, below: 'E' }, // Рыбинск
+  'горьковское водохранилище': { lon: 43.47, lat: 56.65, below: 'E' }, // Городец
+  'чебоксарское водохранилище': { lon: 47.37, lat: 56.14, below: 'E' }, // Новочебоксарск
+  'куйбышевское водохранилище': { lon: 49.48, lat: 53.42, below: 'S' }, // Жигули / Тольятти
+  'саратовское водохранилище': { lon: 47.83, lat: 52.024, below: 'S' }, // Балаково
+  'волгоградское водохранилище': { lon: 44.677, lat: 48.825, below: 'S' }, // Волжский
+  'цимлянское водохранилище': { lon: 42.125, lat: 47.628, below: 'W' }, // Цимлянск (Дон)
+  'камское водохранилище': { lon: 56.33, lat: 58.007, below: 'W' }, // Пермь
+  'воткинское водохранилище': { lon: 54.135, lat: 56.85, below: 'W' }, // Чайковский
+  'нижнекамское водохранилище': { lon: 52.39, lat: 55.7, below: 'W' }, // Наб. Челны
+  'юмагузинское водохранилище': { lon: 57.05, lat: 52.96, below: 'N' }, // Белая
+};
+
+function pastReservoirLock(p: LngLat, lock: ReservoirLock): boolean {
+  switch (lock.below) {
+    case 'N':
+      return p.lat > lock.lat;
+    case 'S':
+      return p.lat < lock.lat;
+    case 'E':
+      return p.lon > lock.lon;
+    case 'W':
+      return p.lon < lock.lon;
+  }
+}
+
 const CATALOG = waterBodies as CatalogBody[];
 
 function catalogArea(body: CatalogBody): number {
@@ -1186,7 +1229,11 @@ function catalogArea(body: CatalogBody): number {
 
 function pointInCatalog(p: LngLat, body: CatalogBody): boolean {
   const [w, s, e, n] = body.b;
-  return p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n;
+  if (!(p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n)) return false;
+  // Dam/lock is the navigational end of a reservoir — do not label the lower pool.
+  const lock = RESERVOIR_LOCKS[body.n.toLocaleLowerCase('ru')];
+  if (lock && pastReservoirLock(p, lock)) return false;
+  return true;
 }
 
 const LAKE_NAME_RE = /(водохранилищ|озеро|оз\.)/i;
@@ -1385,7 +1432,13 @@ function nameAtSample(
 
   if (stickyLake) {
     const body = catalogBodyByName(stickyLake);
-    if (body && pointInCatalog(p, body)) {
+    const lock = RESERVOIR_LOCKS[stickyLake.toLocaleLowerCase('ru')];
+    // Past the dam/lock → river, not the reservoir (no hysteresis across the gate).
+    if (lock && pastReservoirLock(p, lock)) {
+      usedNames.add(stickyLake.toLocaleLowerCase('ru'));
+      stickyLake = null;
+      stickyOutsideKm = 0;
+    } else if (body && pointInCatalog(p, body)) {
       return {
         name: stickyLake,
         stickyLake,
@@ -1393,48 +1446,48 @@ function nameAtSample(
         stickyRiver,
         stickyRiverOutsideKm,
       };
-    }
+    } else {
+      // Leaving a lake into a named tributary / outflow (Селижаровка, Нева, Белая…):
+      // switch immediately — do not let lake hysteresis swallow the river.
+      const catalogNow = pickCatalogName(p, usedNames);
+      if (catalogNow?.kind === 'river') {
+        const riverBody = catalogBodyByName(catalogNow.name);
+        const volga = catalogBodyByName('Волга');
+        if (
+          riverBody &&
+          volga &&
+          catalogArea(riverBody) < catalogArea(volga) * 0.45
+        ) {
+          usedNames.add(stickyLake.toLocaleLowerCase('ru'));
+          const riverSticky = isCorridorTributary(catalogNow.name)
+            ? catalogNow.name
+            : null;
+          return {
+            name: catalogNow.name,
+            stickyLake: null,
+            stickyOutsideKm: 0,
+            stickyRiver: riverSticky,
+            stickyRiverOutsideKm: 0,
+          };
+        }
+      }
 
-    // Leaving a lake into a named tributary / outflow (Селижаровка, Нева, Белая…):
-    // switch immediately — do not let lake hysteresis swallow the river.
-    const catalogNow = pickCatalogName(p, usedNames);
-    if (catalogNow?.kind === 'river') {
-      const riverBody = catalogBodyByName(catalogNow.name);
-      const volga = catalogBodyByName('Волга');
-      if (
-        riverBody &&
-        volga &&
-        catalogArea(riverBody) < catalogArea(volga) * 0.45
-      ) {
-        usedNames.add(stickyLake.toLocaleLowerCase('ru'));
-        const riverSticky = isCorridorTributary(catalogNow.name)
-          ? catalogNow.name
-          : null;
+      // Short hysteresis — long hold made Селигер/Селижаровка split unstable.
+      const outside = stickyOutsideKm + stepKm;
+      const hystKm = stickyLake.toLocaleLowerCase('ru').includes('селигер') ? 1.5 : 4;
+      if (outside < hystKm) {
         return {
-          name: catalogNow.name,
-          stickyLake: null,
-          stickyOutsideKm: 0,
-          stickyRiver: riverSticky,
-          stickyRiverOutsideKm: 0,
+          name: stickyLake,
+          stickyLake,
+          stickyOutsideKm: outside,
+          stickyRiver,
+          stickyRiverOutsideKm,
         };
       }
+      usedNames.add(stickyLake.toLocaleLowerCase('ru'));
+      stickyLake = null;
+      stickyOutsideKm = 0;
     }
-
-    // Short hysteresis — long hold made Селигер/Селижаровка split unstable.
-    const outside = stickyOutsideKm + stepKm;
-    const hystKm = stickyLake.toLocaleLowerCase('ru').includes('селигер') ? 1.5 : 4;
-    if (outside < hystKm) {
-      return {
-        name: stickyLake,
-        stickyLake,
-        stickyOutsideKm: outside,
-        stickyRiver,
-        stickyRiverOutsideKm,
-      };
-    }
-    usedNames.add(stickyLake.toLocaleLowerCase('ru'));
-    stickyLake = null;
-    stickyOutsideKm = 0;
   }
 
   // Catalog only — never pull random OSM tributaries (e.g. «Ить»).
