@@ -15,6 +15,46 @@ const BROUTER_URL = 'https://brouter.de/brouter';
 const LONG_SPAN_KM = 200;
 const MAX_SPLIT_DEPTH = 6;
 
+/**
+ * Main-stem Volga checkpoints. Long A→B searches without these can snap onto
+ * tributaries (e.g. Соть → Kostroma gulf) and inflate the track by hundreds of km.
+ */
+const VOLGA_STEM_VIAS: LngLat[] = [
+  { lon: 33.45, lat: 56.85 }, // Селижарово
+  { lon: 35.92, lat: 56.86 }, // Тверь
+  { lon: 37.16, lat: 56.74 }, // Дубна / Иваньково
+  { lon: 38.33, lat: 57.53 }, // Углич
+  { lon: 38.84, lat: 58.05 }, // Рыбинск
+  { lon: 39.89, lat: 57.63 }, // Ярославль
+  { lon: 40.93, lat: 57.77 }, // Кострома
+  { lon: 42.13, lat: 57.44 }, // Кинешма
+  { lon: 43.47, lat: 56.65 }, // Городец (плотина)
+  { lon: 44.0, lat: 56.33 }, // Нижний Новгород
+  { lon: 46.22, lat: 56.42 }, // устье Ветлуги
+];
+
+function volgaViasBetween(a: LngLat, b: LngLat): LngLat[] {
+  const span = haversineKm(a, b);
+  if (span < 250) return [];
+  const minLon = Math.min(a.lon, b.lon);
+  const maxLon = Math.max(a.lon, b.lon);
+  if (maxLon - minLon < 4) return [];
+  // Volga basin band (avoid applying on Siberia etc.)
+  if (maxLon < 32 || minLon > 50) return [];
+  if (Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) return [];
+
+  const eastbound = b.lon >= a.lon;
+  const vias = VOLGA_STEM_VIAS.filter((v) => {
+    if (v.lon <= minLon + 0.2 || v.lon >= maxLon - 0.2) return false;
+    // Keep vias near the corridor between endpoints.
+    const latLo = Math.min(a.lat, b.lat) - 2.5;
+    const latHi = Math.max(a.lat, b.lat) + 2.5;
+    return v.lat >= latLo && v.lat <= latHi;
+  });
+  vias.sort((p, q) => (eastbound ? p.lon - q.lon : q.lon - p.lon));
+  return vias;
+}
+
 function parseWayTags(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw
@@ -167,6 +207,27 @@ function stitchResults(parts: BrouterResult[]): BrouterResult {
  */
 async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
   const span = haversineKm(a, b);
+
+  // Pin long Volga-basin legs to the main stem so BRouter does not divert
+  // onto Соть / other tributaries.
+  if (depth === 0) {
+    const vias = volgaViasBetween(a, b);
+    if (vias.length) {
+      const chain = [a, ...vias, b];
+      const parts: BrouterResult[] = [];
+      let ok = true;
+      for (let i = 1; i < chain.length; i++) {
+        const leg = await routePairAdaptive(chain[i - 1]!, chain[i]!, depth + 1);
+        if (!leg) {
+          ok = false;
+          break;
+        }
+        parts.push(leg);
+      }
+      if (ok && parts.length) return stitchResults(parts);
+    }
+  }
+
   const hit = await routeWithBrouter([a, b]);
   if (hit) return hit;
 
