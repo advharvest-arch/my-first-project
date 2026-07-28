@@ -16,8 +16,8 @@ const LONG_SPAN_KM = 200;
 const MAX_SPLIT_DEPTH = 6;
 
 /**
- * Main-stem Volga checkpoints. Long A→B searches without these can snap onto
- * tributaries (e.g. Соть → Kostroma gulf) and inflate the track by hundreds of km.
+ * Main-stem Volga checkpoints (Caspian direction).
+ * Long A→B searches without these can snap onto tributaries (e.g. Соть).
  */
 const VOLGA_STEM_VIAS: LngLat[] = [
   { lon: 33.45, lat: 56.85 }, // Селижарово
@@ -28,31 +28,90 @@ const VOLGA_STEM_VIAS: LngLat[] = [
   { lon: 39.89, lat: 57.63 }, // Ярославль
   { lon: 40.93, lat: 57.77 }, // Кострома
   { lon: 42.13, lat: 57.44 }, // Кинешма
-  { lon: 43.47, lat: 56.65 }, // Городец (плотина)
+  { lon: 43.47, lat: 56.65 }, // Городец
   { lon: 44.0, lat: 56.33 }, // Нижний Новгород
   { lon: 46.22, lat: 56.42 }, // устье Ветлуги
 ];
 
-function volgaViasBetween(a: LngLat, b: LngLat): LngLat[] {
+/**
+ * Moscow ↔ St. Petersburg inland waterway (канал им. Москвы → Волга → Волго-Балт → Нева).
+ * Must NOT reuse VOLGA_STEM_VIAS: those include Селижарово and pull the track upstream west.
+ */
+const VOLGA_BALTIC_VIAS: LngLat[] = [
+  { lon: 37.16, lat: 56.74 }, // Дубна (выход канала на Волгу)
+  { lon: 38.33, lat: 57.53 }, // Углич
+  { lon: 38.5, lat: 58.05 }, // Рыбинск / вход на Шексну
+  { lon: 37.95, lat: 59.1 }, // Череповец / Шексна
+  { lon: 37.78, lat: 60.03 }, // Белозерск / Белое озеро
+  { lon: 36.45, lat: 60.78 }, // Вытегра
+  { lon: 35.4, lat: 61.0 }, // Онежское озеро
+  { lon: 34.0, lat: 60.98 }, // исток Свири
+  { lon: 33.1, lat: 60.7 }, // средняя Свирь
+  { lon: 32.45, lat: 60.48 }, // нижняя Свирь
+  { lon: 31.7, lat: 60.2 }, // Ладога после устья Свири
+  { lon: 31.15, lat: 60.0 }, // юг Ладоги
+  { lon: 31.03, lat: 59.95 }, // Шлиссельбург / исток Невы
+];
+
+function nearMoscow(p: LngLat): boolean {
+  return p.lat >= 55.4 && p.lat <= 56.35 && p.lon >= 36.9 && p.lon <= 38.1;
+}
+
+function nearSpb(p: LngLat): boolean {
+  return p.lat >= 59.55 && p.lat <= 60.25 && p.lon >= 29.4 && p.lon <= 31.2;
+}
+
+function isMoscowSpbCorridor(a: LngLat, b: LngLat): boolean {
+  return (nearMoscow(a) && nearSpb(b)) || (nearMoscow(b) && nearSpb(a));
+}
+
+function pickViasAlong(
+  a: LngLat,
+  b: LngLat,
+  pool: LngLat[],
+  opts: { preserveOrder?: boolean } = {},
+): LngLat[] {
+  const minLon = Math.min(a.lon, b.lon);
+  const maxLon = Math.max(a.lon, b.lon);
+  const minLat = Math.min(a.lat, b.lat);
+  const maxLat = Math.max(a.lat, b.lat);
+
+  const vias = pool.filter((v) => {
+    if (haversineKm(a, v) < 30 || haversineKm(b, v) < 30) return false;
+    return (
+      v.lon >= minLon - 2.2 &&
+      v.lon <= maxLon + 2.2 &&
+      v.lat >= minLat - 1.0 &&
+      v.lat <= maxLat + 2.5
+    );
+  });
+
+  if (opts.preserveOrder) return vias;
+
+  const eastbound = b.lon >= a.lon;
+  vias.sort((p, q) => (eastbound ? p.lon - q.lon : q.lon - p.lon));
+  return vias;
+}
+
+function corridorViasBetween(a: LngLat, b: LngLat): LngLat[] {
   const span = haversineKm(a, b);
   if (span < 250) return [];
+
+  if (isMoscowSpbCorridor(a, b)) {
+    // Keep the curated Moscow→SPb order (Белое → Онега → Свирь → Ладога → Нева).
+    const forward = nearMoscow(a) && nearSpb(b);
+    const vias = pickViasAlong(a, b, VOLGA_BALTIC_VIAS, { preserveOrder: true });
+    return forward ? vias : vias.slice().reverse();
+  }
+
   const minLon = Math.min(a.lon, b.lon);
   const maxLon = Math.max(a.lon, b.lon);
   if (maxLon - minLon < 4) return [];
-  // Volga basin band (avoid applying on Siberia etc.)
-  if (maxLon < 32 || minLon > 50) return [];
-  if (Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) return [];
+  // Volga stem only for Caspian-direction corridors (need eastern extent past Rybinsk).
+  if (maxLon < 39 || minLon > 50) return [];
+  if (maxLon < 32 || Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) return [];
 
-  const eastbound = b.lon >= a.lon;
-  const vias = VOLGA_STEM_VIAS.filter((v) => {
-    if (v.lon <= minLon + 0.2 || v.lon >= maxLon - 0.2) return false;
-    // Keep vias near the corridor between endpoints.
-    const latLo = Math.min(a.lat, b.lat) - 2.5;
-    const latHi = Math.max(a.lat, b.lat) + 2.5;
-    return v.lat >= latLo && v.lat <= latHi;
-  });
-  vias.sort((p, q) => (eastbound ? p.lon - q.lon : q.lon - p.lon));
-  return vias;
+  return pickViasAlong(a, b, VOLGA_STEM_VIAS);
 }
 
 function parseWayTags(raw: string | undefined): string[] {
@@ -208,10 +267,9 @@ function stitchResults(parts: BrouterResult[]): BrouterResult {
 async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
   const span = haversineKm(a, b);
 
-  // Pin long Volga-basin legs to the main stem so BRouter does not divert
-  // onto Соть / other tributaries.
+  // Pin long inland legs to a known navigable corridor.
   if (depth === 0) {
-    const vias = volgaViasBetween(a, b);
+    const vias = corridorViasBetween(a, b);
     if (vias.length) {
       const chain = [a, ...vias, b];
       const parts: BrouterResult[] = [];

@@ -1047,11 +1047,11 @@ function isLakeCatalogName(name: string): boolean {
 /** Prefer reservoirs, then smaller river corridors over the broad Volga box. */
 function pickCatalogName(
   sample: LngLat,
-  skipLakes: Set<string> = new Set(),
+  skipNames: Set<string> = new Set(),
 ): { name: string; kind: 'river' | 'lake' } | null {
   const hits = CATALOG.filter((b) => {
     if (!pointInCatalog(sample, b)) return false;
-    if (b.k === 'l' && skipLakes.has(b.n.toLocaleLowerCase('ru'))) return false;
+    if (skipNames.has(b.n.toLocaleLowerCase('ru'))) return false;
     return true;
   });
   if (!hits.length) return null;
@@ -1070,11 +1070,19 @@ function catalogBodyByName(name: string): CatalogBody | undefined {
   return CATALOG.find((b) => b.n.toLocaleLowerCase('ru') === key);
 }
 
+const TRUNK_RIVERS = new Set(
+  ['волга', 'москва', 'нева', 'кама', 'дон', 'ока'].map((s) => s.toLocaleLowerCase('ru')),
+);
+
+function isTrunkRiver(name: string): boolean {
+  return TRUNK_RIVERS.has(name.toLocaleLowerCase('ru'));
+}
+
 function nameAtSample(
   p: LngLat,
   stickyLake: string | null,
   stickyOutsideKm: number,
-  usedLakes: Set<string>,
+  usedNames: Set<string>,
   stepKm: number,
 ): { name: string | null; stickyLake: string | null; stickyOutsideKm: number } {
   if (stickyLake) {
@@ -1083,9 +1091,9 @@ function nameAtSample(
       return { name: stickyLake, stickyLake, stickyOutsideKm: 0 };
     }
 
-    // Leaving a lake into a named tributary / outflow (Селижаровка, Ветлуга…):
+    // Leaving a lake into a named tributary / outflow (Селижаровка, Нева…):
     // switch immediately — do not let lake hysteresis swallow the river.
-    const catalogNow = pickCatalogName(p, usedLakes);
+    const catalogNow = pickCatalogName(p, usedNames);
     if (catalogNow?.kind === 'river') {
       const riverBody = catalogBodyByName(catalogNow.name);
       const volga = catalogBodyByName('Волга');
@@ -1094,7 +1102,7 @@ function nameAtSample(
         volga &&
         catalogArea(riverBody) < catalogArea(volga) * 0.45
       ) {
-        usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
+        usedNames.add(stickyLake.toLocaleLowerCase('ru'));
         return { name: catalogNow.name, stickyLake: null, stickyOutsideKm: 0 };
       }
     }
@@ -1104,13 +1112,13 @@ function nameAtSample(
     if (outside < 8) {
       return { name: stickyLake, stickyLake, stickyOutsideKm: outside };
     }
-    usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
+    usedNames.add(stickyLake.toLocaleLowerCase('ru'));
     stickyLake = null;
     stickyOutsideKm = 0;
   }
 
   // Catalog only — never pull random OSM tributaries (e.g. «Ить»).
-  const catalog = pickCatalogName(p, usedLakes);
+  const catalog = pickCatalogName(p, usedNames);
   if (catalog?.kind === 'lake') {
     return { name: catalog.name, stickyLake: catalog.name, stickyOutsideKm: 0 };
   }
@@ -1186,17 +1194,15 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
 
   let stickyLake: string | null = null;
   let stickyOutsideKm = 0;
-  const usedLakes = new Set<string>();
+  const usedNames = new Set<string>();
   const segments: ItinerarySegment[] = [];
 
   const labelAt = (p: LngLat, stepKm: number): string | null => {
-    const hit = nameAtSample(p, stickyLake, stickyOutsideKm, usedLakes, stepKm);
+    const hit = nameAtSample(p, stickyLake, stickyOutsideKm, usedNames, stepKm);
     stickyLake = hit.stickyLake;
     stickyOutsideKm = hit.stickyOutsideKm;
     if (!hit.name) return null;
-    if (isLakeCatalogName(hit.name) && usedLakes.has(hit.name.toLocaleLowerCase('ru'))) {
-      return null;
-    }
+    if (usedNames.has(hit.name.toLocaleLowerCase('ru'))) return null;
     return hit.name;
   };
 
@@ -1234,9 +1240,16 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     const half = d / 2;
     currentKm += half;
     flush();
-    // Only lock a reservoir out once we have moved on to another named body.
-    if (currentName && isLakeCatalogName(currentName) && name !== currentName) {
-      usedLakes.add(currentName.toLocaleLowerCase('ru'));
+    // Lock out finished stretches: lakes always; secondary rivers after entering a lake.
+    if (currentName && name !== currentName) {
+      if (isLakeCatalogName(currentName)) {
+        usedNames.add(currentName.toLocaleLowerCase('ru'));
+      } else if (
+        !isTrunkRiver(currentName) &&
+        (isLakeCatalogName(name) || isTrunkRiver(name))
+      ) {
+        usedNames.add(currentName.toLocaleLowerCase('ru'));
+      }
     }
     currentName = name;
     currentKm = half;
