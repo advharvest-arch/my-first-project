@@ -529,18 +529,6 @@ function simplifyPath(points: LngLat[], minKm = 0.04): LngLat[] {
   return out;
 }
 
-/** Keep Leaflet / parallel / arrows responsive on 2000+ km tracks. */
-function downsamplePath(points: LngLat[], maxPoints: number): LngLat[] {
-  if (points.length <= maxPoints) return points;
-  const out: LngLat[] = [points[0]!];
-  const step = (points.length - 1) / (maxPoints - 1);
-  for (let i = 1; i < maxPoints - 1; i++) {
-    out.push(points[Math.round(i * step)]!);
-  }
-  out.push(points[points.length - 1]!);
-  return out;
-}
-
 /** Perpendicular distance from P to segment AB, km (equirectangular local). */
 function perpDistKm(p: LngLat, a: LngLat, b: LngLat): number {
   const cosLat = Math.max(0.2, Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180)));
@@ -555,25 +543,6 @@ function perpDistKm(p: LngLat, a: LngLat, b: LngLat): number {
   return Math.hypot(px - t * bx, py - t * by);
 }
 
-function douglasPeucker(points: LngLat[], epsilonKm: number): LngLat[] {
-  if (points.length <= 2) return points.slice();
-  let maxDist = 0;
-  let maxIdx = 0;
-  const first = points[0]!;
-  const last = points[points.length - 1]!;
-  for (let i = 1; i < points.length - 1; i++) {
-    const d = perpDistKm(points[i]!, first, last);
-    if (d > maxDist) {
-      maxDist = d;
-      maxIdx = i;
-    }
-  }
-  if (maxDist <= epsilonKm) return [first, last];
-  const left = douglasPeucker(points.slice(0, maxIdx + 1), epsilonKm);
-  const right = douglasPeucker(points.slice(maxIdx), epsilonKm);
-  return [...left.slice(0, -1), ...right];
-}
-
 /** Min distance from point to a polyline, km. */
 function distToPolylineKm(p: LngLat, line: LngLat[]): number {
   let best = Infinity;
@@ -583,10 +552,26 @@ function distToPolylineKm(p: LngLat, line: LngLat[]): number {
   return best;
 }
 
+/** Index of nearest vertex on a polyline. */
+function nearestVertexIdx(p: LngLat, line: LngLat[]): number {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < line.length; i++) {
+    const d = haversineKm(p, line[i]!);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
 /**
- * Chord/segment is safe only if it stays near the original BRouter track
- * (on water). Bbox midpoints are NOT enough — Цимлянское chords cut land
- * inside the rectangle.
+ * Chord is on water only if:
+ * 1) every sample stays within maxDevKm of the navigable track, AND
+ * 2) along-track length is not much longer than the chord (no peninsula cut).
+ * Dist-to-polyline alone is NOT enough — a chord across Цимлянское land
+ * can still sit "near" the shoreline bend.
  */
 function segmentFollowsWater(
   a: LngLat,
@@ -595,8 +580,20 @@ function segmentFollowsWater(
   maxDevKm: number,
 ): boolean {
   const geo = haversineKm(a, b);
-  if (geo < 0.3) return true;
-  const samples = Math.max(3, Math.ceil(geo / 3));
+  if (geo < 0.25) return true;
+  if (waterPath.length < 2) return false;
+
+  const ia = nearestVertexIdx(a, waterPath);
+  const ib = nearestVertexIdx(b, waterPath);
+  if (ia !== ib) {
+    const lo = Math.min(ia, ib);
+    const hi = Math.max(ia, ib);
+    const along = pathLength(waterPath.slice(lo, hi + 1));
+    // Hard land ban: cutting a bend / peninsula.
+    if (along > geo * 1.08 + 0.35) return false;
+  }
+
+  const samples = Math.max(4, Math.ceil(geo / 1.5));
   for (let k = 1; k < samples; k++) {
     const t = k / samples;
     const p = {
@@ -608,143 +605,81 @@ function segmentFollowsWater(
   return true;
 }
 
-/** Keep DP vertices whose consecutive chords still hug the water track. */
-function douglasPeuckerOnWater(
-  points: LngLat[],
-  epsilonKm: number,
-  maxDevKm: number,
-): LngLat[] {
-  if (points.length <= 2) return points.slice();
-  if (epsilonKm < 0.5) return points.slice();
-
-  const rough = douglasPeucker(points, epsilonKm);
-  if (rough.length <= 2) {
-    return segmentFollowsWater(points[0]!, points[points.length - 1]!, points, maxDevKm)
-      ? rough
-      : points.slice();
-  }
-
-  const nearestIdx = (p: LngLat): number => {
-    let best = 0;
-    let bestD = Infinity;
-    for (let i = 0; i < points.length; i++) {
-      const d = haversineKm(p, points[i]!);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    }
-    return best;
-  };
-
-  const out: LngLat[] = [rough[0]!];
-  for (let i = 1; i < rough.length; i++) {
+/**
+ * Hard ban on land: any candidate edge that leaves the water track is replaced
+ * by the original navigable vertices between its ends.
+ */
+function forbidLandCuts(candidate: LngLat[], waterRef: LngLat[], maxDevKm = 0.35): LngLat[] {
+  if (candidate.length < 2 || waterRef.length < 2) return candidate;
+  const out: LngLat[] = [candidate[0]!];
+  for (let i = 1; i < candidate.length; i++) {
     const a = out[out.length - 1]!;
-    const b = rough[i]!;
-    if (segmentFollowsWater(a, b, points, maxDevKm)) {
+    const b = candidate[i]!;
+    if (segmentFollowsWater(a, b, waterRef, maxDevKm)) {
       out.push(b);
       continue;
     }
-    const ia = nearestIdx(a);
-    const ib = nearestIdx(b);
-    if (ib > ia + 1) {
-      const mid = douglasPeuckerOnWater(
-        points.slice(ia, ib + 1),
-        Math.max(0.55, epsilonKm * 0.5),
-        maxDevKm,
-      );
-      out.push(...mid.slice(1));
-    } else {
+    const ia = nearestVertexIdx(a, waterRef);
+    const ib = nearestVertexIdx(b, waterRef);
+    if (ia === ib) {
       out.push(b);
+      continue;
     }
+    const slice =
+      ia < ib ? waterRef.slice(ia, ib + 1) : waterRef.slice(ib, ia + 1).reverse();
+    // Skip first (≈ a); keep water vertices; ensure b is last.
+    for (let k = 1; k < slice.length; k++) {
+      const p = slice[k]!;
+      if (haversineKm(out[out.length - 1]!, p) < 0.02) continue;
+      out.push(p);
+    }
+    if (haversineKm(out[out.length - 1]!, b) > 0.05) out.push(b);
   }
   return out;
 }
 
-function openWaterBodies(): CatalogBody[] {
-  return CATALOG.filter((b) => {
-    if (b.k !== 'l') return false;
-    const [w, s, e, n] = b.b;
-    const diagKm = Math.hypot((e - w) * 75, (n - s) * 111);
-    return diagKm >= 28;
-  }).sort((a, b) => catalogArea(b) - catalogArea(a));
-}
-
-/**
- * Straighten meandering BRouter tracks across reservoirs / large lakes.
- * Only cut wiggles that stay within a few km of the original water track —
- * never trust catalog bbox alone (Цимлянское etc.).
- */
-function straightenAcrossReservoirs(points: LngLat[]): LngLat[] {
-  if (points.length < 4) return points;
-  let current = points;
-  for (const body of openWaterBodies()) {
-    const next: LngLat[] = [];
-    let i = 0;
-    while (i < current.length) {
-      if (!pointInCatalog(current[i]!, body)) {
-        next.push(current[i]!);
-        i += 1;
-        continue;
+/** Keep Leaflet / parallel / arrows responsive without inventing land chords. */
+function downsampleOnWater(points: LngLat[], maxPoints: number, maxDevKm = 0.35): LngLat[] {
+  if (points.length <= maxPoints) return points;
+  // Target spacing from length, then refuse any land-cutting skip.
+  const total = pathLength(points);
+  const targetKm = Math.max(0.12, total / (maxPoints - 1));
+  const out: LngLat[] = [points[0]!];
+  let anchor = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const last = out[out.length - 1]!;
+    if (haversineKm(last, points[i]!) < targetKm) continue;
+    const slice = points.slice(anchor, i + 1);
+    if (segmentFollowsWater(last, points[i]!, slice, maxDevKm)) {
+      out.push(points[i]!);
+      anchor = i;
+    } else {
+      // Must keep the previous vertex so the edge stays on water.
+      const keep = Math.max(anchor + 1, i - 1);
+      if (keep > anchor) {
+        out.push(points[keep]!);
+        anchor = keep;
       }
-      let j = i;
-      while (j + 1 < current.length && pointInCatalog(current[j + 1]!, body)) j += 1;
-      const run = current.slice(i, j + 1);
-      const runKm = pathLength(run);
-      if (run.length >= 4 && runKm >= 12) {
-        const a = run[0]!;
-        const b = run[run.length - 1]!;
-        const geo = Math.max(0.001, haversineKm(a, b));
-        const ratio = runKm / geo;
-        // Sparse near-chord runs are often already land cuts — leave them alone.
-        if (run.length < 10 && ratio < 1.15) {
-          if (next.length) next.push(...run.slice(1));
-          else next.push(...run);
-          i = j + 1;
-          continue;
-        }
-        // Stay close to the navigable track (bbox is not the shoreline).
-        const maxDev = Math.min(1.35, Math.max(0.9, geo * 0.03));
-        let straight: LngLat[];
-        if (
-          geo <= 35 &&
-          ratio > 1.25 &&
-          run.length >= 12 &&
-          segmentFollowsWater(a, b, run, maxDev)
-        ) {
-          const step = Math.min(6, Math.max(3, geo / 5));
-          straight = densifyPoints([a, b], step);
-        } else {
-          const eps = Math.min(2.4, Math.max(1.0, Math.min(runKm * 0.015, geo * 0.06)));
-          straight = douglasPeuckerOnWater(run, eps, maxDev);
-          if (straight.length < 2) straight = run.slice();
-          if (pathLength(straight) > 40 && straight.length >= 3) {
-            straight = densifyPoints(straight, 10);
-          }
-        }
-        // Safety: if any straightened segment left the water track, keep original.
-        let safe = straight.length >= 2;
-        for (let s = 1; safe && s < straight.length; s++) {
-          if (!segmentFollowsWater(straight[s - 1]!, straight[s]!, run, maxDev + 0.15)) {
-            safe = false;
-          }
-        }
-        if (!safe || pathLength(straight) < geo * 0.9) straight = run;
-        if (next.length) {
-          next.push(...straight.slice(1));
-        } else {
-          next.push(...straight);
-        }
-      } else if (next.length) {
-        next.push(...run.slice(1));
-      } else {
-        next.push(...run);
+      if (i > anchor && haversineKm(out[out.length - 1]!, points[i]!) >= targetKm * 0.5) {
+        out.push(points[i]!);
+        anchor = i;
       }
-      i = j + 1;
     }
-    current = next.length >= 2 ? next : current;
   }
-  return current;
+  out.push(points[points.length - 1]!);
+  if (out.length <= maxPoints) return out;
+  // Still too dense: raise spacing once more under the same land ban.
+  return forbidLandCuts(
+    (() => {
+      const step = Math.ceil(out.length / maxPoints);
+      const thin: LngLat[] = [out[0]!];
+      for (let i = step; i < out.length - 1; i += step) thin.push(out[i]!);
+      thin.push(out[out.length - 1]!);
+      return thin;
+    })(),
+    points,
+    maxDevKm,
+  );
 }
 
 /** Intermediate points along a path */
@@ -1635,7 +1570,8 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       waypointCumKm.push(lengthKm);
     }
     if (!anyRouted) return null;
-    const path = straightenAcrossReservoirs(simplifyPath(allPoints));
+    const raw = simplifyPath(allPoints);
+    const path = forbidLandCuts(raw, allPoints, 0.35);
     return {
       points: path,
       lengthKm: pathLength(path),
@@ -1656,25 +1592,30 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         return directFallback();
       }
     }
+    // Thin for UI, but hard-ban land chords: every edge must hug BRouter water.
     const minSimplifyKm =
       brouted.lengthKm > 800
-        ? 0.55
+        ? 0.22
         : brouted.lengthKm > 250
-          ? 0.2
+          ? 0.12
           : brouted.lengthKm > 80
-            ? 0.08
+            ? 0.06
             : 0.03;
-    const simplified = downsamplePath(simplifyPath(brouted.points, minSimplifyKm), 2200);
-    const straightened = straightenAcrossReservoirs(simplified);
-    const lengthKm = pathLength(straightened);
-    const named =
-      waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(straightened);
+    const waterRef = brouted.points;
+    const simplified = downsampleOnWater(
+      simplifyPath(waterRef, minSimplifyKm),
+      2800,
+      0.35,
+    );
+    const onWater = forbidLandCuts(simplified, waterRef, 0.35);
+    const lengthKm = pathLength(onWater);
+    const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(onWater);
     return {
-      points: straightened,
+      points: onWater,
       lengthKm,
       waterName: named,
       method: 'waterway',
-      waypointCumKm: cumKmAlongPath(straightened, waypoints),
+      waypointCumKm: cumKmAlongPath(onWater, waypoints),
     };
   }
 
