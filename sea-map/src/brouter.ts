@@ -38,19 +38,19 @@ const VOLGA_STEM_VIAS: LngLat[] = [
  * Must NOT reuse VOLGA_STEM_VIAS: those include Селижарово and pull the track upstream west.
  */
 const VOLGA_BALTIC_VIAS: LngLat[] = [
-  { lon: 37.16, lat: 56.74 }, // Дубна (выход канала на Волгу)
+  { lon: 37.16, lat: 56.74 }, // Дубна
   { lon: 38.33, lat: 57.53 }, // Углич
-  { lon: 38.5, lat: 58.05 }, // Рыбинск / вход на Шексну
-  { lon: 37.95, lat: 59.1 }, // Череповец / Шексна
-  { lon: 37.78, lat: 60.03 }, // Белозерск / Белое озеро
-  { lon: 36.45, lat: 60.78 }, // Вытегра
-  { lon: 35.4, lat: 61.0 }, // Онежское озеро
-  { lon: 34.0, lat: 60.98 }, // исток Свири
-  { lon: 33.1, lat: 60.7 }, // средняя Свирь
-  { lon: 32.45, lat: 60.48 }, // нижняя Свирь
-  { lon: 31.7, lat: 60.2 }, // Ладога после устья Свири
-  { lon: 31.15, lat: 60.0 }, // юг Ладоги
-  { lon: 31.03, lat: 59.95 }, // Шлиссельбург / исток Невы
+  { lon: 38.5, lat: 58.05 }, // Рыбинск / Шексна
+  { lon: 37.95, lat: 59.1 }, // Череповец
+  { lon: 37.78, lat: 60.03 }, // Белозерск
+  { lon: 36.55, lat: 60.85 }, // Ковжа
+  { lon: 36.35, lat: 60.98 }, // устье Вытегры → Онега
+  { lon: 34.5, lat: 61.0 }, // к истоку Свири
+  { lon: 33.5, lat: 60.75 }, // верхняя Свирь
+  { lon: 32.7, lat: 60.5 }, // средняя Свирь
+  { lon: 32.2, lat: 60.35 }, // нижняя Свирь
+  { lon: 31.5, lat: 60.1 }, // Ладога
+  { lon: 31.03, lat: 59.95 }, // Шлиссельбург / Нева
 ];
 
 function nearMoscow(p: LngLat): boolean {
@@ -260,36 +260,91 @@ function stitchResults(parts: BrouterResult[]): BrouterResult {
   return { points, lengthKm, wayTags: [...wayTags] };
 }
 
+function looksLikeVolgaBaltic(points: LngLat[]): boolean {
+  let hasOnegaBand = false;
+  let hasSheksnaBand = false;
+  for (const p of points) {
+    if (p.lat >= 60.6 && p.lon >= 34.0 && p.lon <= 37.5) hasOnegaBand = true;
+    if (p.lat >= 58.9 && p.lat <= 60.2 && p.lon >= 37.5 && p.lon <= 38.8) hasSheksnaBand = true;
+  }
+  return hasOnegaBand && hasSheksnaBand;
+}
+
+/**
+ * Route A→…vias…→B. If one via is not on the river graph, skip it and
+ * continue — never abandon the whole corridor (direct A→B often takes a
+ * wrong shortcut, e.g. Moscow→SPb cutting across to Ladoga).
+ */
+async function routeAlongVias(
+  a: LngLat,
+  b: LngLat,
+  vias: LngLat[],
+  depth: number,
+): Promise<BrouterResult | null> {
+  const targets = [...vias, b];
+  const parts: BrouterResult[] = [];
+  let from = a;
+  for (let i = 0; i < targets.length; i++) {
+    const to = targets[i]!;
+    const isLast = i === targets.length - 1;
+    const leg = await routePairAdaptive(from, to, depth + 1);
+    if (leg) {
+      parts.push(leg);
+      from = to;
+      continue;
+    }
+    if (isLast) return null;
+    // Skip unreachable intermediate via.
+  }
+  if (from.lon !== b.lon || from.lat !== b.lat) {
+    const tail = await routePairAdaptive(from, b, depth + 1);
+    if (!tail) return null;
+    parts.push(tail);
+  }
+  return parts.length ? stitchResults(parts) : null;
+}
+
 /**
  * Try A→B; on failure bisect geographically and stitch.
  * Prefer few large halves (better path) over many geodesic vias (huge detours).
  */
 async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
   const span = haversineKm(a, b);
+  const moscowSpb = isMoscowSpbCorridor(a, b);
 
   // Pin long inland legs to a known navigable corridor.
   if (depth === 0) {
     const vias = corridorViasBetween(a, b);
     if (vias.length) {
-      const chain = [a, ...vias, b];
-      const parts: BrouterResult[] = [];
-      let ok = true;
-      for (let i = 1; i < chain.length; i++) {
-        const leg = await routePairAdaptive(chain[i - 1]!, chain[i]!, depth + 1);
-        if (!leg) {
-          ok = false;
-          break;
-        }
-        parts.push(leg);
-      }
-      if (ok && parts.length) return stitchResults(parts);
+      const viaRoute = await routeAlongVias(a, b, vias, depth);
+      if (viaRoute) return viaRoute;
     }
   }
 
   const hit = await routeWithBrouter([a, b]);
-  if (hit) return hit;
+  if (hit) {
+    if (depth === 0 && moscowSpb && !looksLikeVolgaBaltic(hit.points)) {
+      // Reject cross-country / Tikhvin-style cuts that skip Шексна/Онега.
+    } else {
+      return hit;
+    }
+  }
 
   if (depth >= MAX_SPLIT_DEPTH || span < 50) return null;
+
+  // For Moscow↔SPb bisect on a corridor via, not a dry geodesic midpoint.
+  if (moscowSpb) {
+    const vias = corridorViasBetween(a, b);
+    if (vias.length >= 2) {
+      const mid = vias[Math.floor(vias.length / 2)]!;
+      const left = await routePairAdaptive(a, mid, depth + 1);
+      if (left) {
+        const right = await routePairAdaptive(mid, b, depth + 1);
+        if (right) return stitchResults([left, right]);
+      }
+    }
+    if (depth >= 2) return null;
+  }
 
   const mid = interpolate(a, b, 0.5);
   const left = await routePairAdaptive(a, mid, depth + 1);
