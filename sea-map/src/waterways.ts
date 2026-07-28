@@ -3,6 +3,12 @@ import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
 import waterBodies from './water-bodies.json';
 import waterCore from './water-core.json';
 
+export type ItinerarySegment = {
+  name: string;
+  /** Length of this named stretch along the route geometry, km. */
+  km: number;
+};
+
 export type WaterPath = {
   points: LngLat[];
   lengthKm: number;
@@ -10,6 +16,11 @@ export type WaterPath = {
   method: 'waterway' | 'lake' | 'direct';
   /** Cumulative distance at each input waypoint (km), length = waypoints.length */
   waypointCumKm?: number[];
+  /**
+   * Itinerary measured on the full BRouter track (not the UI-thinned line).
+   * Segment km sum to lengthKm.
+   */
+  itinerary?: ItinerarySegment[];
 };
 
 type OverpassElement = {
@@ -1281,12 +1292,6 @@ function nameAtSample(
   return { name: null, stickyLake: null, stickyOutsideKm: 0 };
 }
 
-export type ItinerarySegment = {
-  name: string;
-  /** Length of this named stretch along the route geometry, km. */
-  km: number;
-};
-
 /** Fold tiny noise stretches into neighbours (keeps cascade readable). */
 function mergeShortSegments(segments: ItinerarySegment[], minKm = 3): ItinerarySegment[] {
   if (segments.length <= 1) return segments;
@@ -1335,11 +1340,59 @@ function scaleSegmentsToTotal(segments: ItinerarySegment[], totalKm: number): It
   const sum = segments.reduce((a, s) => a + s.km, 0);
   if (!(sum > 0)) return segments;
   const drift = Math.abs(sum - totalKm) / totalKm;
-  // Measured along the drawn path — only nudge tiny rounding drift.
-  // Never inflate segments to hide unlabeled gaps (that made Ветлуга «500 км»).
-  if (drift > 0.03) return segments;
+  // Same geometry → tiny drift only. Large drift means a bug — do not distort.
+  if (drift > 0.04) return segments;
   const k = totalKm / sum;
   return segments.map((s) => ({ name: s.name, km: s.km * k }));
+}
+
+/**
+ * Length + itinerary from the full navigable track; optional thinner line for the map.
+ * Guarantees itinerary km are taken from the same geometry as lengthKm.
+ */
+async function finalizeMeasuredRoute(
+  waterRef: LngLat[],
+  trackLengthKm: number,
+  waypoints: LngLat[],
+  extras: {
+    waterName: string | null;
+    method: WaterPath['method'];
+  },
+): Promise<WaterPath> {
+  // Light simplify only — same fidelity for short and long routes.
+  const measurePath = simplifyPath(waterRef, 0.08);
+  const geomKm = pathLength(waterRef);
+  const measureKm = pathLength(measurePath);
+  // Prefer BRouter track length when it matches the polyline (graph length).
+  let lengthKm = geomKm;
+  if (
+    trackLengthKm > 0 &&
+    Math.abs(trackLengthKm - geomKm) / Math.max(geomKm, 0.001) <= 0.06
+  ) {
+    lengthKm = trackLengthKm;
+  } else if (Math.abs(measureKm - geomKm) / Math.max(geomKm, 0.001) <= 0.02) {
+    lengthKm = measureKm;
+  }
+
+  const itinerary = await describeWaterItinerary(measurePath, {
+    totalKm: lengthKm,
+    origin: waypoints[0],
+    destination: waypoints[waypoints.length - 1],
+  });
+
+  const points =
+    measurePath.length > 3600
+      ? downsampleOnWater(measurePath, 3600, 0.3)
+      : measurePath;
+
+  return {
+    points,
+    lengthKm,
+    waterName: extras.waterName,
+    method: extras.method,
+    waypointCumKm: cumKmAlongPath(measurePath, waypoints),
+    itinerary: itinerary.length ? itinerary : undefined,
+  };
 }
 
 /** Densify a sparse path so reservoir bboxes are not skipped while naming. */
@@ -1596,7 +1649,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   };
 
-  const routeOnCachedLines = (lines: WaterLine[]): WaterPath | null => {
+  const routeOnCachedLines = async (lines: WaterLine[]): Promise<WaterPath | null> => {
     if (!lines.length) return null;
     const allPoints: LngLat[] = [];
     let lengthKm = 0;
@@ -1616,15 +1669,11 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       waypointCumKm.push(lengthKm);
     }
     if (!anyRouted) return null;
-    const raw = simplifyPath(allPoints);
-    const path = forbidLandCuts(raw, allPoints, 0.35);
-    return {
-      points: path,
-      lengthKm: pathLength(path),
-      waterName: uniqueWaterName(...nameBits) ?? namesNearEndpoints(path),
+    const raw = allPoints;
+    return finalizeMeasuredRoute(raw, pathLength(raw), waypoints, {
+      waterName: uniqueWaterName(...nameBits) ?? namesNearEndpoints(raw),
       method,
-      waypointCumKm: cumKmAlongPath(path, waypoints),
-    };
+    });
   };
 
   // 1) BRouter — short legs OK as-is; long corridors are split before the request.
@@ -1638,31 +1687,12 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         return directFallback();
       }
     }
-    // Thin for UI, but hard-ban land chords: every edge must hug BRouter water.
-    const minSimplifyKm =
-      brouted.lengthKm > 800
-        ? 0.22
-        : brouted.lengthKm > 250
-          ? 0.12
-          : brouted.lengthKm > 80
-            ? 0.06
-            : 0.03;
     const waterRef = brouted.points;
-    const simplified = downsampleOnWater(
-      simplifyPath(waterRef, minSimplifyKm),
-      2800,
-      0.35,
-    );
-    const onWater = forbidLandCuts(simplified, waterRef, 0.35);
-    const lengthKm = pathLength(onWater);
-    const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(onWater);
-    return {
-      points: onWater,
-      lengthKm,
+    const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(waterRef);
+    return finalizeMeasuredRoute(waterRef, brouted.lengthKm, waypoints, {
       waterName: named,
       method: 'waterway',
-      waypointCumKm: cumKmAlongPath(onWater, waypoints),
-    };
+    });
   }
 
   // Long inland trips only work via BRouter. Overpass cell crawl cannot connect
@@ -1677,13 +1707,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       .map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? [])
       .filter((g) => g.length > 0),
   );
-  const fromCache = routeOnCachedLines(cachedLines);
+  const fromCache = await routeOnCachedLines(cachedLines);
   if (fromCache) return fromCache;
 
   // 3) Fetch more OSM geometry, then route (may be slower).
   const run = async (forceRefresh: boolean): Promise<WaterPath> => {
     const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
-    return routeOnCachedLines(lines) ?? directFallback();
+    return (await routeOnCachedLines(lines)) ?? directFallback();
   };
 
   let path = await run(false);

@@ -19,6 +19,7 @@ import {
   formatItinerary,
   prefetchWaterBbox,
   prefetchWaterNear,
+  type ItinerarySegment,
 } from './waterways';
 import './style.css';
 
@@ -290,7 +291,7 @@ async function updateRouteItinerary(
   path: LngLat[],
   totalKm: number,
   fallback: string | null,
-  opts: { allowDescribe?: boolean } = {},
+  opts: { allowDescribe?: boolean; itinerary?: ItinerarySegment[] } = {},
 ): Promise<void> {
   // Straight A→B (air) must not get a fake «Волга — Угличское…» from bbox hits.
   if (opts.allowDescribe === false) {
@@ -298,11 +299,14 @@ async function updateRouteItinerary(
     return;
   }
   try {
-    const segments = await describeWaterItinerary(path, {
-      totalKm,
-      origin: waypoints[0],
-      destination: waypoints[waypoints.length - 1],
-    });
+    const segments =
+      opts.itinerary && opts.itinerary.length
+        ? opts.itinerary
+        : await describeWaterItinerary(path, {
+            totalKm,
+            origin: waypoints[0],
+            destination: waypoints[waypoints.length - 1],
+          });
     if (segments.length) {
       showRouteDesc(formatItinerary(segments));
       return;
@@ -808,7 +812,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       path.points,
       path.lengthKm,
       path.method === 'direct' ? null : waterLabel,
-      { allowDescribe: !isAir },
+      { allowDescribe: !isAir, itinerary: path.itinerary },
     );
     const parallelNote =
       showReturnInput.checked && waypoints.length >= 3
