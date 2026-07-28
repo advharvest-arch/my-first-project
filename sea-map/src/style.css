@@ -277,7 +277,8 @@ body {
   pointer-events: none;
 }
 
-.seg-tick-wrap {
+.seg-tick-wrap,
+.seg-mid-wrap {
   background: transparent !important;
   border: none !important;
   overflow: visible !important;
@@ -290,13 +291,14 @@ body {
   pointer-events: none;
 }
 
+/* Hash mark across the route (perpendicular to travel bearing). */
 .seg-tick-bar {
   position: absolute;
   left: 0;
   top: 0;
-  width: 14px;
+  width: 18px;
   height: 3px;
-  margin-left: -7px;
+  margin-left: -9px;
   margin-top: -1.5px;
   border-radius: 2px;
   background: #071821;
@@ -306,43 +308,35 @@ body {
   transform: rotate(calc(var(--brg, 0deg) + 90deg));
 }
 
-.seg-tick-labels {
-  position: absolute;
-  left: 10px;
-  top: -1.1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: max-content;
-  max-width: 11rem;
+.seg-mid {
+  position: relative;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
-.seg-tick-start,
-.seg-tick-end {
-  font: 600 0.68rem/1.2 var(--font-body);
+/* Name + km centered above the stretch midpoint. */
+.seg-mid-label {
+  position: absolute;
+  left: 0;
+  bottom: 10px;
+  transform: translateX(-50%);
+  font: 600 0.72rem/1.25 var(--font-body);
   color: var(--ink);
   background: rgba(232, 244, 242, 0.96);
   border: 1px solid rgba(7, 24, 33, 0.14);
-  border-radius: 7px;
-  padding: 0.16rem 0.38rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
   white-space: nowrap;
+  text-align: center;
 }
 
-.seg-tick-start span,
-.seg-tick-end span {
+.seg-mid-label span {
   display: block;
   margin-top: 0.05rem;
   font-weight: 700;
   color: var(--sea-mid);
-}
-
-.seg-tick-end {
-  border-color: rgba(26, 155, 144, 0.35);
-}
-
-.seg-tick-start {
-  opacity: 0.92;
 }
 
 .route-arrow svg {

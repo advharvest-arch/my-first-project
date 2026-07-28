@@ -596,8 +596,7 @@ function formatSegmentKm(km: number): string {
 }
 
 /**
- * Ticks at the start and end of each itinerary stretch, with the stretch length.
- * Boundary between two stretches shares one tick; each stretch gets a mid label.
+ * Perpendicular hash marks at stretch boundaries; name + km above each stretch midpoint.
  */
 function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   if (path.length < 2 || segments.length === 0) return;
@@ -606,43 +605,45 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   if (!(pathKm > 0) || !(segSum > 0)) return;
   const scale = pathKm / segSum;
 
-  type Bound = { km: number; endOf: ItinerarySegment | null; startOf: ItinerarySegment | null };
-  const bounds: Bound[] = [{ km: 0, endOf: null, startOf: segments[0]! }];
   let cum = 0;
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!;
+  const boundsKm = [0];
+  for (const seg of segments) {
     cum += seg.km;
-    bounds.push({
-      km: cum,
-      endOf: seg,
-      startOf: i + 1 < segments.length ? segments[i + 1]! : null,
-    });
+    boundsKm.push(cum);
   }
 
-  for (const b of bounds) {
-    const { point, bearing } = pointAlongPath(path, b.km * scale);
-    const endKm = b.endOf ? formatSegmentKm(b.endOf.km) : '';
-    const startKm = b.startOf ? formatSegmentKm(b.startOf.km) : '';
-    const endName = b.endOf ? escapeHtml(shortSegmentName(b.endOf.name)) : '';
-    const startName = b.startOf ? escapeHtml(shortSegmentName(b.startOf.name)) : '';
-    let label = '';
-    if (b.endOf && b.startOf) {
-      label = `<div class="seg-tick-end">${endName}<span>${endKm}</span></div>
-        <div class="seg-tick-start">${startName}<span>${startKm}</span></div>`;
-    } else if (b.endOf) {
-      label = `<div class="seg-tick-end">${endName}<span>${endKm}</span></div>`;
-    } else if (b.startOf) {
-      label = `<div class="seg-tick-start">${startName}<span>${startKm}</span></div>`;
-    }
+  for (const km of boundsKm) {
+    const { point, bearing } = pointAlongPath(path, km * scale);
     L.marker([point.lat, point.lon], {
       interactive: false,
       keyboard: false,
-      zIndexOffset: 450,
+      zIndexOffset: 440,
       icon: L.divIcon({
         className: 'seg-tick-wrap',
         html: `<div class="seg-tick" style="--brg:${bearing.toFixed(1)}deg">
           <div class="seg-tick-bar" aria-hidden="true"></div>
-          <div class="seg-tick-labels">${label}</div>
+        </div>`,
+        iconSize: [1, 1],
+        iconAnchor: [0, 0],
+      }),
+    }).addTo(drawLayer);
+  }
+
+  cum = 0;
+  for (const seg of segments) {
+    const midKm = (cum + seg.km / 2) * scale;
+    cum += seg.km;
+    const { point, bearing } = pointAlongPath(path, midKm);
+    const name = escapeHtml(shortSegmentName(seg.name));
+    const kmText = escapeHtml(formatSegmentKm(seg.km));
+    L.marker([point.lat, point.lon], {
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 460,
+      icon: L.divIcon({
+        className: 'seg-mid-wrap',
+        html: `<div class="seg-mid" style="--brg:${bearing.toFixed(1)}deg">
+          <div class="seg-mid-label">${name}<span>${kmText}</span></div>
         </div>`,
         iconSize: [1, 1],
         iconAnchor: [0, 0],
