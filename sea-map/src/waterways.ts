@@ -1175,48 +1175,60 @@ function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment
   let stickyLake: string | null = null;
   const usedLakes = new Set<string>();
   const segments: ItinerarySegment[] = [];
-  let current: ItinerarySegment | null = null;
 
-  const first = nameAtSample(path[0]!, lines, stickyLake, usedLakes);
-  stickyLake = first.stickyLake;
-  if (first.name) {
-    current = { name: first.name, km: 0 };
-    segments.push(current);
-  }
+  const labelAt = (p: LngLat): string | null => {
+    const hit = nameAtSample(p, lines, stickyLake, usedLakes);
+    stickyLake = hit.stickyLake;
+    if (!hit.name) return null;
+    if (isLakeCatalogName(hit.name) && usedLakes.has(hit.name.toLocaleLowerCase('ru'))) {
+      return null;
+    }
+    return hit.name;
+  };
 
-  // Re-evaluate names on a stride for long paths; always integrate adjacent edges.
-  const nameStride = path.length > 1800 ? 2 : 1;
-  let lastName: string | null = first.name;
+  let currentName = labelAt(path[0]!);
+  let currentKm = 0;
+
+  const flush = () => {
+    if (!currentName || currentKm < 0.5) {
+      currentKm = 0;
+      return;
+    }
+    const prev = segments[segments.length - 1];
+    if (prev && prev.name.toLocaleLowerCase('ru') === currentName.toLocaleLowerCase('ru')) {
+      prev.km += currentKm;
+    } else {
+      segments.push({ name: currentName, km: currentKm });
+    }
+    currentKm = 0;
+  };
+
   for (let i = 1; i < path.length; i++) {
     const d = haversineKm(path[i - 1]!, path[i]!);
-    if (i % nameStride === 0 || i === path.length - 1) {
-      const hit = nameAtSample(path[i]!, lines, stickyLake, usedLakes);
-      stickyLake = hit.stickyLake;
-      let name = hit.name;
-      if (name && isLakeCatalogName(name) && usedLakes.has(name.toLocaleLowerCase('ru'))) {
-        name = null;
-      }
-      if (name) lastName = name;
-    }
+    const name = labelAt(path[i]!);
 
-    const name = lastName;
-    if (!name) continue;
-
-    const key = name.toLocaleLowerCase('ru');
-    if (current && current.name.toLocaleLowerCase('ru') === key) {
-      current.km += d;
+    if (!name) {
+      currentKm += d;
       continue;
     }
 
-    if (current && isLakeCatalogName(current.name)) {
-      usedLakes.add(current.name.toLocaleLowerCase('ru'));
+    if (currentName && name.toLocaleLowerCase('ru') === currentName.toLocaleLowerCase('ru')) {
+      currentKm += d;
+      continue;
     }
 
-    current = { name, km: d };
-    segments.push(current);
+    const half = d / 2;
+    currentKm += half;
+    flush();
+    if (currentName && isLakeCatalogName(currentName)) {
+      usedLakes.add(currentName.toLocaleLowerCase('ru'));
+    }
+    currentName = name;
+    currentKm = half;
   }
 
-  return segments.filter((s) => s.km > 0.05 || segments.length === 1);
+  flush();
+  return segments;
 }
 
 export type ItineraryOptions = {
