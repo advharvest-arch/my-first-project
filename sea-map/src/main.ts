@@ -748,27 +748,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
   pendingRebuild = false;
   routeBtn.disabled = true;
   const prefer = routePrefer();
-  const spanHint =
-    waypoints.length >= 2
-      ? (() => {
-          let s = 0;
-          for (let i = 1; i < waypoints.length; i++) {
-            s += haversineKm(waypoints[i - 1]!, waypoints[i]!);
-          }
-          return s;
-        })()
-      : 0;
-  setStatus(
-    prefer === 'shortest'
-      ? 'Ищем кратчайший путь (река / море)…'
-      : prefer === 'sea'
-        ? 'Строим морской маршрут…'
-        : spanHint > 400
-          ? 'Строим дальний речной маршрут (Волга и притоки) — подождите до минуты…'
-          : spanHint > 80
-            ? 'Строим длинный речной маршрут — это может занять до минуты…'
-            : 'Строим маршрут по рекам и каналам…',
-  );
+  setStatus('Построение маршрута...');
 
   try {
     const path = await measureHybridChain(waypoints, {

@@ -616,27 +616,27 @@ function looksLikeCanalBeforeCascade(points: LngLat[], a: LngLat, b: LngLat): bo
   return east >= 45 && west <= 40;
 }
 
-/** Geodesic midpoints often snap Куйбышев→Москва onto Ока instead of the Volga. */
+/**
+ * Geodesic midpoints often snap Куйбышев→Москва onto Ока.
+ * Box stays south of the Volga fairway near НН (~56.2+).
+ */
 function looksLikeOkaMoskvaCutoff(points: LngLat[], a: LngLat, b: LngLat): boolean {
-  if (!isVolgaStemCorridor(a, b) && !(inVolgaBasin(a) && inVolgaBasin(b))) return false;
+  if (!inVolgaBasin(a) || !inVolgaBasin(b)) return false;
   if (nearMoscow(a) || nearMoscow(b)) {
-    // Moscow endpoints may legitimately use Москва-река; still forbid Ока-only skips of Горький
-    // when the other end is far east on the cascade.
     const other = nearMoscow(a) ? b : a;
     if (other.lon < 45) return false;
   }
   let okaKm = 0;
   for (let i = 1; i < points.length; i++) {
     const p = points[i]!;
-    // Ока corridor south of the Volga bend near НН.
-    if (p.lon >= 36.5 && p.lon <= 44.5 && p.lat >= 54.4 && p.lat <= 56.15) {
+    if (p.lon >= 36.8 && p.lon <= 43.2 && p.lat >= 54.5 && p.lat <= 55.95) {
       okaKm += haversineKm(points[i - 1]!, p);
     }
   }
-  return okaKm > 120;
+  return okaKm > 280;
 }
 
-function isBadVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
+function isSuspiciousVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
   return (
     looksLikeCanalBeforeCascade(points, a, b) ||
     looksLikeOkaMoskvaCutoff(points, a, b) ||
@@ -681,38 +681,43 @@ async function routeAlongVias(
 /**
  * Try A→B; on failure bisect geographically and stitch.
  * Prefer few large halves (better path) over many geodesic vias (huge detours).
+ * Never discard a waterway geometry in favor of a straight-line fallback.
  */
 async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
   const span = haversineKm(a, b);
   const balticCorridor = isVolgaBalticLongCorridor(a, b);
   const stemCorridor = isVolgaStemCorridor(a, b);
   const pinnedCorridor = balticCorridor || stemCorridor || isMoscowSpbCorridor(a, b);
+  let fallback: BrouterResult | null = null;
+
+  const consider = (route: BrouterResult | null): BrouterResult | null => {
+    if (!route) return null;
+    if (depth === 0 && isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(route.points)) {
+      fallback = fallback ?? route;
+      return null;
+    }
+    if (depth === 0 && isSuspiciousVolgaPath(route.points, a, b)) {
+      fallback = fallback ?? route;
+      return null;
+    }
+    return route;
+  };
 
   // Pin long inland legs to a known navigable corridor.
   if (depth === 0) {
     const vias = corridorViasBetween(a, b);
     if (vias.length) {
-      const viaRoute = await routeAlongVias(a, b, vias, depth);
-      if (viaRoute && !isBadVolgaPath(viaRoute.points, a, b)) {
-        if (isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(viaRoute.points)) {
-          // Fall through — Tikhvin-style cut.
-        } else {
-          return viaRoute;
-        }
-      }
+      const viaRoute = consider(await routeAlongVias(a, b, vias, depth));
+      if (viaRoute) return viaRoute;
     }
   }
 
-  const hit = await routeWithBrouter([a, b]);
-  if (hit && !isBadVolgaPath(hit.points, a, b)) {
-    if (depth === 0 && isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(hit.points)) {
-      // Reject cross-country cuts that skip Шексна/Онега.
-    } else {
-      return hit;
-    }
-  }
+  const hit = consider(await routeWithBrouter([a, b]));
+  if (hit) return hit;
 
-  if (depth >= MAX_SPLIT_DEPTH || span < 50) return null;
+  if (depth >= MAX_SPLIT_DEPTH || span < 50) {
+    return fallback;
+  }
 
   // For pinned corridors bisect on a corridor via, not a dry geodesic midpoint
   // (geodesic mids snap Куйбышев→Москва onto Ока).
@@ -724,22 +729,21 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
       if (left) {
         const right = await routePairAdaptive(mid, b, depth + 1);
         if (right) {
-          const stitched = stitchResults([left, right]);
-          if (!isBadVolgaPath(stitched.points, a, b)) return stitched;
+          const stitched = consider(stitchResults([left, right]));
+          if (stitched) return stitched;
         }
       }
     }
-    if (depth >= 2) return null;
+    if (depth >= 2) return fallback;
   }
 
   const mid = interpolate(a, b, 0.5);
   const left = await routePairAdaptive(a, mid, depth + 1);
-  if (!left) return null;
+  if (!left) return fallback;
   const right = await routePairAdaptive(mid, b, depth + 1);
-  if (!right) return null;
-  const stitched = stitchResults([left, right]);
-  if (depth === 0 && isBadVolgaPath(stitched.points, a, b)) return null;
-  return stitched;
+  if (!right) return fallback;
+  const stitched = consider(stitchResults([left, right]));
+  return stitched ?? fallback;
 }
 
 /** Reliable river routing for lakes and long inland corridors (Seliger→Vokhma). */
