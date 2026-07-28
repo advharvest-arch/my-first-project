@@ -290,7 +290,13 @@ async function updateRouteItinerary(
   path: LngLat[],
   totalKm: number,
   fallback: string | null,
+  opts: { allowDescribe?: boolean } = {},
 ): Promise<void> {
+  // Straight A→B (air) must not get a fake «Волга — Угличское…» from bbox hits.
+  if (opts.allowDescribe === false) {
+    hideRouteDesc();
+    return;
+  }
   try {
     const segments = await describeWaterItinerary(path, { totalKm });
     if (segments.length) {
@@ -778,10 +784,16 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       .join(' · ') || netLabel;
 
     showStats(path.lengthKm);
+    const isAir =
+      path.method === 'direct' ||
+      (path.points.length <= 3 &&
+        path.lengthKm > 0 &&
+        path.lengthKm <= haversineKm(waypoints[0]!, waypoints[waypoints.length - 1]!) * 1.08);
     void updateRouteItinerary(
       path.points,
       path.lengthKm,
       path.method === 'direct' ? null : waterLabel,
+      { allowDescribe: !isAir },
     );
     const parallelNote =
       showReturnInput.checked && waypoints.length >= 3

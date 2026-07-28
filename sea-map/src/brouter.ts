@@ -429,7 +429,9 @@ export function routeSpanKm(waypoints: LngLat[]): number {
 }
 
 function brouterTimeoutMs(spanKm: number): number {
-  return Math.min(90_000, Math.max(12_000, 10_000 + spanKm * 35));
+  // Multi-via Volga corridors need headroom; public server often finishes in <5s
+  // when vias are set, but watchdog kills under-timeout client aborts.
+  return Math.min(120_000, Math.max(20_000, 15_000 + spanKm * 40));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -527,8 +529,8 @@ async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
 export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
   const span = routeSpanKm(waypoints);
-  // Long one-shots are often killed in ~1–2s; don't burn 10s+ on retries.
-  const attempts = span >= LONG_SPAN_KM ? 1 : 3;
+  // Corridor oneshots (A+vias+B) often succeed on retry after a watchdog kill.
+  const attempts = waypoints.length >= 3 ? 2 : span >= LONG_SPAN_KM ? 1 : 3;
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await sleep(400 * i);
     const hit = await brouterOnce(waypoints);
@@ -644,10 +646,22 @@ function isSuspiciousVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean 
   );
 }
 
+function thinVias(vias: LngLat[], maxN: number): LngLat[] {
+  if (vias.length <= maxN) return vias;
+  const out: LngLat[] = [];
+  for (let i = 0; i < maxN; i++) {
+    const idx = Math.round((i * (vias.length - 1)) / (maxN - 1));
+    const v = vias[idx]!;
+    const last = out[out.length - 1];
+    if (!last || last.lon !== v.lon || last.lat !== v.lat) out.push(v);
+  }
+  return out;
+}
+
 /**
- * Route A→…vias…→B. If one via is not on the river graph, skip it and
- * continue — never abandon the whole corridor (direct A→B often takes a
- * wrong shortcut, e.g. Moscow→SPb cutting across to Ladoga).
+ * Route A→…vias…→B.
+ * Prefer one multi-via BRouter request (fast, stable on Volga). Fall back to
+ * per-via legs if the oneshot is killed — never abandon the corridor.
  */
 async function routeAlongVias(
   a: LngLat,
@@ -655,6 +669,15 @@ async function routeAlongVias(
   vias: LngLat[],
   depth: number,
 ): Promise<BrouterResult | null> {
+  const trimmed = thinVias(vias, 8);
+
+  if (trimmed.length) {
+    const oneshot = await routeWithBrouter([a, ...trimmed, b]);
+    if (oneshot && oneshot.points.length >= 2 && oneshot.lengthKm > 0) {
+      return oneshot;
+    }
+  }
+
   const targets = [...vias, b];
   const parts: BrouterResult[] = [];
   let from = a;
@@ -692,12 +715,12 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
 
   const consider = (route: BrouterResult | null): BrouterResult | null => {
     if (!route) return null;
+    // Always keep a waterway candidate — better than a straight air line.
+    fallback = fallback ?? route;
     if (depth === 0 && isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(route.points)) {
-      fallback = fallback ?? route;
       return null;
     }
     if (depth === 0 && isSuspiciousVolgaPath(route.points, a, b)) {
-      fallback = fallback ?? route;
       return null;
     }
     return route;
