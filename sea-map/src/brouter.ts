@@ -204,18 +204,19 @@ function nearNorthwestWaterway(p: LngLat): boolean {
   if (p.lat >= 60.5 && p.lat <= 63.0 && p.lon >= 33.8 && p.lon <= 37.0) return true;
   // Белое / Ковжа / Вытегра
   if (p.lat >= 59.7 && p.lat <= 61.2 && p.lon >= 35.5 && p.lon <= 38.2) return true;
-  // Шексна / Череповец
-  if (p.lat >= 58.9 && p.lat <= 60.3 && p.lon >= 37.4 && p.lon <= 38.7) return true;
+  // Шексна / Череповец — north of Рыбинское itself (avoid misclassifying the reservoir).
+  if (p.lat >= 59.12 && p.lat <= 60.3 && p.lon >= 37.4 && p.lon <= 38.7) return true;
   return false;
+}
+
+/** Волга basin including all of Рыбинское водохранилище. */
+function inVolgaBasin(p: LngLat): boolean {
+  return p.lat >= 52.8 && p.lat <= 59.15 && p.lon >= 32.5 && p.lon <= 52.5;
 }
 
 /** Волга below Dubna / mid cascade (incl. Куйбышев south arm). */
 function nearVolgaCascade(p: LngLat): boolean {
-  return p.lat >= 52.8 && p.lat <= 59.2 && p.lon >= 37.0 && p.lon <= 52.5;
-}
-
-function inVolgaBasin(p: LngLat): boolean {
-  return p.lat >= 52.8 && p.lat <= 58.9 && p.lon >= 32.5 && p.lon <= 52.5;
+  return p.lat >= 52.8 && p.lat <= 59.15 && p.lon >= 37.0 && p.lon <= 52.5;
 }
 
 function isMoscowSpbCorridor(a: LngLat, b: LngLat): boolean {
@@ -281,6 +282,16 @@ function nearLadoga(p: LngLat): boolean {
 }
 
 function nearestStemIndex(p: LngLat): number {
+  // Prefer the reservoir the point actually sits in (south Rybinsk must not
+  // snap to Углич just because that via is slightly closer).
+  // Indices in VOLGA_STEM_CHAIN: Углич=3, Рыбинск=4.
+  if (p.lat >= 57.75 && p.lat <= 59.1 && p.lon >= 37.55 && p.lon <= 39.25) {
+    return 4;
+  }
+  if (p.lat >= 56.88 && p.lat <= 57.68 && p.lon >= 37.55 && p.lon <= 38.45) {
+    return 3;
+  }
+
   let best = 0;
   let bestD = Infinity;
   for (let i = 0; i < VOLGA_STEM_CHAIN.length; i++) {
@@ -607,10 +618,10 @@ function looksLikeCanalBeforeCascade(points: LngLat[], a: LngLat, b: LngLat): bo
     latMax: 56.75,
   });
   const gorky = firstIndexInBox(points, {
-    lonMin: 42.45,
-    lonMax: 43.55,
-    latMin: 56.45,
-    latMax: 57.5,
+    lonMin: 42.2,
+    lonMax: 43.7,
+    latMin: 56.35,
+    latMax: 57.55,
   });
   if (canal < 0 || gorky < 0 || canal >= gorky) return false;
   const east = Math.max(a.lon, b.lon);
@@ -638,11 +649,56 @@ function looksLikeOkaMoskvaCutoff(points: LngLat[], a: LngLat, b: LngLat): boole
   return okaKm > 280;
 }
 
+/** East→west Volga hop that never touches Горький/Чебоксары — usually an air/Oka cut. */
+function looksLikeMissingCascade(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  const east = Math.max(a.lon, b.lon);
+  const west = Math.min(a.lon, b.lon);
+  if (east < 46 || west > 40) return false;
+  if (haversineKm(a, b) < 400) return false;
+  const gorky = firstIndexInBox(points, {
+    lonMin: 42.2,
+    lonMax: 43.7,
+    latMin: 56.35,
+    latMax: 57.55,
+  });
+  const cheb = firstIndexInBox(points, {
+    lonMin: 45.4,
+    lonMax: 48.5,
+    latMin: 55.7,
+    latMax: 56.65,
+  });
+  return gorky < 0 && cheb < 0;
+}
+
+/** Going to Рыбинск from the east via Углич (wrong branch). */
+function looksLikeUglichBeforeRybinsk(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  if (Math.max(a.lon, b.lon) < 44) return false;
+  const dest = a.lon <= b.lon ? a : b;
+  // Destination should be in/near Rybinsk, not primarily Uglich.
+  const nearRb = dest.lat >= 57.75 && dest.lon >= 37.55 && dest.lon <= 39.3;
+  if (!nearRb) return false;
+  const ug = firstIndexInBox(points, {
+    lonMin: 37.55,
+    lonMax: 38.45,
+    latMin: 56.88,
+    latMax: 57.68,
+  });
+  const rb = firstIndexInBox(points, {
+    lonMin: 37.55,
+    lonMax: 39.25,
+    latMin: 57.75,
+    latMax: 59.1,
+  });
+  return ug >= 0 && rb >= 0 && ug < rb;
+}
+
 function isSuspiciousVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
   return (
     looksLikeCanalBeforeCascade(points, a, b) ||
     looksLikeOkaMoskvaCutoff(points, a, b) ||
-    looksLikeUpperVolgaTrap(points, a, b)
+    looksLikeUpperVolgaTrap(points, a, b) ||
+    looksLikeMissingCascade(points, a, b) ||
+    looksLikeUglichBeforeRybinsk(points, a, b)
   );
 }
 

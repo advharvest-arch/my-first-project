@@ -1185,12 +1185,33 @@ function scaleSegmentsToTotal(segments: ItinerarySegment[], totalKm: number): It
   return segments.map((s) => ({ name: s.name, km: s.km * k }));
 }
 
+/** Densify a sparse path so reservoir bboxes are not skipped while naming. */
+function densifyPathForItinerary(path: LngLat[], stepKm = 2.5): LngLat[] {
+  if (path.length < 2) return path;
+  const out: LngLat[] = [path[0]!];
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1]!;
+    const b = path[i]!;
+    const d = haversineKm(a, b);
+    if (d > stepKm * 1.5) {
+      const n = Math.min(40, Math.ceil(d / stepKm));
+      for (let k = 1; k < n; k++) {
+        const t = k / n;
+        out.push({ lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t });
+      }
+    }
+    out.push(b);
+  }
+  return out;
+}
+
 /**
  * Build ordered waterway/reservoir chain with per-stretch distances.
  * Naming uses the curated catalog only (no OSM tributary noise).
  */
 function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   if (path.length < 2) return [];
+  path = densifyPathForItinerary(path);
 
   let stickyLake: string | null = null;
   let stickyOutsideKm = 0;
