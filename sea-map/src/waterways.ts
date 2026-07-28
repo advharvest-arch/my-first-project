@@ -574,16 +574,91 @@ function douglasPeucker(points: LngLat[], epsilonKm: number): LngLat[] {
   return [...left.slice(0, -1), ...right];
 }
 
-function chordStaysInBody(a: LngLat, b: LngLat, body: CatalogBody): boolean {
-  for (let k = 1; k <= 4; k++) {
-    const t = k / 5;
+/** Min distance from point to a polyline, km. */
+function distToPolylineKm(p: LngLat, line: LngLat[]): number {
+  let best = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    best = Math.min(best, perpDistKm(p, line[i - 1]!, line[i]!));
+  }
+  return best;
+}
+
+/**
+ * Chord/segment is safe only if it stays near the original BRouter track
+ * (on water). Bbox midpoints are NOT enough — Цимлянское chords cut land
+ * inside the rectangle.
+ */
+function segmentFollowsWater(
+  a: LngLat,
+  b: LngLat,
+  waterPath: LngLat[],
+  maxDevKm: number,
+): boolean {
+  const geo = haversineKm(a, b);
+  if (geo < 0.3) return true;
+  const samples = Math.max(3, Math.ceil(geo / 3));
+  for (let k = 1; k < samples; k++) {
+    const t = k / samples;
     const p = {
       lon: a.lon + (b.lon - a.lon) * t,
       lat: a.lat + (b.lat - a.lat) * t,
     };
-    if (!pointInCatalog(p, body)) return false;
+    if (distToPolylineKm(p, waterPath) > maxDevKm) return false;
   }
   return true;
+}
+
+/** Keep DP vertices whose consecutive chords still hug the water track. */
+function douglasPeuckerOnWater(
+  points: LngLat[],
+  epsilonKm: number,
+  maxDevKm: number,
+): LngLat[] {
+  if (points.length <= 2) return points.slice();
+  if (epsilonKm < 0.5) return points.slice();
+
+  const rough = douglasPeucker(points, epsilonKm);
+  if (rough.length <= 2) {
+    return segmentFollowsWater(points[0]!, points[points.length - 1]!, points, maxDevKm)
+      ? rough
+      : points.slice();
+  }
+
+  const nearestIdx = (p: LngLat): number => {
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const d = haversineKm(p, points[i]!);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const out: LngLat[] = [rough[0]!];
+  for (let i = 1; i < rough.length; i++) {
+    const a = out[out.length - 1]!;
+    const b = rough[i]!;
+    if (segmentFollowsWater(a, b, points, maxDevKm)) {
+      out.push(b);
+      continue;
+    }
+    const ia = nearestIdx(a);
+    const ib = nearestIdx(b);
+    if (ib > ia + 1) {
+      const mid = douglasPeuckerOnWater(
+        points.slice(ia, ib + 1),
+        Math.max(0.55, epsilonKm * 0.5),
+        maxDevKm,
+      );
+      out.push(...mid.slice(1));
+    } else {
+      out.push(b);
+    }
+  }
+  return out;
 }
 
 function openWaterBodies(): CatalogBody[] {
@@ -596,9 +671,9 @@ function openWaterBodies(): CatalogBody[] {
 }
 
 /**
- * Straighten meandering BRouter tracks across reservoirs / large lakes:
- * keep major fairway bends, drop shoreline wiggles; use a chord when it
- * stays inside the waterbody bbox.
+ * Straighten meandering BRouter tracks across reservoirs / large lakes.
+ * Only cut wiggles that stay within a few km of the original water track —
+ * never trust catalog bbox alone (Цимлянское etc.).
  */
 function straightenAcrossReservoirs(points: LngLat[]): LngLat[] {
   if (points.length < 4) return points;
@@ -621,22 +696,40 @@ function straightenAcrossReservoirs(points: LngLat[]): LngLat[] {
         const b = run[run.length - 1]!;
         const geo = Math.max(0.001, haversineKm(a, b));
         const ratio = runKm / geo;
+        // Sparse near-chord runs are often already land cuts — leave them alone.
+        if (run.length < 10 && ratio < 1.15) {
+          if (next.length) next.push(...run.slice(1));
+          else next.push(...run);
+          i = j + 1;
+          continue;
+        }
+        // Stay close to the navigable track (bbox is not the shoreline).
+        const maxDev = Math.min(1.35, Math.max(0.9, geo * 0.03));
         let straight: LngLat[];
-        // Chord only on short open-water hops — long corridor chords
-        // (Горьковское bbox) cut peninsulas even when midpoints stay in the rectangle.
-        if (geo <= 55 && ratio > 1.2 && chordStaysInBody(a, b, body)) {
-          const step = Math.min(10, Math.max(4, geo / 5));
+        if (
+          geo <= 35 &&
+          ratio > 1.25 &&
+          run.length >= 12 &&
+          segmentFollowsWater(a, b, run, maxDev)
+        ) {
+          const step = Math.min(6, Math.max(3, geo / 5));
           straight = densifyPoints([a, b], step);
         } else {
-          // Keep reservoir fairway bends; drop shoreline noise.
-          const eps = Math.min(4.5, Math.max(1.6, Math.min(runKm * 0.025, geo * 0.1)));
-          straight = douglasPeucker(run, eps);
-          if (straight.length < 2) straight = [a, b];
-          // Light densify so long chords still draw smoothly.
-          if (pathLength(straight) > 40) {
-            straight = densifyPoints(straight, 14);
+          const eps = Math.min(2.4, Math.max(1.0, Math.min(runKm * 0.015, geo * 0.06)));
+          straight = douglasPeuckerOnWater(run, eps, maxDev);
+          if (straight.length < 2) straight = run.slice();
+          if (pathLength(straight) > 40 && straight.length >= 3) {
+            straight = densifyPoints(straight, 10);
           }
         }
+        // Safety: if any straightened segment left the water track, keep original.
+        let safe = straight.length >= 2;
+        for (let s = 1; safe && s < straight.length; s++) {
+          if (!segmentFollowsWater(straight[s - 1]!, straight[s]!, run, maxDev + 0.15)) {
+            safe = false;
+          }
+        }
+        if (!safe || pathLength(straight) < geo * 0.9) straight = run;
         if (next.length) {
           next.push(...straight.slice(1));
         } else {
