@@ -153,6 +153,19 @@ const MOSCOW_CANAL_VIAS: LngLat[] = [
   { lon: 37.16, lat: 56.74 }, // Дубна
 ];
 
+/** Кама / Белая (Н. Челны → Уфа → Белорецк) — east of the Volga stem end. */
+const KAMA_BELAYA_VIAS: LngLat[] = [
+  { lon: 49.05, lat: 55.5 }, // Казань / устье Камы
+  { lon: 50.2, lat: 55.65 }, // Кама ниже Казани
+  { lon: 52.0, lat: 55.72 }, // Нижнекамск
+  { lon: 53.95, lat: 55.88 }, // устье Белой
+  { lon: 54.85, lat: 55.48 }, // Дюртюли
+  { lon: 55.95, lat: 54.74 }, // Уфа
+  { lon: 55.95, lat: 53.65 }, // Стерлитамак
+  { lon: 57.05, lat: 53.05 }, // верхняя Белая
+  { lon: 58.2, lat: 53.85 }, // к Белорецку
+];
+
 /**
  * Full Moscow ↔ St. Petersburg inland waterway order.
  */
@@ -307,13 +320,18 @@ function nearVolgaCascade(p: LngLat): boolean {
   return p.lat >= 52.8 && p.lat <= 59.15 && p.lon >= 37.0 && p.lon <= 52.5;
 }
 
+/** Кама basin + Белая up to Белорецк (east of Volga stem). */
+function nearKamaBelaya(p: LngLat): boolean {
+  return p.lat >= 52.8 && p.lat <= 60.6 && p.lon >= 48.5 && p.lon <= 59.5;
+}
+
 function isMoscowSpbCorridor(a: LngLat, b: LngLat): boolean {
   return (nearMoscow(a) && nearSpb(b)) || (nearMoscow(b) && nearSpb(a));
 }
 
 /**
- * One end on NW waterway (Онега/Ладога/СПб…), the other on Volga cascade / Moscow.
- * Must NOT use Селижарово — go Рыбинск → Шексна → … instead.
+ * One end on NW waterway (Онега/Ладога/СПб…), the other on Volga cascade /
+ * Moscow / Kama–Belaya. Must NOT use Селижарово/Дубна — go Рыбинск → Шексна.
  */
 function isVolgaBalticLongCorridor(a: LngLat, b: LngLat): boolean {
   if (isMoscowSpbCorridor(a, b)) return true;
@@ -321,7 +339,12 @@ function isVolgaBalticLongCorridor(a: LngLat, b: LngLat): boolean {
   const nwB = nearNorthwestWaterway(b);
   if (nwA === nwB) return false;
   const other = nwA ? b : a;
-  return nearVolgaCascade(other) || nearMoscow(other) || nearUpperVolga(other);
+  return (
+    nearVolgaCascade(other) ||
+    nearMoscow(other) ||
+    nearUpperVolga(other) ||
+    nearKamaBelaya(other)
+  );
 }
 
 /** Hop along the Volga cascade (no Волго-Балт / no pure Moscow Canal). */
@@ -467,7 +490,7 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
 
 /**
  * Ordered Volga→Baltic chain between A and B (or reverse).
- * From the Volga/Moscow end: cascade toward Рыбинск, then Шексна→…→Neva.
+ * From the Volga/Moscow/Kama end: cascade toward Рыбинск, then Шексна→…→Neva.
  * Never prepend Дубна/Селижарово when the start is already east on the cascade.
  */
 function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
@@ -476,23 +499,30 @@ function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   const to = nwIsB ? b : a;
 
   const towardRybinsk: LngLat[] = [];
+  const rybinsk = { lon: 38.7, lat: 58.05 };
 
   if (nearMoscow(from)) {
     towardRybinsk.push(...MOSCOW_CANAL_VIAS);
     towardRybinsk.push(
       { lon: 38.33, lat: 57.53 }, // Углич
-      { lon: 38.7, lat: 58.05 }, // Рыбинск
+      rybinsk,
     );
   } else if (nearUpperVolga(from)) {
     towardRybinsk.push(...VOLGA_UPPER_VIAS);
     towardRybinsk.push(
       { lon: 37.16, lat: 56.74 }, // Дубна
       { lon: 38.33, lat: 57.53 }, // Углич
-      { lon: 38.7, lat: 58.05 }, // Рыбинск
+      rybinsk,
     );
+  } else if (nearKamaBelaya(from) && !nearVolgaCascade(from)) {
+    // Белорецк / Белая / верхняя Кама: pin Kama–Belaya westbound, then Volga to Рыбинск.
+    const kb = pickViasAlong(from, rybinsk, KAMA_BELAYA_VIAS, { preserveOrder: true });
+    towardRybinsk.push(...kb.slice().reverse());
+    const kazan = { lon: 49.05, lat: 55.5 };
+    towardRybinsk.push(...volgaStemCorridorVias(kazan, rybinsk));
   } else {
-    // Walk the stem chain from `from` toward Рыбинск.
-    const stem = volgaStemCorridorVias(from, { lon: 38.7, lat: 58.05 });
+    // Walk the stem chain from `from` toward Рыбинск (no Дубна if already east).
+    const stem = volgaStemCorridorVias(from, rybinsk);
     towardRybinsk.push(...stem);
   }
 
@@ -536,6 +566,13 @@ function corridorViasBetween(a: LngLat, b: LngLat): LngLat[] {
 
   if (isVolgaStemCorridor(a, b)) {
     return volgaStemCorridorVias(a, b);
+  }
+
+  // NW waterway involved but not classified above — never fall through to
+  // Volga stem (that snaps СПб→Селижарово/Дубна). Prefer Baltic chain.
+  if (nearNorthwestWaterway(a) || nearNorthwestWaterway(b)) {
+    if (span < 250) return [];
+    return volgaBalticCorridorVias(a, b);
   }
 
   const minLon = Math.min(a.lon, b.lon);
@@ -857,6 +894,31 @@ function looksLikeMoskvaDetour(points: LngLat[], a: LngLat, b: LngLat): boolean 
   return moskva >= 0;
 }
 
+/**
+ * СПб/Волго-Балт ↔ Кама/Белая must not drop south to Дубна / Канал им. Москвы.
+ * That was the stem-fallback trap (nearest pin = Селижарово/Дубна).
+ */
+function looksLikeDubnaTrapOnBaltic(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  if (nearMoscow(a) || nearMoscow(b) || nearUpperVolga(a) || nearUpperVolga(b)) return false;
+  if (!nearNorthwestWaterway(a) && !nearNorthwestWaterway(b)) return false;
+  if (!isVolgaBalticLongCorridor(a, b) && !nearKamaBelaya(a) && !nearKamaBelaya(b)) {
+    return false;
+  }
+  const dubna = firstIndexInBox(points, {
+    lonMin: 36.85,
+    lonMax: 37.55,
+    latMin: 56.55,
+    latMax: 56.95,
+  });
+  const canal = firstIndexInBox(points, {
+    lonMin: 37.05,
+    lonMax: 37.75,
+    latMin: 55.82,
+    latMax: 56.55,
+  });
+  return dubna >= 0 || canal >= 0;
+}
+
 /** Path length wildly longer than the geodesic — loop / wrong basin. */
 function looksLikeExcessDetour(
   points: LngLat[],
@@ -909,7 +971,8 @@ function isHardBadVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
     looksLikeMissingCascade(points, a, b) ||
     looksLikeUglichBeforeRybinsk(points, a, b) ||
     looksLikeMoskvaDetour(points, a, b) ||
-    looksLikeCheremukhaDetour(points, a, b)
+    looksLikeCheremukhaDetour(points, a, b) ||
+    looksLikeDubnaTrapOnBaltic(points, a, b)
   );
 }
 
@@ -1149,6 +1212,19 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
   const accept = (route: BrouterResult | null): BrouterResult | null => {
     if (!route) return null;
     if (depth === 0 && moscowSpb && !looksLikeVolgaBaltic(route.points)) {
+      return null;
+    }
+    // СПб ↔ Кама/Белая: must use Волго-Балт, never Дубна/Москва.
+    if (depth === 0 && balticCorridor && isHardBadVolgaPath(route.points, a, b)) {
+      return null;
+    }
+    if (
+      depth === 0 &&
+      balticCorridor &&
+      span >= 500 &&
+      (nearNorthwestWaterway(a) || nearNorthwestWaterway(b)) &&
+      !looksLikeVolgaBaltic(route.points)
+    ) {
       return null;
     }
     // Volga-specific heuristics only inside the basin — near-geo/excess must not

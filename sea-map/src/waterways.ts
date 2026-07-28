@@ -1494,9 +1494,14 @@ export async function describeWaterItinerary(
     destination.lon >= 36.9 &&
     destination.lon <= 38.1;
 
-  // «Москва» on a cascade itinerary = wrong geometry (unless endpoint is Moscow).
+  // «Москва» / канал on a cascade itinerary = wrong branch (unless endpoint is Moscow).
+  // Drop those stretches and keep the rest — do not hide the whole description.
   if (hasMoskva && hasCascade && !nearMos && !nearMosB) {
-    return [];
+    chain = chain.filter((s) => {
+      const k = s.name.toLocaleLowerCase('ru');
+      return k !== 'москва' && !k.includes('канал имени москвы') && !k.includes('иваньков');
+    });
+    if (!chain.length) return [];
   }
 
   const geo = haversineKm(origin, destination);
