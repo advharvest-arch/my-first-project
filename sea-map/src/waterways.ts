@@ -1019,12 +1019,6 @@ function waterNameFromTags(tags: string[]): string | null {
   return kinds.size ? [...kinds].join(', ') : null;
 }
 
-type NamedLine = {
-  name: string;
-  kind: 'river' | 'lake';
-  coords: LngLat[];
-};
-
 type CatalogBody = {
   n: string;
   k: 'r' | 'l';
@@ -1076,87 +1070,54 @@ function catalogBodyByName(name: string): CatalogBody | undefined {
   return CATALOG.find((b) => b.n.toLocaleLowerCase('ru') === key);
 }
 
-function namedLinesNearPath(path: LngLat[]): NamedLine[] {
-  const cells = cellsAlong(path);
-  const lines = mergeLines(
-    cells.map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? []).filter((g) => g.length > 0),
-  );
-  const out: NamedLine[] = [];
-  const seen = new Set<string>();
-  for (const line of lines) {
-    if (!line.name || seen.has(line.id)) continue;
-    seen.add(line.id);
-    out.push({
-      name: line.name,
-      kind: line.kind === 'lake' ? 'lake' : 'river',
-      coords: line.coords,
-    });
-  }
-  return out;
-}
-
-function distToLine(sample: LngLat, coords: LngLat[]): number {
-  let best = Infinity;
-  if (coords.length < 2) {
-    return coords[0] ? haversineKm(sample, coords[0]) : best;
-  }
-  const stride = Math.max(1, Math.floor(coords.length / 48));
-  for (let j = stride; j < coords.length; j += stride) {
-    const c = closestOnSegment(sample, coords[j - stride]!, coords[j]!);
-    if (c.distKm < best) best = c.distKm;
-  }
-  return best;
-}
-
-function pickLocalLineName(
-  sample: LngLat,
-  lines: NamedLine[],
-): { name: string; kind: 'river' | 'lake'; d: number } | null {
-  let best: { name: string; kind: 'river' | 'lake'; d: number } | null = null;
-  for (const line of lines) {
-    const d = distToLine(sample, line.coords);
-    const limit = line.kind === 'lake' ? 1.6 : 0.3;
-    if (d > limit) continue;
-    if (!best || d < best.d) best = { name: line.name, kind: line.kind, d };
-  }
-  return best;
-}
-
 function nameAtSample(
   p: LngLat,
-  lines: NamedLine[],
   stickyLake: string | null,
+  stickyOutsideKm: number,
   usedLakes: Set<string>,
-): { name: string | null; stickyLake: string | null } {
+  stepKm: number,
+): { name: string | null; stickyLake: string | null; stickyOutsideKm: number } {
   if (stickyLake) {
     const body = catalogBodyByName(stickyLake);
     if (body && pointInCatalog(p, body)) {
-      return { name: stickyLake, stickyLake };
+      return { name: stickyLake, stickyLake, stickyOutsideKm: 0 };
+    }
+
+    // Leaving a lake into a named tributary / outflow (Селижаровка, Ветлуга…):
+    // switch immediately — do not let lake hysteresis swallow the river.
+    const catalogNow = pickCatalogName(p, usedLakes);
+    if (catalogNow?.kind === 'river') {
+      const riverBody = catalogBodyByName(catalogNow.name);
+      const volga = catalogBodyByName('Волга');
+      if (
+        riverBody &&
+        volga &&
+        catalogArea(riverBody) < catalogArea(volga) * 0.45
+      ) {
+        usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
+        return { name: catalogNow.name, stickyLake: null, stickyOutsideKm: 0 };
+      }
+    }
+
+    // Hysteresis for brief gaps inside the same reservoir corridor.
+    const outside = stickyOutsideKm + stepKm;
+    if (outside < 8) {
+      return { name: stickyLake, stickyLake, stickyOutsideKm: outside };
     }
     usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
     stickyLake = null;
+    stickyOutsideKm = 0;
   }
 
+  // Catalog only — never pull random OSM tributaries (e.g. «Ить»).
   const catalog = pickCatalogName(p, usedLakes);
-  const local = pickLocalLineName(p, lines);
-
   if (catalog?.kind === 'lake') {
-    return { name: catalog.name, stickyLake: catalog.name };
+    return { name: catalog.name, stickyLake: catalog.name, stickyOutsideKm: 0 };
   }
-
-  if (
-    local?.kind === 'lake' &&
-    local.d <= 0.9 &&
-    !usedLakes.has(local.name.toLocaleLowerCase('ru'))
-  ) {
-    return { name: local.name, stickyLake: local.name };
-  }
-
   if (catalog?.kind === 'river') {
-    return { name: catalog.name, stickyLake: null };
+    return { name: catalog.name, stickyLake: null, stickyOutsideKm: 0 };
   }
-
-  return { name: local?.name ?? null, stickyLake: null };
+  return { name: null, stickyLake: null, stickyOutsideKm: 0 };
 }
 
 export type ItinerarySegment = {
@@ -1165,20 +1126,73 @@ export type ItinerarySegment = {
   km: number;
 };
 
+/** Fold tiny noise stretches into neighbours (keeps cascade readable). */
+function mergeShortSegments(segments: ItinerarySegment[], minKm = 3): ItinerarySegment[] {
+  if (segments.length <= 1) return segments;
+  const out: ItinerarySegment[] = segments.map((s) => ({ ...s }));
+  let i = 0;
+  while (i < out.length) {
+    const s = out[i]!;
+    if (s.km >= minKm || out.length === 1) {
+      i += 1;
+      continue;
+    }
+    const prev = i > 0 ? out[i - 1] : null;
+    const next = i + 1 < out.length ? out[i + 1] : null;
+    if (prev && next && prev.name.toLocaleLowerCase('ru') === next.name.toLocaleLowerCase('ru')) {
+      prev.km += s.km + next.km;
+      out.splice(i, 2);
+      continue;
+    }
+    if (prev && (!next || prev.km >= (next?.km ?? 0))) {
+      prev.km += s.km;
+      out.splice(i, 1);
+      continue;
+    }
+    if (next) {
+      next.km += s.km;
+      out.splice(i, 1);
+      continue;
+    }
+    i += 1;
+  }
+  const collapsed: ItinerarySegment[] = [];
+  for (const s of out) {
+    const prev = collapsed[collapsed.length - 1];
+    if (prev && prev.name.toLocaleLowerCase('ru') === s.name.toLocaleLowerCase('ru')) {
+      prev.km += s.km;
+    } else {
+      collapsed.push({ ...s });
+    }
+  }
+  return collapsed;
+}
+
+/** Scale stretch lengths so they sum to the reported route distance. */
+function scaleSegmentsToTotal(segments: ItinerarySegment[], totalKm: number): ItinerarySegment[] {
+  if (!(totalKm > 0) || segments.length === 0) return segments;
+  const sum = segments.reduce((a, s) => a + s.km, 0);
+  if (!(sum > 0)) return segments;
+  const k = totalKm / sum;
+  return segments.map((s) => ({ name: s.name, km: s.km * k }));
+}
+
 /**
  * Build ordered waterway/reservoir chain with per-stretch distances.
- * Catalog boxes give stable reservoir names; local OSM lines fill gaps.
+ * Naming uses the curated catalog only (no OSM tributary noise).
  */
-function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment[] {
+function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   if (path.length < 2) return [];
 
   let stickyLake: string | null = null;
+  let stickyOutsideKm = 0;
   const usedLakes = new Set<string>();
   const segments: ItinerarySegment[] = [];
 
-  const labelAt = (p: LngLat): string | null => {
-    const hit = nameAtSample(p, lines, stickyLake, usedLakes);
+  const labelAt = (p: LngLat, stepKm: number): string | null => {
+    const hit = nameAtSample(p, stickyLake, stickyOutsideKm, usedLakes, stepKm);
     stickyLake = hit.stickyLake;
+    stickyOutsideKm = hit.stickyOutsideKm;
     if (!hit.name) return null;
     if (isLakeCatalogName(hit.name) && usedLakes.has(hit.name.toLocaleLowerCase('ru'))) {
       return null;
@@ -1186,7 +1200,7 @@ function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment
     return hit.name;
   };
 
-  let currentName = labelAt(path[0]!);
+  let currentName = labelAt(path[0]!, 0);
   let currentKm = 0;
 
   const flush = () => {
@@ -1205,7 +1219,7 @@ function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment
 
   for (let i = 1; i < path.length; i++) {
     const d = haversineKm(path[i - 1]!, path[i]!);
-    const name = labelAt(path[i]!);
+    const name = labelAt(path[i]!, d);
 
     if (!name) {
       currentKm += d;
@@ -1220,7 +1234,8 @@ function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment
     const half = d / 2;
     currentKm += half;
     flush();
-    if (currentName && isLakeCatalogName(currentName)) {
+    // Only lock a reservoir out once we have moved on to another named body.
+    if (currentName && isLakeCatalogName(currentName) && name !== currentName) {
       usedLakes.add(currentName.toLocaleLowerCase('ru'));
     }
     currentName = name;
@@ -1228,42 +1243,30 @@ function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment
   }
 
   flush();
-  return segments;
+  return mergeShortSegments(segments, 3);
 }
 
 export type ItineraryOptions = {
-  /** Warm local waterway cache along the path (optional). */
-  remote?: boolean;
+  /**
+   * Reported route length (e.g. BRouter). Segment km are scaled to this total
+   * so the description matches the distance shown in stats.
+   */
+  totalKm?: number;
 };
 
 /**
  * Ordered chain of named waterways / reservoirs along a route geometry,
- * e.g. «Волга (215 км) — Иваньковское водохранилище (48 км) — …».
+ * e.g. «Волга (215 км) — Иваньковское водохранилище (120 км) — …».
  */
 export async function describeWaterItinerary(
   path: LngLat[],
   opts: ItineraryOptions = {},
 ): Promise<ItinerarySegment[]> {
   if (path.length < 2) return [];
-  const remote = opts.remote !== false;
-
-  let lines = namedLinesNearPath(path);
-  let chain = itineraryFromPath(path, lines);
-  if (!remote) return chain;
-
-  try {
-    await Promise.race([
-      fetchWaterNetwork(sampleAlongPath(path, Math.min(10, Math.max(3, path.length))), {
-        forceRefresh: false,
-      }),
-      new Promise<void>((resolve) => setTimeout(resolve, 5000)),
-    ]);
-    lines = namedLinesNearPath(path);
-    chain = itineraryFromPath(path, lines);
-  } catch {
-    // keep catalog chain
+  let chain = itineraryFromPath(path);
+  if (opts.totalKm && opts.totalKm > 0) {
+    chain = scaleSegmentsToTotal(chain, opts.totalKm);
   }
-
   return chain;
 }
 

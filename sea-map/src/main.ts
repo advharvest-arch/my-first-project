@@ -286,23 +286,21 @@ async function copyRouteDesc(): Promise<void> {
   }
 }
 
-async function updateRouteItinerary(path: LngLat[], fallback: string | null): Promise<void> {
+async function updateRouteItinerary(
+  path: LngLat[],
+  totalKm: number,
+  fallback: string | null,
+): Promise<void> {
   try {
-    const quick = await describeWaterItinerary(path, { remote: false });
-    if (quick.length) showRouteDesc(formatItinerary(quick));
-    else showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
-  } catch {
-    showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
-  }
-
-  try {
-    const names = await describeWaterItinerary(path, { remote: true });
-    if (names.length) {
-      showRouteDesc(formatItinerary(names));
+    const segments = await describeWaterItinerary(path, { totalKm });
+    if (segments.length) {
+      showRouteDesc(formatItinerary(segments));
       return;
     }
+    showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
   } catch (err) {
     console.warn(err);
+    showRouteDesc(fallback?.trim() ? fallback : 'Определяем водоёмы по маршруту…');
   }
 }
 
@@ -800,7 +798,11 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       .join(' · ') || netLabel;
 
     showStats(path.lengthKm);
-    void updateRouteItinerary(path.points, path.method === 'direct' ? null : waterLabel);
+    void updateRouteItinerary(
+      path.points,
+      path.lengthKm,
+      path.method === 'direct' ? null : waterLabel,
+    );
     const parallelNote =
       showReturnInput.checked && waypoints.length >= 3
         ? ` Участки разведены в ${waypoints.length - 1} паралл. полос.`
@@ -907,7 +909,7 @@ function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
     { animate: false },
   );
   fitRouteBounds(canned.points);
-  void updateRouteItinerary(canned.points, 'река/канал');
+  void updateRouteItinerary(canned.points, canned.lengthKm, 'река/канал');
   return true;
 }
 
