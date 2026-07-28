@@ -794,9 +794,16 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
 
     showStats(path.lengthKm);
     const geo = haversineKm(waypoints[0]!, waypoints[waypoints.length - 1]!);
+    const ratio =
+      path.lengthKm > 0 ? path.lengthKm / Math.max(geo, 0.001) : Infinity;
+    // Near-geodesic = air/land cut. Old gate (geo > 250) missed short cascade
+    // chords like ~39 km «Куйбышевское — Чебоксарское».
     const isAir =
       path.method === 'direct' ||
       path.points.length <= 3 ||
+      (geo >= 15 && ratio <= 1.12) ||
+      (geo >= 8 && ratio <= 1.06) ||
+      (geo > 80 && ratio <= 1.2 && path.points.length < Math.max(6, geo / 30)) ||
       (path.lengthKm > 0 && geo > 250 && path.lengthKm <= geo * 1.25);
     void updateRouteItinerary(
       path.points,

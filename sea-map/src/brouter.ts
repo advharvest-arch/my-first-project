@@ -236,13 +236,18 @@ function isVolgaBalticLongCorridor(a: LngLat, b: LngLat): boolean {
   return nearVolgaCascade(other) || nearMoscow(other) || nearUpperVolga(other);
 }
 
-/** Long hop along the Volga cascade (no Волго-Балт / no pure Moscow Canal). */
+/** Hop along the Volga cascade (no Волго-Балт / no pure Moscow Canal). */
 function isVolgaStemCorridor(a: LngLat, b: LngLat): boolean {
   if (isVolgaBalticLongCorridor(a, b) || isMoscowSpbCorridor(a, b)) return false;
   if (!inVolgaBasin(a) || !inVolgaBasin(b)) return false;
   const span = haversineKm(a, b);
-  if (span < 80) return false;
-  return nearestStemIndex(a) !== nearestStemIndex(b) || Math.abs(a.lon - b.lon) >= 1;
+  if (span < 18) return false;
+  const ia = nearestStemIndex(a);
+  const ib = nearestStemIndex(b);
+  // Distinct cascade waterbodies — always pin the fairway (even ~20–80 km hops).
+  // Otherwise BRouter returns a land chord labeled as Куйбышевское—Чебоксарское.
+  if (ia !== ib) return true;
+  return span >= 80 && Math.abs(a.lon - b.lon) >= 1;
 }
 
 function pickViasAlong(
@@ -328,6 +333,15 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   const vias = slice.filter(
     (v) => haversineKm(a, v) >= 30 && haversineKm(b, v) >= 30,
   );
+
+  // Adjacent cascade reservoirs: stem pins sit near A/B and get filtered out.
+  // Insert a mid-fairway via so short hops (Куйбышев↔Чебоксары) stay on water.
+  if (!vias.length && Math.abs(ia - ib) >= 1 && slice.length >= 2) {
+    const mid = interpolate(slice[0]!, slice[slice.length - 1]!, 0.5);
+    if (haversineKm(a, mid) >= 6 && haversineKm(b, mid) >= 6) {
+      vias.push(mid);
+    }
+  }
 
   // Moscow is off the stem chain — pin the canal fairway at the Moscow end.
   if (nearMoscow(a) || nearMoscow(b)) {
@@ -724,6 +738,32 @@ function looksLikeExcessDetour(
   return len > geo * 2.4;
 }
 
+/**
+ * Near-geodesic polyline between distinct cascade waterbodies = land/air chord
+ * (e.g. ~39 km «Куйбышевское — Чебоксарское» cutting the dam neck).
+ */
+function looksLikeNearGeodesicLandCut(
+  points: LngLat[],
+  a: LngLat,
+  b: LngLat,
+  lengthKm?: number,
+): boolean {
+  const geo = haversineKm(a, b);
+  if (geo < 15) return false;
+  const len = lengthKm ?? pathLengthKm(points);
+  const ratio = len / Math.max(geo, 0.001);
+
+  if (inVolgaBasin(a) && inVolgaBasin(b) && nearestStemIndex(a) !== nearestStemIndex(b)) {
+    if (ratio <= 1.12) return true;
+    if (ratio <= 1.22 && points.length < Math.max(8, geo / 12)) return true;
+  }
+
+  // Universal: almost exact geodesic on medium hops is disguised direct.
+  if (geo >= 25 && ratio <= 1.05) return true;
+  if (geo >= 80 && ratio <= 1.12 && points.length <= 4) return true;
+  return false;
+}
+
 function isSuspiciousVolgaPath(
   points: LngLat[],
   a: LngLat,
@@ -737,7 +777,8 @@ function isSuspiciousVolgaPath(
     looksLikeMissingCascade(points, a, b) ||
     looksLikeUglichBeforeRybinsk(points, a, b) ||
     looksLikeMoskvaDetour(points, a, b) ||
-    looksLikeExcessDetour(points, a, b, lengthKm)
+    looksLikeExcessDetour(points, a, b, lengthKm) ||
+    looksLikeNearGeodesicLandCut(points, a, b, lengthKm)
   );
 }
 
