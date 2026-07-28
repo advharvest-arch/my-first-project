@@ -1202,7 +1202,17 @@ function pickCatalogName(
     if (lakeA !== lakeB) return lakeA - lakeB;
     return catalogArea(a) - catalogArea(b);
   });
+
   const best = hits[0]!;
+  const bestKey = best.n.toLocaleLowerCase('ru');
+  // Ветлуга box overlaps the Volga / Cheboksary band — don't label the stem as Ветлуга.
+  if (bestKey === 'ветлуга') {
+    const volga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'волга');
+    if (volga && sample.lat < 56.5) {
+      return { name: 'Волга', kind: 'river' };
+    }
+  }
+
   return { name: best.n, kind: best.k === 'l' ? 'lake' : 'river' };
 }
 
@@ -1324,6 +1334,10 @@ function scaleSegmentsToTotal(segments: ItinerarySegment[], totalKm: number): It
   if (!(totalKm > 0) || segments.length === 0) return segments;
   const sum = segments.reduce((a, s) => a + s.km, 0);
   if (!(sum > 0)) return segments;
+  const drift = Math.abs(sum - totalKm) / totalKm;
+  // Measured along the drawn path — only nudge tiny rounding drift.
+  // Never inflate segments to hide unlabeled gaps (that made Ветлуга «500 км»).
+  if (drift > 0.03) return segments;
   const k = totalKm / sum;
   return segments.map((s) => ({ name: s.name, km: s.km * k }));
 }
@@ -1392,19 +1406,24 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
 
   let currentName = labelAt(path[0]!, 0);
   let currentKm = 0;
+  /** Unlabeled stretch — attach to the next named segment (never drop / rescale-inflate). */
+  let pendingKm = 0;
 
-  const flush = () => {
-    if (!currentName || currentKm < 0.5) {
+  const flushNamed = () => {
+    if (!currentName) {
+      pendingKm += currentKm;
       currentKm = 0;
       return;
     }
+    const add = currentKm;
+    currentKm = 0;
+    if (add < 0.05) return;
     const prev = segments[segments.length - 1];
     if (prev && prev.name.toLocaleLowerCase('ru') === currentName.toLocaleLowerCase('ru')) {
-      prev.km += currentKm;
+      prev.km += add;
     } else {
-      segments.push({ name: currentName, km: currentKm });
+      segments.push({ name: currentName, km: add });
     }
-    currentKm = 0;
   };
 
   for (let i = 1; i < path.length; i++) {
@@ -1412,34 +1431,50 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     const name = labelAt(path[i]!, d);
 
     if (!name) {
-      currentKm += d;
+      // Keep counting under the current label when possible; otherwise hold as pending.
+      if (currentName) currentKm += d;
+      else pendingKm += d;
       continue;
     }
 
     if (currentName && name.toLocaleLowerCase('ru') === currentName.toLocaleLowerCase('ru')) {
-      currentKm += d;
+      currentKm += d + pendingKm;
+      pendingKm = 0;
       continue;
     }
 
-    const half = d / 2;
-    currentKm += half;
-    flush();
-    // Lock out finished stretches: lakes always; secondary rivers after entering a lake.
-    if (currentName && name !== currentName) {
-      if (isLakeCatalogName(currentName)) {
-        usedNames.add(currentName.toLocaleLowerCase('ru'));
-      } else if (
-        !isTrunkRiver(currentName) &&
-        (isLakeCatalogName(name) || isTrunkRiver(name))
-      ) {
-        usedNames.add(currentName.toLocaleLowerCase('ru'));
+    // Switch label: close previous, give unlabeled gap to the new stretch.
+    if (currentName) {
+      currentKm += d / 2;
+      flushNamed();
+      if (currentName && name !== currentName) {
+        if (isLakeCatalogName(currentName)) {
+          usedNames.add(currentName.toLocaleLowerCase('ru'));
+        } else if (
+          !isTrunkRiver(currentName) &&
+          (isLakeCatalogName(name) || isTrunkRiver(name))
+        ) {
+          usedNames.add(currentName.toLocaleLowerCase('ru'));
+        }
       }
+      currentName = name;
+      currentKm = d / 2 + pendingKm;
+      pendingKm = 0;
+    } else {
+      currentName = name;
+      currentKm = d + pendingKm;
+      pendingKm = 0;
     }
-    currentName = name;
-    currentKm = half;
   }
 
-  flush();
+  flushNamed();
+  if (pendingKm >= 0.5) {
+    if (segments.length) {
+      segments[segments.length - 1]!.km += pendingKm;
+    } else if (currentName) {
+      segments.push({ name: currentName, km: pendingKm });
+    }
+  }
   return mergeShortSegments(segments, 3);
 }
 
@@ -1520,8 +1555,12 @@ export function formatItinerary(segments: ItinerarySegment[]): string {
   return segments
     .filter((s) => s.name)
     .map((s) => {
-      const km = Math.max(1, Math.round(s.km));
-      return `${s.name} (${km} км)`;
+      const km = Math.max(0.1, Math.round(s.km * 10) / 10);
+      const kmText = km.toLocaleString('ru-RU', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+      return `${s.name} (${kmText} км)`;
     })
     .join(' — ');
 }
