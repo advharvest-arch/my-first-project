@@ -109,6 +109,25 @@ const VOLGA_NAV_FAIRWAY: LngLat[] = [
 ];
 
 /**
+ * Топозеро → Софьянга (Софпорог) → Пяозеро (Кумское вдхр., Карелия).
+ * Open lake water has almost no BRouter river centerline — snap + synthetic.
+ */
+const TOPO_PYAOZERO_FAIRWAY: LngLat[] = [
+  { lon: 32.4, lat: 65.55 },
+  { lon: 32.1, lat: 65.62 },
+  { lon: 31.8, lat: 65.7 },
+  { lon: 31.55, lat: 65.78 },
+  { lon: 31.4358, lat: 65.7981 }, // Софьянга / выход из Топозера
+  { lon: 31.35, lat: 65.83 },
+  { lon: 31.2417, lat: 65.8706 }, // вход в Пяозеро
+  { lon: 31.15, lat: 65.95 },
+  { lon: 31.05, lat: 66.05 },
+  { lon: 30.95, lat: 66.15 },
+];
+
+const REGIONAL_FAIRWAYS: LngLat[][] = [VOLGA_NAV_FAIRWAY, TOPO_PYAOZERO_FAIRWAY];
+
+/**
  * Волго-Балт north of Рыбинск (Шексна → … → Нева).
  */
 const VOLGA_BALTIC_NORTH_VIAS: LngLat[] = [
@@ -885,11 +904,11 @@ function isSuspiciousVolgaPath(
   );
 }
 
-function nearestFairwayIndex(p: LngLat): { idx: number; dist: number } {
+function nearestOnFairway(p: LngLat, fairway: LngLat[]): { idx: number; dist: number } {
   let best = 0;
   let bestD = Infinity;
-  for (let i = 0; i < VOLGA_NAV_FAIRWAY.length; i++) {
-    const d = haversineKm(p, VOLGA_NAV_FAIRWAY[i]!);
+  for (let i = 0; i < fairway.length; i++) {
+    const d = haversineKm(p, fairway[i]!);
     if (d < bestD) {
       bestD = d;
       best = i;
@@ -898,11 +917,11 @@ function nearestFairwayIndex(p: LngLat): { idx: number; dist: number } {
   return { idx: best, dist: bestD };
 }
 
-function fairwaySliceBetween(ia: number, ib: number): LngLat[] {
+function fairwaySlice(fairway: LngLat[], ia: number, ib: number): LngLat[] {
   if (ia === ib) return [];
   const lo = Math.min(ia, ib);
   const hi = Math.max(ia, ib);
-  let slice = VOLGA_NAV_FAIRWAY.slice(lo, hi + 1);
+  let slice = fairway.slice(lo, hi + 1);
   if (ia > ib) slice = slice.slice().reverse();
   return slice;
 }
@@ -919,61 +938,120 @@ function thinVias(vias: LngLat[], maxN: number): LngLat[] {
   return out;
 }
 
-/**
- * Route along the dense Volga fairway after a collapsed/land-cut direct.
- * Pin-only attempts are scored against pin endpoints (not user geodesic).
- */
-async function routeViaVolgaFairway(a: LngLat, b: LngLat): Promise<BrouterResult | null> {
-  if (!inVolgaBasin(a) || !inVolgaBasin(b)) return null;
-  // Fairway covers Dubna → south Kuibyshev.
-  if (Math.max(a.lon, b.lon) < 36.8 || Math.min(a.lon, b.lon) > 50.8) return null;
-
-  let sa = nearestFairwayIndex(a);
-  let sb = nearestFairwayIndex(b);
-  if (sa.dist > 100 || sb.dist > 100) return null;
-
-  // Same pin: nudge toward the other endpoint along the chain.
-  if (sa.idx === sb.idx) {
-    const span = haversineKm(a, b);
-    if (span < 10) return null;
-    const towardB = b.lon >= a.lon ? 1 : -1;
-    const next = Math.max(0, Math.min(VOLGA_NAV_FAIRWAY.length - 1, sa.idx + towardB));
-    if (next === sa.idx) return null;
-    sb = { idx: next, dist: haversineKm(b, VOLGA_NAV_FAIRWAY[next]!) };
-  }
-
-  const slice = fairwaySliceBetween(sa.idx, sb.idx);
-  if (slice.length < 2) return null;
-
-  const pinA = slice[0]!;
-  const pinB = slice[slice.length - 1]!;
-  const thin = thinVias(slice, 8);
-
-  const acceptPinRoute = (route: BrouterResult | null): BrouterResult | null => {
-    if (!route || route.points.length < 2 || route.lengthKm <= 0) return null;
-    if (isHardBadVolgaPath(route.points, a, b)) return null;
-    const pinGeo = haversineKm(pinA, pinB);
-    if (pinGeo >= 8 && route.lengthKm < pinGeo * 0.85) return null;
-    if (pinGeo >= 12 && route.lengthKm <= pinGeo * 1.04 && route.points.length <= 4) {
-      return null;
+function densifyFairway(slice: LngLat[], stepKm: number): LngLat[] {
+  if (slice.length < 2) return slice.slice();
+  const out: LngLat[] = [slice[0]!];
+  for (let i = 1; i < slice.length; i++) {
+    const a = slice[i - 1]!;
+    const b = slice[i]!;
+    const d = haversineKm(a, b);
+    const n = Math.max(0, Math.floor(d / stepKm) - 1);
+    for (let k = 1; k <= n; k++) {
+      const t = k / (n + 1);
+      out.push({ lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t });
     }
-    const userGeo = haversineKm(a, b);
-    if (userGeo >= 15 && route.lengthKm > userGeo * 3.5) return null;
-    return route;
-  };
+    out.push(b);
+  }
+  return out;
+}
 
-  const attempts: LngLat[][] = [
-    thin,
-    [a, ...thin.filter((v) => haversineKm(a, v) >= 5 && haversineKm(b, v) >= 5), b],
-    [a, ...thinVias(thin, 4), b],
-  ];
+function syntheticFairwayRoute(a: LngLat, b: LngLat, slice: LngLat[]): BrouterResult {
+  const dense = densifyFairway(slice, 4);
+  const points: LngLat[] = [a];
+  for (const p of dense) {
+    const last = points[points.length - 1]!;
+    if (haversineKm(last, p) >= 0.4) points.push(p);
+  }
+  const last = points[points.length - 1]!;
+  if (haversineKm(last, b) >= 0.4) points.push(b);
+  else points[points.length - 1] = b;
+  return { points, lengthKm: pathLengthKm(points), wayTags: [] };
+}
 
-  for (const pts of attempts) {
-    if (pts.length < 2) continue;
-    const route = acceptPinRoute(await routeWithBrouter(pts));
-    if (route) return route;
+/**
+ * Snap onto a known navigable fairway after collapsed BRouter (open lakes etc.).
+ * If BRouter still fails on pins, use densified fairway geometry (lakes/channels).
+ */
+async function routeViaRegionalFairway(a: LngLat, b: LngLat): Promise<BrouterResult | null> {
+  const userGeo = haversineKm(a, b);
+  if (userGeo < 8) return null;
+
+  for (const fairway of REGIONAL_FAIRWAYS) {
+    let sa = nearestOnFairway(a, fairway);
+    let sb = nearestOnFairway(b, fairway);
+    const maxSnap = fairway === TOPO_PYAOZERO_FAIRWAY ? 55 : 100;
+    if (sa.dist > maxSnap || sb.dist > maxSnap) continue;
+
+    if (sa.idx === sb.idx) {
+      if (userGeo < 10) continue;
+      // Nudge along chain toward the other endpoint.
+      const ia = sa.idx;
+      const toward =
+        haversineKm(fairway[Math.min(ia + 1, fairway.length - 1)]!, b) <=
+        haversineKm(fairway[Math.max(ia - 1, 0)]!, b)
+          ? 1
+          : -1;
+      const next = Math.max(0, Math.min(fairway.length - 1, ia + toward));
+      if (next === ia) continue;
+      sb = { idx: next, dist: haversineKm(b, fairway[next]!) };
+    }
+
+    const slice = fairwaySlice(fairway, sa.idx, sb.idx);
+    if (slice.length < 2) continue;
+
+    const pinA = slice[0]!;
+    const pinB = slice[slice.length - 1]!;
+    const thin = thinVias(slice, 8);
+
+    const acceptPinRoute = (route: BrouterResult | null): BrouterResult | null => {
+      if (!route || route.points.length < 2 || route.lengthKm <= 0) return null;
+      if (fairway === VOLGA_NAV_FAIRWAY && isHardBadVolgaPath(route.points, a, b)) {
+        return null;
+      }
+      const pinGeo = haversineKm(pinA, pinB);
+      if (pinGeo >= 8 && route.lengthKm < pinGeo * 0.85) return null;
+      if (userGeo >= 15 && route.lengthKm > userGeo * 3.5) return null;
+      // Pin-only BRouter often stops at the channel while the user clicked
+      // open lake water (Топозеро/Пяозеро) — require ends near the request.
+      const d0 = haversineKm(route.points[0]!, a);
+      const d1 = haversineKm(route.points[route.points.length - 1]!, b);
+      if (d0 > 18 || d1 > 18) return null;
+      return route;
+    };
+
+    const attempts: LngLat[][] = [
+      thin,
+      [a, ...thin.filter((v) => haversineKm(a, v) >= 4 && haversineKm(b, v) >= 4), b],
+      [a, ...thinVias(thin, 4), b],
+    ];
+
+    let found: BrouterResult | null = null;
+    for (const pts of attempts) {
+      if (pts.length < 2) continue;
+      found = acceptPinRoute(await routeWithBrouter(pts));
+      if (found) break;
+    }
+
+    // Open lakes: BRouter has no centerline — densified fairway is the water path.
+    if (!found) {
+      const synth = syntheticFairwayRoute(a, b, slice);
+      if (synth.lengthKm >= userGeo * 0.7 && synth.lengthKm <= userGeo * 3.5) {
+        found = synth;
+      }
+    }
+
+    if (found) return found;
   }
   return null;
+}
+
+/** Volga-specific aliases used by stem corridor vias. */
+function nearestFairwayIndex(p: LngLat): { idx: number; dist: number } {
+  return nearestOnFairway(p, VOLGA_NAV_FAIRWAY);
+}
+
+function fairwaySliceBetween(ia: number, ib: number): LngLat[] {
+  return fairwaySlice(VOLGA_NAV_FAIRWAY, ia, ib);
 }
 
 /**
@@ -1061,11 +1139,14 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
     ) {
       return null;
     }
-    // Universal: collapsed BRouter snap (track << geodesic).
+    // Universal: collapsed BRouter snap (track << geodesic) or ends far from A/B.
     if (depth === 0) {
       const geo = haversineKm(a, b);
       if (geo >= 12 && route.lengthKm < geo * 0.85) return null;
       if (geo >= 8 && route.points.length <= 2) return null;
+      const d0 = haversineKm(route.points[0]!, a);
+      const d1 = haversineKm(route.points[route.points.length - 1]!, b);
+      if (geo >= 25 && (d0 > 15 || d1 > 15)) return null;
     }
     return route;
   };
@@ -1083,7 +1164,7 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
   if (depth === 0 && !moscowSpb && !balticCorridor) {
     const directFirst = accept(await routeWithBrouter([a, b]));
     if (directFirst) return directFirst;
-    const fairwayFirst = await routeViaVolgaFairway(a, b);
+    const fairwayFirst = await routeViaRegionalFairway(a, b);
     if (fairwayFirst) return fairwayFirst;
   }
 
@@ -1101,7 +1182,7 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
 
   // Fairway snap recovery for any Volga-basin hop (incl. short span < 50).
   if (depth === 0) {
-    const fairway = await routeViaVolgaFairway(a, b);
+    const fairway = await routeViaRegionalFairway(a, b);
     if (fairway) return fairway;
   }
 
