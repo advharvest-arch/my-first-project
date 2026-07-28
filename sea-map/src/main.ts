@@ -595,8 +595,39 @@ function formatSegmentKm(km: number): string {
   })} км`;
 }
 
+/** Destination ~`meters` from `p` along geographic bearing (degrees). */
+function destinationMeters(p: LngLat, bearing: number, meters: number): LngLat {
+  const R = 6371000;
+  const δ = meters / R;
+  const θ = (bearing * Math.PI) / 180;
+  const φ1 = (p.lat * Math.PI) / 180;
+  const λ1 = (p.lon * Math.PI) / 180;
+  const sinφ2 =
+    Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
+  const φ2 = Math.asin(Math.min(1, Math.max(-1, sinφ2)));
+  const λ2 =
+    λ1 +
+    Math.atan2(
+      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2),
+    );
+  return {
+    lat: (φ2 * 180) / Math.PI,
+    lon: ((((λ2 * 180) / Math.PI + 540) % 360) - 180),
+  };
+}
+
+/** Half-length of a boundary tick so it stays ~10–12 px on screen. */
+function segmentTickHalfMeters(at: LngLat): number {
+  const z = map.getZoom();
+  const mPerPx =
+    (156543.03392 * Math.cos((at.lat * Math.PI) / 180)) / 2 ** z;
+  return Math.max(18, Math.min(350, mPerPx * 11));
+}
+
 /**
  * Perpendicular hash marks at stretch boundaries; name + km above each stretch midpoint.
+ * Ticks are short geographic polylines across the route (bearing ± 90°).
  */
 function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   if (path.length < 2 || segments.length === 0) return;
@@ -614,26 +645,43 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
 
   for (const km of boundsKm) {
     const { point, bearing } = pointAlongPath(path, km * scale);
-    L.marker([point.lat, point.lon], {
-      interactive: false,
-      keyboard: false,
-      zIndexOffset: 440,
-      icon: L.divIcon({
-        className: 'seg-tick-wrap',
-        html: `<div class="seg-tick" style="--brg:${bearing.toFixed(1)}deg">
-          <div class="seg-tick-bar" aria-hidden="true"></div>
-        </div>`,
-        iconSize: [1, 1],
-        iconAnchor: [0, 0],
-      }),
-    }).addTo(drawLayer);
+    const half = segmentTickHalfMeters(point);
+    // Across the line: left/right of travel, not along it.
+    const a = destinationMeters(point, bearing - 90, half);
+    const b = destinationMeters(point, bearing + 90, half);
+    L.polyline(
+      [
+        [a.lat, a.lon],
+        [b.lat, b.lon],
+      ],
+      {
+        color: '#ffffff',
+        weight: 5,
+        opacity: 0.95,
+        lineCap: 'butt',
+        interactive: false,
+      },
+    ).addTo(drawLayer);
+    L.polyline(
+      [
+        [a.lat, a.lon],
+        [b.lat, b.lon],
+      ],
+      {
+        color: '#071821',
+        weight: 2.5,
+        opacity: 1,
+        lineCap: 'butt',
+        interactive: false,
+      },
+    ).addTo(drawLayer);
   }
 
   cum = 0;
   for (const seg of segments) {
     const midKm = (cum + seg.km / 2) * scale;
     cum += seg.km;
-    const { point, bearing } = pointAlongPath(path, midKm);
+    const { point } = pointAlongPath(path, midKm);
     const name = escapeHtml(shortSegmentName(seg.name));
     const kmText = escapeHtml(formatSegmentKm(seg.km));
     L.marker([point.lat, point.lon], {
@@ -642,7 +690,7 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
       zIndexOffset: 460,
       icon: L.divIcon({
         className: 'seg-mid-wrap',
-        html: `<div class="seg-mid" style="--brg:${bearing.toFixed(1)}deg">
+        html: `<div class="seg-mid">
           <div class="seg-mid-label">${name}<span>${kmText}</span></div>
         </div>`,
         iconSize: [1, 1],

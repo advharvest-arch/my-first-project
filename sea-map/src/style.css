@@ -291,21 +291,26 @@ body {
   pointer-events: none;
 }
 
-/* Hash mark across the route (perpendicular to travel bearing). */
+/*
+ * Hash mark across the route.
+ * Bar is drawn horizontal (E–W); CSS rotate(bearing) aligns its long axis
+ * perpendicular to travel (bearing 0° = north → tick stays E–W).
+ */
 .seg-tick-bar {
   position: absolute;
   left: 0;
   top: 0;
-  width: 18px;
+  width: 20px;
   height: 3px;
-  margin-left: -9px;
+  margin-left: -10px;
   margin-top: -1.5px;
   border-radius: 2px;
   background: #071821;
   box-shadow:
     0 0 0 1.5px #fff,
     0 1px 4px rgba(0, 0, 0, 0.45);
-  transform: rotate(calc(var(--brg, 0deg) + 90deg));
+  transform: rotate(var(--brg, 0deg));
+  transform-origin: center center;
 }
 
 .seg-mid {
