@@ -1234,10 +1234,8 @@ function nameAtSample(
       return { name: stickyLake, stickyLake, stickyOutsideKm: 0 };
     }
 
-    /**
- * Leaving a lake into a named tributary / outflow (Селижаровка, Нева, Белая…):
- * switch immediately — do not let lake hysteresis swallow the river.
- */
+    // Leaving a lake into a named tributary / outflow (Селижаровка, Нева, Белая…):
+    // switch immediately — do not let lake hysteresis swallow the river.
     const catalogNow = pickCatalogName(p, usedNames);
     if (catalogNow?.kind === 'river') {
       const riverBody = catalogBodyByName(catalogNow.name);
