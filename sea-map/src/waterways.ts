@@ -1318,6 +1318,20 @@ export async function describeWaterItinerary(
 ): Promise<ItinerarySegment[]> {
   if (path.length < 2) return [];
   let chain = itineraryFromPath(path);
+  // Drop bogus «Москва» / canal labels on pure Volga-cascade itineraries.
+  const hasMoskva = chain.some((s) => {
+    const k = s.name.toLocaleLowerCase('ru');
+    return k === 'москва' || k.includes('канал имени москвы');
+  });
+  const hasCascade = chain.some((s) => {
+    const k = s.name.toLocaleLowerCase('ru');
+    return k.includes('куйбышев') || k.includes('чебоксар') || k.includes('горьков');
+  });
+  const hasRybinsk = chain.some((s) => s.name.toLocaleLowerCase('ru').includes('рыбин'));
+  if (hasMoskva && hasCascade && hasRybinsk) {
+    // Path dipped to Москва-река — not a real cascade description.
+    return [];
+  }
   if (opts.totalKm && opts.totalKm > 0) {
     chain = scaleSegmentsToTotal(chain, opts.totalKm);
   }

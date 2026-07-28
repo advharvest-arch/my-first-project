@@ -692,13 +692,30 @@ function looksLikeUglichBeforeRybinsk(points: LngLat[], a: LngLat, b: LngLat): b
   return ug >= 0 && rb >= 0 && ug < rb;
 }
 
+/**
+ * Куйбышев→Рыбинск (and similar) must not dip into Москва-река /
+ * canal latitude — that is the Oka/Москва cutoff, not the Volga cascade.
+ */
+function looksLikeMoskvaDetour(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  if (nearMoscow(a) || nearMoscow(b)) return false;
+  if (Math.max(a.lon, b.lon) < 44 || Math.min(a.lon, b.lon) > 40) return false;
+  const moskva = firstIndexInBox(points, {
+    lonMin: 35.8,
+    lonMax: 38.0,
+    latMin: 55.55,
+    latMax: 55.95,
+  });
+  return moskva >= 0;
+}
+
 function isSuspiciousVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
   return (
     looksLikeCanalBeforeCascade(points, a, b) ||
     looksLikeOkaMoskvaCutoff(points, a, b) ||
     looksLikeUpperVolgaTrap(points, a, b) ||
     looksLikeMissingCascade(points, a, b) ||
-    looksLikeUglichBeforeRybinsk(points, a, b)
+    looksLikeUglichBeforeRybinsk(points, a, b) ||
+    looksLikeMoskvaDetour(points, a, b)
   );
 }
 
@@ -725,12 +742,18 @@ async function routeAlongVias(
   vias: LngLat[],
   depth: number,
 ): Promise<BrouterResult | null> {
-  const trimmed = thinVias(vias, 8);
-
-  if (trimmed.length) {
+  // Try a tight oneshot first (fewer vias = fewer watchdog kills), then fuller set.
+  const attempts = [thinVias(vias, 5), thinVias(vias, 8)];
+  const seen = new Set<string>();
+  for (const trimmed of attempts) {
+    const key = trimmed.map((v) => `${v.lon.toFixed(2)},${v.lat.toFixed(2)}`).join('|');
+    if (!trimmed.length || seen.has(key)) continue;
+    seen.add(key);
     const oneshot = await routeWithBrouter([a, ...trimmed, b]);
     if (oneshot && oneshot.points.length >= 2 && oneshot.lengthKm > 0) {
-      return oneshot;
+      if (depth > 0 || !isSuspiciousVolgaPath(oneshot.points, a, b)) {
+        return oneshot;
+      }
     }
   }
 
@@ -754,25 +777,24 @@ async function routeAlongVias(
     if (!tail) return null;
     parts.push(tail);
   }
-  return parts.length ? stitchResults(parts) : null;
+  if (!parts.length) return null;
+  const stitched = stitchResults(parts);
+  if (depth === 0 && isSuspiciousVolgaPath(stitched.points, a, b)) return null;
+  return stitched;
 }
 
 /**
- * Try A→B; on failure bisect geographically and stitch.
- * Prefer few large halves (better path) over many geodesic vias (huge detours).
- * Never discard a waterway geometry in favor of a straight-line fallback.
+ * Try A→B; on failure bisect on corridor vias (never geodesic mid — that
+ * snaps Куйбышев→Рыбинск onto Ока/Москва and looks like an air line).
  */
 async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
   const span = haversineKm(a, b);
   const balticCorridor = isVolgaBalticLongCorridor(a, b);
   const stemCorridor = isVolgaStemCorridor(a, b);
   const pinnedCorridor = balticCorridor || stemCorridor || isMoscowSpbCorridor(a, b);
-  let fallback: BrouterResult | null = null;
 
-  const consider = (route: BrouterResult | null): BrouterResult | null => {
+  const accept = (route: BrouterResult | null): BrouterResult | null => {
     if (!route) return null;
-    // Always keep a waterway candidate — better than a straight air line.
-    fallback = fallback ?? route;
     if (depth === 0 && isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(route.points)) {
       return null;
     }
@@ -786,43 +808,43 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
   if (depth === 0) {
     const vias = corridorViasBetween(a, b);
     if (vias.length) {
-      const viaRoute = consider(await routeAlongVias(a, b, vias, depth));
+      const viaRoute = accept(await routeAlongVias(a, b, vias, depth));
       if (viaRoute) return viaRoute;
     }
   }
 
-  const hit = consider(await routeWithBrouter([a, b]));
+  const hit = accept(await routeWithBrouter([a, b]));
   if (hit) return hit;
 
   if (depth >= MAX_SPLIT_DEPTH || span < 50) {
-    return fallback;
+    return null;
   }
 
-  // For pinned corridors bisect on a corridor via, not a dry geodesic midpoint
-  // (geodesic mids snap Куйбышев→Москва onto Ока).
-  if (pinnedCorridor) {
-    const vias = corridorViasBetween(a, b);
-    if (vias.length >= 2) {
-      const mid = vias[Math.floor(vias.length / 2)]!;
-      const left = await routePairAdaptive(a, mid, depth + 1);
-      if (left) {
-        const right = await routePairAdaptive(mid, b, depth + 1);
-        if (right) {
-          const stitched = consider(stitchResults([left, right]));
-          if (stitched) return stitched;
-        }
+  // Bisect only on corridor vias — never on a dry geodesic midpoint.
+  const vias = corridorViasBetween(a, b);
+  if (pinnedCorridor && vias.length >= 2) {
+    const mid = vias[Math.floor(vias.length / 2)]!;
+    const left = await routePairAdaptive(a, mid, depth + 1);
+    if (left) {
+      const right = await routePairAdaptive(mid, b, depth + 1);
+      if (right) {
+        const stitched = accept(stitchResults([left, right]));
+        if (stitched) return stitched;
       }
     }
-    if (depth >= 2) return fallback;
   }
 
-  const mid = interpolate(a, b, 0.5);
-  const left = await routePairAdaptive(a, mid, depth + 1);
-  if (!left) return fallback;
-  const right = await routePairAdaptive(mid, b, depth + 1);
-  if (!right) return fallback;
-  const stitched = consider(stitchResults([left, right]));
-  return stitched ?? fallback;
+  // Short unpinned legs may still bisect geographically.
+  if (!pinnedCorridor) {
+    const mid = interpolate(a, b, 0.5);
+    const left = await routePairAdaptive(a, mid, depth + 1);
+    if (!left) return null;
+    const right = await routePairAdaptive(mid, b, depth + 1);
+    if (!right) return null;
+    return accept(stitchResults([left, right]));
+  }
+
+  return null;
 }
 
 /** Reliable river routing for lakes and long inland corridors (Seliger→Vokhma). */

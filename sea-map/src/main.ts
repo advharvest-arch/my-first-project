@@ -788,7 +788,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     const isAir =
       path.method === 'direct' ||
       path.points.length <= 3 ||
-      (path.lengthKm > 0 && geo > 250 && path.lengthKm <= geo * 1.2);
+      (path.lengthKm > 0 && geo > 250 && path.lengthKm <= geo * 1.25);
     void updateRouteItinerary(
       path.points,
       path.lengthKm,
