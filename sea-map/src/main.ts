@@ -895,6 +895,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     });
     lastRoutePath = path.points;
     lastCumKm = path.waypointCumKm ?? [];
+    lastItinerary = path.itinerary ?? [];
 
     redrawWaypoints(path.points);
     renderWaypointList();
