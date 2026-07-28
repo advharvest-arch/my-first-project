@@ -1043,9 +1043,23 @@ function pointInCatalog(p: LngLat, body: CatalogBody): boolean {
   return p.lon >= w && p.lon <= e && p.lat >= s && p.lat <= n;
 }
 
-/** Prefer reservoirs (smaller boxes) over broad river corridors. */
-function pickCatalogName(sample: LngLat): { name: string; kind: 'river' | 'lake' } | null {
-  const hits = CATALOG.filter((b) => pointInCatalog(sample, b));
+const LAKE_NAME_RE = /(водохранилищ|озеро|оз\.)/i;
+
+function isLakeCatalogName(name: string): boolean {
+  const key = name.toLocaleLowerCase('ru');
+  return CATALOG.some((b) => b.k === 'l' && b.n.toLocaleLowerCase('ru') === key) || LAKE_NAME_RE.test(name);
+}
+
+/** Prefer reservoirs, then smaller river corridors over the broad Volga box. */
+function pickCatalogName(
+  sample: LngLat,
+  skipLakes: Set<string> = new Set(),
+): { name: string; kind: 'river' | 'lake' } | null {
+  const hits = CATALOG.filter((b) => {
+    if (!pointInCatalog(sample, b)) return false;
+    if (b.k === 'l' && skipLakes.has(b.n.toLocaleLowerCase('ru'))) return false;
+    return true;
+  });
   if (!hits.length) return null;
   hits.sort((a, b) => {
     const lakeA = a.k === 'l' ? 0 : 1;
@@ -1055,6 +1069,11 @@ function pickCatalogName(sample: LngLat): { name: string; kind: 'river' | 'lake'
   });
   const best = hits[0]!;
   return { name: best.n, kind: best.k === 'l' ? 'lake' : 'river' };
+}
+
+function catalogBodyByName(name: string): CatalogBody | undefined {
+  const key = name.toLocaleLowerCase('ru');
+  return CATALOG.find((b) => b.n.toLocaleLowerCase('ru') === key);
 }
 
 function namedLinesNearPath(path: LngLat[]): NamedLine[] {
@@ -1105,12 +1124,18 @@ function pickLocalLineName(
 
 function collapseItinerary(names: Array<string | null>): string[] {
   const out: string[] = [];
+  const seenLakes = new Set<string>();
   for (const raw of names) {
     if (!raw) continue;
     const name = raw.trim();
     if (!name) continue;
-    if (out.length && out[out.length - 1]!.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru')) {
-      continue;
+    const key = name.toLocaleLowerCase('ru');
+    if (out.length && out[out.length - 1]!.toLocaleLowerCase('ru') === key) continue;
+    // Reservoirs/lakes must not reappear after the route has left them
+    // (bbox overlap used to resurrect «Горьковское» on the Vetluga).
+    if (isLakeCatalogName(name)) {
+      if (seenLakes.has(key)) continue;
+      seenLakes.add(key);
     }
     out.push(name);
   }
@@ -1124,27 +1149,27 @@ function collapseItinerary(names: Array<string | null>): string[] {
 function itineraryFromPath(path: LngLat[], lines: NamedLine[]): string[] {
   if (path.length < 2) return [];
   const span = pathLength(path);
-  const sampleCount = Math.min(56, Math.max(8, Math.ceil(span / 12) + 1));
+  const sampleCount = Math.min(64, Math.max(8, Math.ceil(span / 10) + 1));
   const samples = sampleAlongPath(path, sampleCount);
 
   let stickyLake: string | null = null;
+  const usedLakes = new Set<string>();
   const raw: Array<string | null> = [];
 
   for (const p of samples) {
-    const catalog = pickCatalogName(p);
-    const local = pickLocalLineName(p, lines);
-
-    // Stay on the same reservoir while the sample is still inside its box.
+    // Stay on a reservoir while inside its box; never revisit it later.
     if (stickyLake) {
-      const still = CATALOG.find(
-        (b) => b.k === 'l' && b.n === stickyLake && pointInCatalog(p, b),
-      );
-      if (still) {
+      const body = catalogBodyByName(stickyLake);
+      if (body && pointInCatalog(p, body)) {
         raw.push(stickyLake);
         continue;
       }
+      usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
       stickyLake = null;
     }
+
+    const catalog = pickCatalogName(p, usedLakes);
+    const local = pickLocalLineName(p, lines);
 
     if (catalog?.kind === 'lake') {
       stickyLake = catalog.name;
@@ -1152,13 +1177,17 @@ function itineraryFromPath(path: LngLat[], lines: NamedLine[]): string[] {
       continue;
     }
 
-    if (local?.kind === 'lake' && local.d <= 0.9) {
+    if (
+      local?.kind === 'lake' &&
+      local.d <= 0.9 &&
+      !usedLakes.has(local.name.toLocaleLowerCase('ru'))
+    ) {
       stickyLake = local.name;
       raw.push(local.name);
       continue;
     }
 
-    // Major river corridor from catalog (after lakes — avoids tributary noise).
+    // Smaller tributary corridors (Ветлуга, Вохма) beat the broad Volga box.
     if (catalog?.kind === 'river') {
       raw.push(catalog.name);
       continue;
