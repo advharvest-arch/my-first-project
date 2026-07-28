@@ -1122,81 +1122,101 @@ function pickLocalLineName(
   return best;
 }
 
-function collapseItinerary(names: Array<string | null>): string[] {
-  const out: string[] = [];
-  const seenLakes = new Set<string>();
-  for (const raw of names) {
-    if (!raw) continue;
-    const name = raw.trim();
-    if (!name) continue;
-    const key = name.toLocaleLowerCase('ru');
-    if (out.length && out[out.length - 1]!.toLocaleLowerCase('ru') === key) continue;
-    // Reservoirs/lakes must not reappear after the route has left them
-    // (bbox overlap used to resurrect «Горьковское» on the Vetluga).
-    if (isLakeCatalogName(name)) {
-      if (seenLakes.has(key)) continue;
-      seenLakes.add(key);
+function nameAtSample(
+  p: LngLat,
+  lines: NamedLine[],
+  stickyLake: string | null,
+  usedLakes: Set<string>,
+): { name: string | null; stickyLake: string | null } {
+  if (stickyLake) {
+    const body = catalogBodyByName(stickyLake);
+    if (body && pointInCatalog(p, body)) {
+      return { name: stickyLake, stickyLake };
     }
-    out.push(name);
+    usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
+    stickyLake = null;
   }
-  return out;
+
+  const catalog = pickCatalogName(p, usedLakes);
+  const local = pickLocalLineName(p, lines);
+
+  if (catalog?.kind === 'lake') {
+    return { name: catalog.name, stickyLake: catalog.name };
+  }
+
+  if (
+    local?.kind === 'lake' &&
+    local.d <= 0.9 &&
+    !usedLakes.has(local.name.toLocaleLowerCase('ru'))
+  ) {
+    return { name: local.name, stickyLake: local.name };
+  }
+
+  if (catalog?.kind === 'river') {
+    return { name: catalog.name, stickyLake: null };
+  }
+
+  return { name: local?.name ?? null, stickyLake: null };
 }
 
+export type ItinerarySegment = {
+  name: string;
+  /** Length of this named stretch along the route geometry, km. */
+  km: number;
+};
+
 /**
- * Build ordered waterway/reservoir chain.
+ * Build ordered waterway/reservoir chain with per-stretch distances.
  * Catalog boxes give stable reservoir names; local OSM lines fill gaps.
  */
-function itineraryFromPath(path: LngLat[], lines: NamedLine[]): string[] {
+function itineraryFromPath(path: LngLat[], lines: NamedLine[]): ItinerarySegment[] {
   if (path.length < 2) return [];
-  const span = pathLength(path);
-  const sampleCount = Math.min(64, Math.max(8, Math.ceil(span / 10) + 1));
-  const samples = sampleAlongPath(path, sampleCount);
 
   let stickyLake: string | null = null;
   const usedLakes = new Set<string>();
-  const raw: Array<string | null> = [];
+  const segments: ItinerarySegment[] = [];
+  let current: ItinerarySegment | null = null;
 
-  for (const p of samples) {
-    // Stay on a reservoir while inside its box; never revisit it later.
-    if (stickyLake) {
-      const body = catalogBodyByName(stickyLake);
-      if (body && pointInCatalog(p, body)) {
-        raw.push(stickyLake);
-        continue;
-      }
-      usedLakes.add(stickyLake.toLocaleLowerCase('ru'));
-      stickyLake = null;
-    }
-
-    const catalog = pickCatalogName(p, usedLakes);
-    const local = pickLocalLineName(p, lines);
-
-    if (catalog?.kind === 'lake') {
-      stickyLake = catalog.name;
-      raw.push(catalog.name);
-      continue;
-    }
-
-    if (
-      local?.kind === 'lake' &&
-      local.d <= 0.9 &&
-      !usedLakes.has(local.name.toLocaleLowerCase('ru'))
-    ) {
-      stickyLake = local.name;
-      raw.push(local.name);
-      continue;
-    }
-
-    // Smaller tributary corridors (Ветлуга, Вохма) beat the broad Volga box.
-    if (catalog?.kind === 'river') {
-      raw.push(catalog.name);
-      continue;
-    }
-
-    raw.push(local?.name ?? null);
+  const first = nameAtSample(path[0]!, lines, stickyLake, usedLakes);
+  stickyLake = first.stickyLake;
+  if (first.name) {
+    current = { name: first.name, km: 0 };
+    segments.push(current);
   }
 
-  return collapseItinerary(raw);
+  // Re-evaluate names on a stride for long paths; always integrate adjacent edges.
+  const nameStride = path.length > 1800 ? 2 : 1;
+  let lastName: string | null = first.name;
+  for (let i = 1; i < path.length; i++) {
+    const d = haversineKm(path[i - 1]!, path[i]!);
+    if (i % nameStride === 0 || i === path.length - 1) {
+      const hit = nameAtSample(path[i]!, lines, stickyLake, usedLakes);
+      stickyLake = hit.stickyLake;
+      let name = hit.name;
+      if (name && isLakeCatalogName(name) && usedLakes.has(name.toLocaleLowerCase('ru'))) {
+        name = null;
+      }
+      if (name) lastName = name;
+    }
+
+    const name = lastName;
+    if (!name) continue;
+
+    const key = name.toLocaleLowerCase('ru');
+    if (current && current.name.toLocaleLowerCase('ru') === key) {
+      current.km += d;
+      continue;
+    }
+
+    if (current && isLakeCatalogName(current.name)) {
+      usedLakes.add(current.name.toLocaleLowerCase('ru'));
+    }
+
+    current = { name, km: d };
+    segments.push(current);
+  }
+
+  return segments.filter((s) => s.km > 0.05 || segments.length === 1);
 }
 
 export type ItineraryOptions = {
@@ -1206,12 +1226,12 @@ export type ItineraryOptions = {
 
 /**
  * Ordered chain of named waterways / reservoirs along a route geometry,
- * e.g. «Волга — Иваньковское водохранилище — Волга — …».
+ * e.g. «Волга (215 км) — Иваньковское водохранилище (48 км) — …».
  */
 export async function describeWaterItinerary(
   path: LngLat[],
   opts: ItineraryOptions = {},
-): Promise<string[]> {
+): Promise<ItinerarySegment[]> {
   if (path.length < 2) return [];
   const remote = opts.remote !== false;
 
@@ -1236,8 +1256,14 @@ export async function describeWaterItinerary(
 }
 
 /** Format itinerary for UI / clipboard. */
-export function formatItinerary(names: string[]): string {
-  return names.filter(Boolean).join(' — ');
+export function formatItinerary(segments: ItinerarySegment[]): string {
+  return segments
+    .filter((s) => s.name)
+    .map((s) => {
+      const km = Math.max(1, Math.round(s.km));
+      return `${s.name} (${km} км)`;
+    })
+    .join(' — ');
 }
 
 export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {
