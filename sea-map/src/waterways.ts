@@ -1212,7 +1212,9 @@ function catalogBodyByName(name: string): CatalogBody | undefined {
 }
 
 const TRUNK_RIVERS = new Set(
-  ['волга', 'москва', 'нева', 'кама', 'дон', 'ока'].map((s) => s.toLocaleLowerCase('ru')),
+  ['волга', 'москва', 'нева', 'кама', 'дон', 'ока', 'белая'].map((s) =>
+    s.toLocaleLowerCase('ru'),
+  ),
 );
 
 function isTrunkRiver(name: string): boolean {
@@ -1232,8 +1234,10 @@ function nameAtSample(
       return { name: stickyLake, stickyLake, stickyOutsideKm: 0 };
     }
 
-    // Leaving a lake into a named tributary / outflow (Селижаровка, Нева…):
-    // switch immediately — do not let lake hysteresis swallow the river.
+    /**
+ * Leaving a lake into a named tributary / outflow (Селижаровка, Нева, Белая…):
+ * switch immediately — do not let lake hysteresis swallow the river.
+ */
     const catalogNow = pickCatalogName(p, usedNames);
     if (catalogNow?.kind === 'river') {
       const riverBody = catalogBodyByName(catalogNow.name);
