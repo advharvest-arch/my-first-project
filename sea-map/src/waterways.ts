@@ -1196,13 +1196,33 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   let stickyOutsideKm = 0;
   const usedNames = new Set<string>();
   const segments: ItinerarySegment[] = [];
+  // Suppress «Канал имени Москвы» until after Иваньковское when the route
+  // already visited mid-Volga reservoirs (avoids false canal labels on bad geometry).
+  let seenEasternCascade = false;
+  let seenIvankovo = false;
 
   const labelAt = (p: LngLat, stepKm: number): string | null => {
     const hit = nameAtSample(p, stickyLake, stickyOutsideKm, usedNames, stepKm);
     stickyLake = hit.stickyLake;
     stickyOutsideKm = hit.stickyOutsideKm;
     if (!hit.name) return null;
-    if (usedNames.has(hit.name.toLocaleLowerCase('ru'))) return null;
+    const key = hit.name.toLocaleLowerCase('ru');
+    if (usedNames.has(key)) return null;
+
+    if (key.includes('куйбышев') || key.includes('чебоксар') || key.includes('горьков')) {
+      seenEasternCascade = true;
+    }
+    if (key.includes('иваньков')) {
+      seenIvankovo = true;
+    }
+    if (
+      key.includes('канал имени москвы') &&
+      seenEasternCascade &&
+      !seenIvankovo
+    ) {
+      // Still on the Volga cascade — do not label a canal detour here.
+      return 'Волга';
+    }
     return hit.name;
   };
 

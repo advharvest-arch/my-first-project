@@ -25,10 +25,13 @@ const VOLGA_UPPER_VIAS: LngLat[] = [
 ];
 
 /**
- * Main-stem Volga checkpoints (Иваньково → Чебоксары), on the shipping fairway.
- * Do NOT place vias up tributaries (Ветлуга) — that creates fake Ветлуга loops.
+ * Navigable Volga chain, west → east (Селижарово → Куйбышев).
+ * Vias are sliced from this order so Куйбышев→Иваньково never visits
+ * the Moscow Canal before Горьковское.
  */
-const VOLGA_STEM_VIAS: LngLat[] = [
+const VOLGA_STEM_CHAIN: LngLat[] = [
+  { lon: 33.45, lat: 56.85 }, // Селижарово
+  { lon: 35.92, lat: 56.86 }, // Тверь
   { lon: 37.16, lat: 56.74 }, // Дубна / Иваньково
   { lon: 38.33, lat: 57.53 }, // Углич
   { lon: 38.7, lat: 58.05 }, // Рыбинск
@@ -37,7 +40,9 @@ const VOLGA_STEM_VIAS: LngLat[] = [
   { lon: 42.13, lat: 57.44 }, // Кинешма
   { lon: 43.47, lat: 56.65 }, // Городец
   { lon: 44.0, lat: 56.33 }, // Нижний Новгород
-  { lon: 45.05, lat: 56.15 }, // Волга ниже устья Ветлуги (не на Ветлуге)
+  { lon: 45.05, lat: 56.15 }, // Волга ниже устья Ветлуги
+  { lon: 47.25, lat: 56.15 }, // Чебоксары
+  { lon: 49.05, lat: 55.5 }, // Казань / Куйбышев (север)
 ];
 
 /**
@@ -204,9 +209,13 @@ function nearNorthwestWaterway(p: LngLat): boolean {
   return false;
 }
 
-/** Волга below Dubna / mid cascade (Рыбинск→Чебоксары and related). */
+/** Волга below Dubna / mid cascade (incl. Куйбышев south arm). */
 function nearVolgaCascade(p: LngLat): boolean {
-  return p.lat >= 55.3 && p.lat <= 59.2 && p.lon >= 37.0 && p.lon <= 49.5;
+  return p.lat >= 52.8 && p.lat <= 59.2 && p.lon >= 37.0 && p.lon <= 52.5;
+}
+
+function inVolgaBasin(p: LngLat): boolean {
+  return p.lat >= 52.8 && p.lat <= 58.9 && p.lon >= 32.5 && p.lon <= 52.5;
 }
 
 function isMoscowSpbCorridor(a: LngLat, b: LngLat): boolean {
@@ -224,6 +233,14 @@ function isVolgaBalticLongCorridor(a: LngLat, b: LngLat): boolean {
   if (nwA === nwB) return false;
   const other = nwA ? b : a;
   return nearVolgaCascade(other) || nearMoscow(other) || nearUpperVolga(other);
+}
+
+/** Long hop along the Volga cascade (no Волго-Балт / no pure Moscow Canal). */
+function isVolgaStemCorridor(a: LngLat, b: LngLat): boolean {
+  if (isVolgaBalticLongCorridor(a, b) || isMoscowSpbCorridor(a, b)) return false;
+  if (!inVolgaBasin(a) || !inVolgaBasin(b)) return false;
+  if (haversineKm(a, b) < 250) return false;
+  return Math.abs(a.lon - b.lon) >= 3.5;
 }
 
 function pickViasAlong(
@@ -263,6 +280,53 @@ function nearLadoga(p: LngLat): boolean {
   return p.lat >= 59.7 && p.lat <= 61.8 && p.lon >= 29.5 && p.lon <= 33.5;
 }
 
+function nearestStemIndex(p: LngLat): number {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < VOLGA_STEM_CHAIN.length; i++) {
+    const d = haversineKm(p, VOLGA_STEM_CHAIN[i]!);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Vias along the Volga fairway between A and B, in travel order.
+ * Optional Moscow Canal tail when an endpoint is near Moscow.
+ */
+function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
+  const ia = nearestStemIndex(a);
+  const ib = nearestStemIndex(b);
+  if (ia === ib) return [];
+
+  const lo = Math.min(ia, ib);
+  const hi = Math.max(ia, ib);
+  let slice = VOLGA_STEM_CHAIN.slice(lo, hi + 1);
+
+  // Keep Селижарово/Тверь only when an endpoint is on the upper Volga.
+  if (!nearUpperVolga(a) && !nearUpperVolga(b)) {
+    slice = slice.filter((v) => v.lon >= 36.8);
+  }
+
+  if (ia > ib) slice = slice.slice().reverse();
+
+  const vias = slice.filter(
+    (v) => haversineKm(a, v) >= 30 && haversineKm(b, v) >= 30,
+  );
+
+  // Moscow is off the stem chain — pin the canal fairway at the Moscow end.
+  if (nearMoscow(a) || nearMoscow(b)) {
+    const canal = pickViasAlong(a, b, MOSCOW_CANAL_VIAS, { preserveOrder: true });
+    if (nearMoscow(b)) return [...vias, ...canal];
+    return [...canal.slice().reverse(), ...vias];
+  }
+
+  return vias;
+}
+
 /**
  * Ordered Volga→Baltic chain between A and B (or reverse).
  * From the Volga/Moscow end: cascade toward Рыбинск, then Шексна→…→Neva.
@@ -289,12 +353,8 @@ function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
       { lon: 38.7, lat: 58.05 }, // Рыбинск
     );
   } else {
-    // Mid/lower cascade (e.g. Чебоксары): only stem points between `from` and Рыбинск.
-    const east = Math.max(from.lon, 38.7);
-    const west = Math.min(from.lon, 38.7);
-    const stem = VOLGA_STEM_VIAS.filter((v) => v.lon >= west - 0.3 && v.lon <= east + 0.3);
-    // Walk toward Рыбинск (decreasing lon if starting east).
-    stem.sort((p, q) => (from.lon >= 38.7 ? q.lon - p.lon : p.lon - q.lon));
+    // Walk the stem chain from `from` toward Рыбинск.
+    const stem = volgaStemCorridorVias(from, { lon: 38.7, lat: 58.05 });
     towardRybinsk.push(...stem);
   }
 
@@ -335,16 +395,17 @@ function corridorViasBetween(a: LngLat, b: LngLat): LngLat[] {
     return volgaBalticCorridorVias(a, b);
   }
 
+  if (isVolgaStemCorridor(a, b)) {
+    return volgaStemCorridorVias(a, b);
+  }
+
   const minLon = Math.min(a.lon, b.lon);
   const maxLon = Math.max(a.lon, b.lon);
   if (maxLon - minLon < 4) return [];
-  // Volga stem only for Caspian-direction / mid-Volga corridors.
   if (maxLon < 39 || minLon > 50) return [];
   if (maxLon < 32 || Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) return [];
 
-  const needUpper = nearUpperVolga(a) || nearUpperVolga(b);
-  const pool = needUpper ? [...VOLGA_UPPER_VIAS, ...VOLGA_STEM_VIAS] : VOLGA_STEM_VIAS;
-  return pickViasAlong(a, b, pool);
+  return volgaStemCorridorVias(a, b);
 }
 
 function parseWayTags(raw: string | undefined): string[] {
@@ -513,6 +574,76 @@ function looksLikeUpperVolgaTrap(points: LngLat[], a: LngLat, b: LngLat): boolea
   return false;
 }
 
+function firstIndexInBox(
+  points: LngLat[],
+  box: { lonMin: number; lonMax: number; latMin: number; latMax: number },
+): number {
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    if (
+      p.lon >= box.lonMin &&
+      p.lon <= box.lonMax &&
+      p.lat >= box.latMin &&
+      p.lat <= box.latMax
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Куйбышев→west must not touch Moscow Canal before Горьковское
+ * (sign of Oka/Москва cutoff or reversed canal vias).
+ */
+function looksLikeCanalBeforeCascade(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  if (nearMoscow(a) || nearMoscow(b)) return false;
+  const canal = firstIndexInBox(points, {
+    lonMin: 37.05,
+    lonMax: 37.7,
+    latMin: 55.82,
+    latMax: 56.75,
+  });
+  const gorky = firstIndexInBox(points, {
+    lonMin: 42.45,
+    lonMax: 43.55,
+    latMin: 56.45,
+    latMax: 57.5,
+  });
+  if (canal < 0 || gorky < 0 || canal >= gorky) return false;
+  const east = Math.max(a.lon, b.lon);
+  const west = Math.min(a.lon, b.lon);
+  return east >= 45 && west <= 40;
+}
+
+/** Geodesic midpoints often snap Куйбышев→Москва onto Ока instead of the Volga. */
+function looksLikeOkaMoskvaCutoff(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  if (!isVolgaStemCorridor(a, b) && !(inVolgaBasin(a) && inVolgaBasin(b))) return false;
+  if (nearMoscow(a) || nearMoscow(b)) {
+    // Moscow endpoints may legitimately use Москва-река; still forbid Ока-only skips of Горький
+    // when the other end is far east on the cascade.
+    const other = nearMoscow(a) ? b : a;
+    if (other.lon < 45) return false;
+  }
+  let okaKm = 0;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i]!;
+    // Ока corridor south of the Volga bend near НН.
+    if (p.lon >= 36.5 && p.lon <= 44.5 && p.lat >= 54.4 && p.lat <= 56.15) {
+      okaKm += haversineKm(points[i - 1]!, p);
+    }
+  }
+  return okaKm > 120;
+}
+
+function isBadVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  return (
+    looksLikeCanalBeforeCascade(points, a, b) ||
+    looksLikeOkaMoskvaCutoff(points, a, b) ||
+    looksLikeUpperVolgaTrap(points, a, b)
+  );
+}
+
 /**
  * Route A→…vias…→B. If one via is not on the river graph, skip it and
  * continue — never abandon the whole corridor (direct A→B often takes a
@@ -554,19 +685,17 @@ async function routeAlongVias(
 async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<BrouterResult | null> {
   const span = haversineKm(a, b);
   const balticCorridor = isVolgaBalticLongCorridor(a, b);
+  const stemCorridor = isVolgaStemCorridor(a, b);
+  const pinnedCorridor = balticCorridor || stemCorridor || isMoscowSpbCorridor(a, b);
 
   // Pin long inland legs to a known navigable corridor.
   if (depth === 0) {
     const vias = corridorViasBetween(a, b);
     if (vias.length) {
       const viaRoute = await routeAlongVias(a, b, vias, depth);
-      if (viaRoute) {
-        if (
-          balticCorridor &&
-          (looksLikeUpperVolgaTrap(viaRoute.points, a, b) ||
-            (isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(viaRoute.points)))
-        ) {
-          // Fall through to bisect / reject — bad corridor snap.
+      if (viaRoute && !isBadVolgaPath(viaRoute.points, a, b)) {
+        if (isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(viaRoute.points)) {
+          // Fall through — Tikhvin-style cut.
         } else {
           return viaRoute;
         }
@@ -575,15 +704,9 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
   }
 
   const hit = await routeWithBrouter([a, b]);
-  if (hit) {
-    if (depth === 0 && balticCorridor) {
-      if (looksLikeUpperVolgaTrap(hit.points, a, b)) {
-        // Reject Селижаровка / upper-Volga traps on NW corridors.
-      } else if (isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(hit.points)) {
-        // Reject cross-country / Tikhvin-style cuts that skip Шексна/Онега.
-      } else {
-        return hit;
-      }
+  if (hit && !isBadVolgaPath(hit.points, a, b)) {
+    if (depth === 0 && isMoscowSpbCorridor(a, b) && !looksLikeVolgaBaltic(hit.points)) {
+      // Reject cross-country cuts that skip Шексна/Онега.
     } else {
       return hit;
     }
@@ -591,15 +714,19 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
 
   if (depth >= MAX_SPLIT_DEPTH || span < 50) return null;
 
-  // For Volga–Baltic corridors bisect on a corridor via, not a dry geodesic midpoint.
-  if (balticCorridor) {
+  // For pinned corridors bisect on a corridor via, not a dry geodesic midpoint
+  // (geodesic mids snap Куйбышев→Москва onto Ока).
+  if (pinnedCorridor) {
     const vias = corridorViasBetween(a, b);
     if (vias.length >= 2) {
       const mid = vias[Math.floor(vias.length / 2)]!;
       const left = await routePairAdaptive(a, mid, depth + 1);
       if (left) {
         const right = await routePairAdaptive(mid, b, depth + 1);
-        if (right) return stitchResults([left, right]);
+        if (right) {
+          const stitched = stitchResults([left, right]);
+          if (!isBadVolgaPath(stitched.points, a, b)) return stitched;
+        }
       }
     }
     if (depth >= 2) return null;
@@ -610,7 +737,9 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
   if (!left) return null;
   const right = await routePairAdaptive(mid, b, depth + 1);
   if (!right) return null;
-  return stitchResults([left, right]);
+  const stitched = stitchResults([left, right]);
+  if (depth === 0 && isBadVolgaPath(stitched.points, a, b)) return null;
+  return stitched;
 }
 
 /** Reliable river routing for lakes and long inland corridors (Seliger→Vokhma). */
