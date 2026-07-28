@@ -802,9 +802,9 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       path.method === 'direct' ||
       path.points.length <= 3 ||
       (geo >= 12 && ratio < 0.85) ||
-      (geo >= 15 && ratio <= 1.06) ||
-      (geo >= 30 && ratio <= 1.12 && path.points.length < Math.max(6, geo / 20)) ||
-      (path.lengthKm > 0 && geo > 250 && path.lengthKm <= geo * 1.25);
+      (geo >= 15 && ratio <= 1.04) ||
+      (geo >= 40 && ratio <= 1.1 && path.points.length < Math.max(5, geo / 25)) ||
+      (path.lengthKm > 0 && geo > 250 && path.lengthKm <= geo * 1.2);
     void updateRouteItinerary(
       path.points,
       path.lengthKm,

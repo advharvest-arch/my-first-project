@@ -1443,10 +1443,10 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   const brouted = await routeWithBrouterAdaptive(waypoints);
 
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
-    // Guard: never accept a path that is an obvious basin-hopping loop.
+    // Guard: only drop obvious basin-hopping loops (align with brouter soft cap).
     if (waypoints.length === 2) {
       const geo = haversineKm(waypoints[0]!, waypoints[1]!);
-      if (geo > 40 && brouted.lengthKm > geo * 2.4) {
+      if (geo > 40 && brouted.lengthKm > geo * 3.5) {
         return directFallback();
       }
     }
