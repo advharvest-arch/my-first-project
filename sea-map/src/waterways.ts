@@ -541,6 +541,119 @@ function downsamplePath(points: LngLat[], maxPoints: number): LngLat[] {
   return out;
 }
 
+/** Perpendicular distance from P to segment AB, km (equirectangular local). */
+function perpDistKm(p: LngLat, a: LngLat, b: LngLat): number {
+  const cosLat = Math.max(0.2, Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180)));
+  const bx = (b.lon - a.lon) * 111.32 * cosLat;
+  const by = (b.lat - a.lat) * 110.54;
+  const px = (p.lon - a.lon) * 111.32 * cosLat;
+  const py = (p.lat - a.lat) * 110.54;
+  const denom = bx * bx + by * by;
+  if (denom < 1e-8) return Math.hypot(px, py);
+  let t = (px * bx + py * by) / denom;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - t * bx, py - t * by);
+}
+
+function douglasPeucker(points: LngLat[], epsilonKm: number): LngLat[] {
+  if (points.length <= 2) return points.slice();
+  let maxDist = 0;
+  let maxIdx = 0;
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = perpDistKm(points[i]!, first, last);
+    if (d > maxDist) {
+      maxDist = d;
+      maxIdx = i;
+    }
+  }
+  if (maxDist <= epsilonKm) return [first, last];
+  const left = douglasPeucker(points.slice(0, maxIdx + 1), epsilonKm);
+  const right = douglasPeucker(points.slice(maxIdx), epsilonKm);
+  return [...left.slice(0, -1), ...right];
+}
+
+function chordStaysInBody(a: LngLat, b: LngLat, body: CatalogBody): boolean {
+  for (let k = 1; k <= 4; k++) {
+    const t = k / 5;
+    const p = {
+      lon: a.lon + (b.lon - a.lon) * t,
+      lat: a.lat + (b.lat - a.lat) * t,
+    };
+    if (!pointInCatalog(p, body)) return false;
+  }
+  return true;
+}
+
+function openWaterBodies(): CatalogBody[] {
+  return CATALOG.filter((b) => {
+    if (b.k !== 'l') return false;
+    const [w, s, e, n] = b.b;
+    const diagKm = Math.hypot((e - w) * 75, (n - s) * 111);
+    return diagKm >= 28;
+  }).sort((a, b) => catalogArea(b) - catalogArea(a));
+}
+
+/**
+ * Straighten meandering BRouter tracks across reservoirs / large lakes:
+ * keep major fairway bends, drop shoreline wiggles; use a chord when it
+ * stays inside the waterbody bbox.
+ */
+function straightenAcrossReservoirs(points: LngLat[]): LngLat[] {
+  if (points.length < 4) return points;
+  let current = points;
+  for (const body of openWaterBodies()) {
+    const next: LngLat[] = [];
+    let i = 0;
+    while (i < current.length) {
+      if (!pointInCatalog(current[i]!, body)) {
+        next.push(current[i]!);
+        i += 1;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < current.length && pointInCatalog(current[j + 1]!, body)) j += 1;
+      const run = current.slice(i, j + 1);
+      const runKm = pathLength(run);
+      if (run.length >= 4 && runKm >= 12) {
+        const a = run[0]!;
+        const b = run[run.length - 1]!;
+        const geo = Math.max(0.001, haversineKm(a, b));
+        const ratio = runKm / geo;
+        let straight: LngLat[];
+        // Chord only on short open-water hops — long corridor chords
+        // (Горьковское bbox) cut peninsulas even when midpoints stay in the rectangle.
+        if (geo <= 55 && ratio > 1.2 && chordStaysInBody(a, b, body)) {
+          const step = Math.min(10, Math.max(4, geo / 5));
+          straight = densifyPoints([a, b], step);
+        } else {
+          // Keep reservoir fairway bends; drop shoreline noise.
+          const eps = Math.min(4.5, Math.max(1.6, Math.min(runKm * 0.025, geo * 0.1)));
+          straight = douglasPeucker(run, eps);
+          if (straight.length < 2) straight = [a, b];
+          // Light densify so long chords still draw smoothly.
+          if (pathLength(straight) > 40) {
+            straight = densifyPoints(straight, 14);
+          }
+        }
+        if (next.length) {
+          next.push(...straight.slice(1));
+        } else {
+          next.push(...straight);
+        }
+      } else if (next.length) {
+        next.push(...run.slice(1));
+      } else {
+        next.push(...run);
+      }
+      i = j + 1;
+    }
+    current = next.length >= 2 ? next : current;
+  }
+  return current;
+}
+
 /** Intermediate points along a path */
 function densifyPoints(points: LngLat[], stepKm: number): LngLat[] {
   if (points.length < 2) return points;
@@ -1429,13 +1542,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       waypointCumKm.push(lengthKm);
     }
     if (!anyRouted) return null;
-    const path = simplifyPath(allPoints);
+    const path = straightenAcrossReservoirs(simplifyPath(allPoints));
     return {
       points: path,
-      lengthKm,
+      lengthKm: pathLength(path),
       waterName: uniqueWaterName(...nameBits) ?? namesNearEndpoints(path),
       method,
-      waypointCumKm,
+      waypointCumKm: cumKmAlongPath(path, waypoints),
     };
   };
 
@@ -1459,14 +1572,16 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
             ? 0.08
             : 0.03;
     const simplified = downsamplePath(simplifyPath(brouted.points, minSimplifyKm), 2200);
+    const straightened = straightenAcrossReservoirs(simplified);
+    const lengthKm = pathLength(straightened);
     const named =
-      waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(simplified);
+      waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(straightened);
     return {
-      points: simplified,
-      lengthKm: brouted.lengthKm,
+      points: straightened,
+      lengthKm,
       waterName: named,
       method: 'waterway',
-      waypointCumKm: cumKmAlongPath(simplified, waypoints),
+      waypointCumKm: cumKmAlongPath(straightened, waypoints),
     };
   }
 
