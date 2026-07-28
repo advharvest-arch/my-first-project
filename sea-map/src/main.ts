@@ -127,6 +127,8 @@ let suppressMapClick = false;
 let lastDistanceKm: number | null = null;
 let lastRoutePath: LngLat[] | null = null;
 let lastCumKm: number[] = [];
+/** Named stretches for map ticks (start/end + km). */
+let lastItinerary: ItinerarySegment[] = [];
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
@@ -245,6 +247,7 @@ function clearStats(): void {
   lastDistanceKm = null;
   lastRoutePath = null;
   lastCumKm = [];
+  lastItinerary = [];
   hideRouteDesc();
 }
 
@@ -295,7 +298,9 @@ async function updateRouteItinerary(
 ): Promise<void> {
   // Straight A→B (air) must not get a fake «Волга — Угличское…» from bbox hits.
   if (opts.allowDescribe === false) {
+    lastItinerary = [];
     hideRouteDesc();
+    if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
     return;
   }
   try {
@@ -308,9 +313,14 @@ async function updateRouteItinerary(
             destination: waypoints[waypoints.length - 1],
           });
     if (segments.length) {
+      lastItinerary = segments;
       showRouteDesc(formatItinerary(segments));
+      if (lastRoutePath && lastRoutePath.length >= 2) {
+        redrawWaypoints(lastRoutePath);
+      }
       return;
     }
+    lastItinerary = [];
     // Empty segments after filters = bad geometry; don't show a stale water label.
     if (fallback?.trim() && !fallback.includes('прямо')) {
       hideRouteDesc();
@@ -319,6 +329,7 @@ async function updateRouteItinerary(
     hideRouteDesc();
   } catch (err) {
     console.warn(err);
+    lastItinerary = [];
     hideRouteDesc();
   }
 }
@@ -382,6 +393,7 @@ function deleteWaypointById(id: string): void {
   renormalizeWaypointNames();
   lastRoutePath = null;
   lastCumKm = [];
+  lastItinerary = [];
   lastMarkerTap = null;
   markerClickGuardUntil = Date.now() + 600;
   suppressMapClick = true;
@@ -537,6 +549,108 @@ function arrowLayoutForScale(pathLengthM: number): { stepM: number; sizePx: numb
   };
 }
 
+function pointAlongPath(
+  path: LngLat[],
+  targetKm: number,
+): { point: LngLat; bearing: number } {
+  if (path.length < 2) {
+    return { point: path[0] ?? { lon: 0, lat: 0 }, bearing: 0 };
+  }
+  const total = pathLengthKm(path);
+  const goal = Math.max(0, Math.min(targetKm, total));
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1]!;
+    const b = path[i]!;
+    const d = haversineKm(a, b);
+    if (acc + d >= goal - 1e-9) {
+      const t = d > 1e-9 ? (goal - acc) / d : 0;
+      return {
+        point: {
+          lon: a.lon + (b.lon - a.lon) * t,
+          lat: a.lat + (b.lat - a.lat) * t,
+        },
+        bearing: bearingDeg(a, b),
+      };
+    }
+    acc += d;
+  }
+  const a = path[path.length - 2]!;
+  const b = path[path.length - 1]!;
+  return { point: { ...b }, bearing: bearingDeg(a, b) };
+}
+
+function shortSegmentName(name: string): string {
+  return name
+    .replace(/\s+водохранилище$/i, '')
+    .replace(/\s+озеро$/i, '')
+    .trim();
+}
+
+function formatSegmentKm(km: number): string {
+  const v = Math.max(0.1, Math.round(km * 10) / 10);
+  return `${v.toLocaleString('ru-RU', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} км`;
+}
+
+/**
+ * Ticks at the start and end of each itinerary stretch, with the stretch length.
+ * Boundary between two stretches shares one tick; each stretch gets a mid label.
+ */
+function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
+  if (path.length < 2 || segments.length === 0) return;
+  const pathKm = pathLengthKm(path);
+  const segSum = segments.reduce((s, x) => s + x.km, 0);
+  if (!(pathKm > 0) || !(segSum > 0)) return;
+  const scale = pathKm / segSum;
+
+  type Bound = { km: number; endOf: ItinerarySegment | null; startOf: ItinerarySegment | null };
+  const bounds: Bound[] = [{ km: 0, endOf: null, startOf: segments[0]! }];
+  let cum = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]!;
+    cum += seg.km;
+    bounds.push({
+      km: cum,
+      endOf: seg,
+      startOf: i + 1 < segments.length ? segments[i + 1]! : null,
+    });
+  }
+
+  for (const b of bounds) {
+    const { point, bearing } = pointAlongPath(path, b.km * scale);
+    const endKm = b.endOf ? formatSegmentKm(b.endOf.km) : '';
+    const startKm = b.startOf ? formatSegmentKm(b.startOf.km) : '';
+    const endName = b.endOf ? escapeHtml(shortSegmentName(b.endOf.name)) : '';
+    const startName = b.startOf ? escapeHtml(shortSegmentName(b.startOf.name)) : '';
+    let label = '';
+    if (b.endOf && b.startOf) {
+      label = `<div class="seg-tick-end">${endName}<span>${endKm}</span></div>
+        <div class="seg-tick-start">${startName}<span>${startKm}</span></div>`;
+    } else if (b.endOf) {
+      label = `<div class="seg-tick-end">${endName}<span>${endKm}</span></div>`;
+    } else if (b.startOf) {
+      label = `<div class="seg-tick-start">${startName}<span>${startKm}</span></div>`;
+    }
+    L.marker([point.lat, point.lon], {
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 450,
+      icon: L.divIcon({
+        className: 'seg-tick-wrap',
+        html: `<div class="seg-tick" style="--brg:${bearing.toFixed(1)}deg">
+          <div class="seg-tick-bar" aria-hidden="true"></div>
+          <div class="seg-tick-labels">${label}</div>
+        </div>`,
+        iconSize: [1, 1],
+        iconAnchor: [0, 0],
+      }),
+    }).addTo(drawLayer);
+  }
+}
+
 function drawDirectionArrows(path: LngLat[], color: string): void {
   if (!showArrowsInput.checked) return;
   if (path.length < 2) return;
@@ -603,6 +717,8 @@ function drawRouteGeometry(path: LngLat[]): void {
       ).addTo(drawLayer);
       drawDirectionArrows(leg, color);
     }
+    // Segment ticks on the geographic route (not offset lanes).
+    if (lastItinerary.length) drawSegmentTicks(path, lastItinerary);
     return;
   }
   L.polyline(
@@ -610,6 +726,7 @@ function drawRouteGeometry(path: LngLat[]): void {
     { ...style, interactive: false },
   ).addTo(drawLayer);
   drawDirectionArrows(path, color);
+  if (lastItinerary.length) drawSegmentTicks(path, lastItinerary);
 }
 
 function attachWaypointMarker(wp: Waypoint, index: number): void {
@@ -1001,6 +1118,7 @@ undoBtn.addEventListener('click', () => {
   waypoints.pop();
   lastRoutePath = null;
   lastCumKm = [];
+  lastItinerary = [];
   if (waypoints.length >= 2) {
     if (mode === 'water') void computeWaterRoute({ fit: false });
     else computeRuler({ fit: false });
@@ -1015,6 +1133,7 @@ clearBtn.addEventListener('click', () => {
   waypoints = [];
   lastRoutePath = null;
   lastCumKm = [];
+  lastItinerary = [];
   drawLayer.clearLayers();
   clearStats();
   syncControls();

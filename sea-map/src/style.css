@@ -277,6 +277,74 @@ body {
   pointer-events: none;
 }
 
+.seg-tick-wrap {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.seg-tick {
+  position: relative;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.seg-tick-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 3px;
+  margin-left: -7px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: #071821;
+  box-shadow:
+    0 0 0 1.5px #fff,
+    0 1px 4px rgba(0, 0, 0, 0.45);
+  transform: rotate(calc(var(--brg, 0deg) + 90deg));
+}
+
+.seg-tick-labels {
+  position: absolute;
+  left: 10px;
+  top: -1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: max-content;
+  max-width: 11rem;
+}
+
+.seg-tick-start,
+.seg-tick-end {
+  font: 600 0.68rem/1.2 var(--font-body);
+  color: var(--ink);
+  background: rgba(232, 244, 242, 0.96);
+  border: 1px solid rgba(7, 24, 33, 0.14);
+  border-radius: 7px;
+  padding: 0.16rem 0.38rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+
+.seg-tick-start span,
+.seg-tick-end span {
+  display: block;
+  margin-top: 0.05rem;
+  font-weight: 700;
+  color: var(--sea-mid);
+}
+
+.seg-tick-end {
+  border-color: rgba(26, 155, 144, 0.35);
+}
+
+.seg-tick-start {
+  opacity: 0.92;
+}
+
 .route-arrow svg {
   display: block;
   overflow: visible;
