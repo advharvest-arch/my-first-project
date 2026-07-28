@@ -1,4 +1,4 @@
-import { haversineKm, type LngLat } from './geo';
+import { haversineKm, pathLengthKm, type LngLat } from './geo';
 
 export type BrouterResult = {
   points: LngLat[];
@@ -36,8 +36,12 @@ const VOLGA_STEM_VIAS: LngLat[] = [
 /**
  * Moscow ↔ St. Petersburg inland waterway (канал им. Москвы → Волга → Волго-Балт → Нева).
  * Must NOT reuse VOLGA_STEM_VIAS: those include Селижарово and pull the track upstream west.
+ * Early canal vias pin Химки → Икша before Дубна (avoids losing the corridor).
  */
 const VOLGA_BALTIC_VIAS: LngLat[] = [
+  { lon: 37.455, lat: 55.91 }, // Химкинское (судовой ход)
+  { lon: 37.48, lat: 56.15 }, // Икша
+  { lon: 37.51, lat: 56.35 }, // Дмитров
   { lon: 37.16, lat: 56.74 }, // Дубна
   { lon: 38.33, lat: 57.53 }, // Углич
   { lon: 38.5, lat: 58.05 }, // Рыбинск / Шексна
@@ -52,6 +56,107 @@ const VOLGA_BALTIC_VIAS: LngLat[] = [
   { lon: 31.5, lat: 60.1 }, // Ладога
   { lon: 31.03, lat: 59.95 }, // Шлиссельбург / Нева
 ];
+
+/**
+ * BRouter's river graph often leaves the Moscow Canal shipping fairway and loops
+ * east through Пироговское / Пестовское / Клязьминское before rejoining near Iksha.
+ * Replace that spur with the main-stem canal corridor.
+ */
+const MOSCOW_CANAL_EAST_SPUR = {
+  lonMin: 37.545,
+  latMin: 55.9,
+  latMax: 56.14,
+};
+
+/** Curated fairway between the spur entry and Iksha. */
+const MOSCOW_CANAL_FAIRWAY: LngLat[] = [
+  { lon: 37.52, lat: 55.97 },
+  { lon: 37.505, lat: 56.02 },
+  { lon: 37.505, lat: 56.07 },
+  { lon: 37.51, lat: 56.12 },
+  { lon: 37.512, lat: 56.15 },
+];
+
+function inMoscowCanalEastSpur(p: LngLat): boolean {
+  return (
+    p.lon >= MOSCOW_CANAL_EAST_SPUR.lonMin &&
+    p.lat >= MOSCOW_CANAL_EAST_SPUR.latMin &&
+    p.lat <= MOSCOW_CANAL_EAST_SPUR.latMax
+  );
+}
+
+function interpolatePoints(a: LngLat, b: LngLat, n: number): LngLat[] {
+  if (n <= 0) return [];
+  const out: LngLat[] = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / (n + 1);
+    out.push({ lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t });
+  }
+  return out;
+}
+
+/**
+ * Cut Пироговское/Пестовское/Клязьминское loops off Moscow→Dubna legs.
+ */
+export function repairMoscowCanalEastSpur(points: LngLat[]): LngLat[] {
+  if (points.length < 8) return points;
+
+  let spurStart = -1;
+  let spurEnd = -1;
+  for (let i = 0; i < points.length; i++) {
+    if (inMoscowCanalEastSpur(points[i]!)) {
+      if (spurStart < 0) spurStart = i;
+      spurEnd = i;
+    } else if (spurStart >= 0 && points[i]!.lat > MOSCOW_CANAL_EAST_SPUR.latMax) {
+      break;
+    }
+  }
+  if (spurStart < 0 || spurEnd <= spurStart) return points;
+
+  // Anchor just before the track turns east off the fairway.
+  let left = Math.max(0, spurStart - 1);
+  while (left > 0 && points[left]!.lon > 37.53 && points[left]!.lat < 56.05) {
+    left -= 1;
+  }
+  // Rejoin on the canal near Iksha (west of the reservoirs).
+  let right = Math.min(points.length - 1, spurEnd + 1);
+  while (
+    right < points.length - 1 &&
+    (points[right]!.lon > 37.54 || points[right]!.lat < 56.13)
+  ) {
+    right += 1;
+  }
+
+  if (right <= left + 1) return points;
+
+  const before = points.slice(0, left + 1);
+  const after = points.slice(right);
+  const a = before[before.length - 1]!;
+  const b = after[0]!;
+
+  const fairway = MOSCOW_CANAL_FAIRWAY.filter(
+    (p) => p.lat > a.lat + 0.005 && p.lat < b.lat - 0.005,
+  );
+  const bridge: LngLat[] = [];
+  let prev = a;
+  for (const p of fairway) {
+    bridge.push(...interpolatePoints(prev, p, 2), p);
+    prev = p;
+  }
+  bridge.push(...interpolatePoints(prev, b, 2));
+
+  return [...before, ...bridge, ...after];
+}
+
+function finalizeBrouterResult(result: BrouterResult): BrouterResult {
+  const points = repairMoscowCanalEastSpur(result.points);
+  if (points === result.points) return result;
+  return {
+    ...result,
+    points,
+    lengthKm: pathLengthKm(points),
+  };
+}
 
 function nearMoscow(p: LngLat): boolean {
   return p.lat >= 55.4 && p.lat <= 56.35 && p.lon >= 36.9 && p.lon <= 38.1;
@@ -203,7 +308,7 @@ function parseBrouterPayload(text: string): BrouterResult | null {
     for (const tag of parseWayTags(messages[i]?.[9])) wayTags.add(tag);
   }
 
-  return { points, lengthKm, wayTags: [...wayTags] };
+  return finalizeBrouterResult({ points, lengthKm, wayTags: [...wayTags] });
 }
 
 async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
@@ -257,7 +362,7 @@ function stitchResults(parts: BrouterResult[]): BrouterResult {
     lengthKm += part.lengthKm;
     for (const t of part.wayTags) wayTags.add(t);
   }
-  return { points, lengthKm, wayTags: [...wayTags] };
+  return finalizeBrouterResult({ points, lengthKm, wayTags: [...wayTags] });
 }
 
 function looksLikeVolgaBaltic(points: LngLat[]): boolean {
