@@ -23,18 +23,26 @@ export function pathLengthKm(points: LngLat[]): number {
 }
 
 export function formatKm(km: number): string {
-  if (km < 1) return `${Math.round(km * 1000)} м`;
-  if (km < 10) return `${km.toFixed(2)} км`;
-  return `${Math.round(km).toLocaleString('ru-RU')} км`;
+  if (!Number.isFinite(km) || km < 0) return '—';
+  if (km > 0 && km < 0.1) return `${Math.round(km * 1000)} м`;
+  return `${km.toLocaleString('ru-RU', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} км`;
 }
 
 export function formatDuration(hours: number): string {
   if (!Number.isFinite(hours) || hours < 0) return '—';
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} мин`;
-  const d = Math.floor(hours / 24);
-  const h = Math.round(hours % 24);
-  if (d <= 0) return `${h} ч`;
-  return `${d} д ${h} ч`;
+  const totalMin = Math.max(0, Math.round(hours * 60));
+  if (totalMin < 60) return `${hours > 0 ? Math.max(1, totalMin) : 0} мин`;
+  const d = Math.floor(totalMin / (24 * 60));
+  const h = Math.floor((totalMin % (24 * 60)) / 60);
+  const m = totalMin % 60;
+  const parts: string[] = [];
+  if (d > 0) parts.push(`${d} д`);
+  if (h > 0) parts.push(`${h} ч`);
+  if (m > 0 || parts.length === 0) parts.push(`${m} мин`);
+  return parts.join(' ');
 }
 
 export function etaHours(distanceKm: number, speedKmh: number): number {
