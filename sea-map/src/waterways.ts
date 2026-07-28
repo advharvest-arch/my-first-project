@@ -1357,7 +1357,7 @@ export async function describeWaterItinerary(
   }
 
   const geo = haversineKm(origin, destination);
-  if (opts.totalKm && geo > 40 && opts.totalKm > geo * 2.4) {
+  if (opts.totalKm && geo > 40 && opts.totalKm > geo * 3.5) {
     return [];
   }
 

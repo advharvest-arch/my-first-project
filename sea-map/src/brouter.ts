@@ -57,10 +57,10 @@ const VOLGA_NAV_FAIRWAY: LngLat[] = [
   { lon: 38.1256, lat: 57.4176 },
   { lon: 38.3805, lat: 57.612 },
   { lon: 38.4964, lat: 57.8509 },
-  { lon: 38.2969, lat: 58.077 },
-  { lon: 38.6531, lat: 58.1279 },
-  { lon: 38.7533, lat: 58.0156 },
-  { lon: 39.1405, lat: 58.027 },
+  { lon: 38.65, lat: 58.13 }, // Рыбинское вдхр. севернее города
+  { lon: 38.83, lat: 58.1 }, // шлюзы / плотина Рыбинска (не Черёмуха)
+  { lon: 38.95, lat: 58.06 }, // Волга ниже плотины, Горьковское
+  { lon: 39.14, lat: 58.027 },
   { lon: 39.524, lat: 57.882 },
   { lon: 39.8135, lat: 57.6987 },
   { lon: 40.161, lat: 57.5724 },
@@ -821,6 +821,27 @@ function looksLikeUglichBeforeRybinsk(points: LngLat[], a: LngLat, b: LngLat): b
 }
 
 /**
+ * Черёмуха — правый приток в центре Рыбинска. Городец→Талица / Волга must
+ * stay on the lock/fairway, not climb the Cheremukha.
+ */
+function onCheremukhaBasin(p: LngLat): boolean {
+  return p.lon >= 38.78 && p.lon <= 39.0 && p.lat >= 57.85 && p.lat <= 58.035;
+}
+
+function looksLikeCheremukhaDetour(points: LngLat[], a: LngLat, b: LngLat): boolean {
+  if (onCheremukhaBasin(a) || onCheremukhaBasin(b)) return false;
+  let km = 0;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i]!;
+    // Tight box: Cheremukha channel south of the Volga stem in Rybinsk.
+    if (p.lon >= 38.82 && p.lon <= 38.95 && p.lat >= 57.92 && p.lat <= 58.035) {
+      km += haversineKm(points[i - 1]!, p);
+    }
+  }
+  return km > 3;
+}
+
+/**
  * Any hit on Москва-река when neither endpoint is near Moscow means the
  * router left the Volga cascade (Ока cutoff / air chord densified wrong).
  * Do NOT require endpoints to straddle lon 40 — Куйбышев↔Чебоксары are both east.
@@ -887,7 +908,8 @@ function isHardBadVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
     looksLikeUpperVolgaTrap(points, a, b) ||
     looksLikeMissingCascade(points, a, b) ||
     looksLikeUglichBeforeRybinsk(points, a, b) ||
-    looksLikeMoskvaDetour(points, a, b)
+    looksLikeMoskvaDetour(points, a, b) ||
+    looksLikeCheremukhaDetour(points, a, b)
   );
 }
 

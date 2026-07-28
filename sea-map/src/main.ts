@@ -796,15 +796,14 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     const geo = haversineKm(waypoints[0]!, waypoints[waypoints.length - 1]!);
     const ratio =
       path.lengthKm > 0 ? path.lengthKm / Math.max(geo, 0.001) : Infinity;
-    // Near-geodesic = air/land cut. Keep threshold tight so real reservoir
-    // fairways (~1.15×) still get itinerary labels.
+    // Near-geodesic = air/land cut. Do NOT treat normal cascade winding
+    // (often 1.15–1.4× on geo>250) as air — that hid itineraries (Городец→Талица).
     const isAir =
       path.method === 'direct' ||
       path.points.length <= 3 ||
       (geo >= 12 && ratio < 0.85) ||
       (geo >= 15 && ratio <= 1.04) ||
-      (geo >= 40 && ratio <= 1.1 && path.points.length < Math.max(5, geo / 25)) ||
-      (path.lengthKm > 0 && geo > 250 && path.lengthKm <= geo * 1.2);
+      (geo >= 40 && ratio <= 1.08 && path.points.length < Math.max(5, geo / 25));
     void updateRouteItinerary(
       path.points,
       path.lengthKm,
