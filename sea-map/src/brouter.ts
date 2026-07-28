@@ -46,6 +46,35 @@ const VOLGA_STEM_CHAIN: LngLat[] = [
 ];
 
 /**
+ * Dense navigable fairway Чебоксары → Казань → южный Куйбышев.
+ * Open-reservoir clicks often collapse in BRouter; snap onto these pins.
+ */
+const VOLGA_LOWER_FAIRWAY: LngLat[] = [
+  { lon: 47.2562, lat: 56.1626 },
+  { lon: 47.6005, lat: 56.1263 },
+  { lon: 47.907, lat: 56.0792 },
+  { lon: 48.119, lat: 55.9248 },
+  { lon: 48.3767, lat: 55.8272 },
+  { lon: 48.745, lat: 55.8103 },
+  { lon: 49.0526, lat: 55.7514 },
+  { lon: 49.0122, lat: 55.5609 },
+  { lon: 49.1353, lat: 55.3667 },
+  { lon: 49.3566, lat: 55.1957 },
+  { lon: 49.0862, lat: 55.0666 },
+  { lon: 48.8862, lat: 54.9079 },
+  { lon: 48.8714, lat: 54.6541 },
+  { lon: 48.6151, lat: 54.5273 },
+  { lon: 48.4147, lat: 54.3725 },
+  { lon: 48.5117, lat: 54.1772 },
+  { lon: 48.7867, lat: 54.0345 },
+  { lon: 48.996, lat: 53.8776 },
+  { lon: 48.9606, lat: 53.675 },
+  { lon: 49.1121, lat: 53.4654 },
+  { lon: 49.4463, lat: 53.4552 },
+  { lon: 49.4657, lat: 53.4672 },
+];
+
+/**
  * Волго-Балт north of Рыбинск (Шексна → … → Нева).
  */
 const VOLGA_BALTIC_NORTH_VIAS: LngLat[] = [
@@ -334,9 +363,11 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
     (v) => haversineKm(a, v) >= 30 && haversineKm(b, v) >= 30,
   );
 
-  // Adjacent cascade reservoirs: stem pins sit near A/B and get filtered out.
-  // Insert a mid-fairway via so short hops (Куйбышев↔Чебоксары) stay on water.
-  if (!vias.length && Math.abs(ia - ib) >= 1 && slice.length >= 2) {
+  // Adjacent cascade reservoirs on medium+ hops: stem pins sit near A/B and
+  // get filtered — insert a mid-fairway via. Skip on very short hops: a crude
+  // mid often collapses or loops 10× in BRouter (recover via lower fairway).
+  const span = haversineKm(a, b);
+  if (!vias.length && Math.abs(ia - ib) >= 1 && slice.length >= 2 && span >= 55) {
     const mid = interpolate(slice[0]!, slice[slice.length - 1]!, 0.5);
     if (haversineKm(a, mid) >= 6 && haversineKm(b, mid) >= 6) {
       vias.push(mid);
@@ -739,8 +770,8 @@ function looksLikeExcessDetour(
 }
 
 /**
- * Near-geodesic polyline between distinct cascade waterbodies = land/air chord
- * (e.g. ~39 km «Куйбышевское — Чебоксарское» cutting the dam neck).
+ * Collapsed BRouter snap (track much shorter than A→B) or a true land/air
+ * chord between cascade waterbodies.
  */
 function looksLikeNearGeodesicLandCut(
   points: LngLat[],
@@ -749,19 +780,74 @@ function looksLikeNearGeodesicLandCut(
   lengthKm?: number,
 ): boolean {
   const geo = haversineKm(a, b);
-  if (geo < 15) return false;
+  if (geo < 12) return false;
   const len = lengthKm ?? pathLengthKm(points);
   const ratio = len / Math.max(geo, 0.001);
 
+  // BRouter snapped both ends to the same neighborhood — not a real span.
+  if (len < geo * 0.85) return true;
+  if (points.length <= 2 && geo >= 8) return true;
+
   if (inVolgaBasin(a) && inVolgaBasin(b) && nearestStemIndex(a) !== nearestStemIndex(b)) {
-    if (ratio <= 1.12) return true;
-    if (ratio <= 1.22 && points.length < Math.max(8, geo / 12)) return true;
+    // Keep ≤1.06 only — real Чебоксары↔Куйбышев fairway is often ~1.15–1.35×.
+    if (ratio <= 1.06) return true;
+    if (ratio <= 1.14 && points.length < Math.max(6, geo / 20)) return true;
   }
 
-  // Universal: almost exact geodesic on medium hops is disguised direct.
-  if (geo >= 25 && ratio <= 1.05) return true;
-  if (geo >= 80 && ratio <= 1.12 && points.length <= 4) return true;
+  if (geo >= 25 && ratio <= 1.04) return true;
+  if (geo >= 80 && ratio <= 1.1 && points.length <= 4) return true;
   return false;
+}
+
+function nearestLowerFairwayIndex(p: LngLat): { idx: number; dist: number } {
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < VOLGA_LOWER_FAIRWAY.length; i++) {
+    const d = haversineKm(p, VOLGA_LOWER_FAIRWAY[i]!);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return { idx: best, dist: bestD };
+}
+
+/**
+ * Route along the dense lower-Volga fairway after a collapsed/land-cut direct.
+ * Open water clicks near Чебоксарское/Куйбышевское often need this snap.
+ */
+async function routeViaLowerFairway(a: LngLat, b: LngLat): Promise<BrouterResult | null> {
+  if (!inVolgaBasin(a) || !inVolgaBasin(b)) return null;
+  // Only for the lower cascade (Чебоксары / Куйбышев).
+  if (Math.max(a.lon, b.lon) < 46.5 || Math.min(a.lon, b.lon) > 50.5) return null;
+
+  const sa = nearestLowerFairwayIndex(a);
+  const sb = nearestLowerFairwayIndex(b);
+  if (sa.dist > 45 || sb.dist > 45) return null;
+  if (sa.idx === sb.idx) return null;
+
+  const lo = Math.min(sa.idx, sb.idx);
+  const hi = Math.max(sa.idx, sb.idx);
+  let slice = VOLGA_LOWER_FAIRWAY.slice(lo, hi + 1);
+  if (sa.idx > sb.idx) slice = slice.slice().reverse();
+  if (slice.length < 2) return null;
+
+  const thin = thinVias(slice, 6);
+  // Prefer fairway pins only (reliable on open reservoirs), then try with A/B.
+  const attempts: LngLat[][] = [
+    thin,
+    [a, ...thin.filter((v) => haversineKm(a, v) >= 4 && haversineKm(b, v) >= 4), b],
+    [a, ...thin.slice(0, Math.min(4, thin.length)), b],
+  ];
+
+  for (const pts of attempts) {
+    if (pts.length < 2) continue;
+    const route = await routeWithBrouter(pts);
+    if (!route || route.points.length < 2 || route.lengthKm <= 0) continue;
+    if (isSuspiciousVolgaPath(route.points, a, b, route.lengthKm)) continue;
+    return route;
+  }
+  return null;
 }
 
 function isSuspiciousVolgaPath(
@@ -872,6 +958,15 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
     return route;
   };
 
+  // Short/medium cascade hops: try direct first. Forced mid-vias often collapse
+  // on open reservoirs or loop 10×; recover via dense lower fairway below.
+  if (depth === 0 && stemCorridor && span < 140) {
+    const directFirst = accept(await routeWithBrouter([a, b]));
+    if (directFirst) return directFirst;
+    const fairwayFirst = accept(await routeViaLowerFairway(a, b));
+    if (fairwayFirst) return fairwayFirst;
+  }
+
   // Pin long inland legs to a known navigable corridor.
   if (depth === 0) {
     const vias = corridorViasBetween(a, b);
@@ -883,6 +978,12 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
 
   const hit = accept(await routeWithBrouter([a, b]));
   if (hit) return hit;
+
+  // Open-reservoir Cheboksary/Kuibyshev clicks: snap onto dense fairway.
+  if (depth === 0) {
+    const fairway = accept(await routeViaLowerFairway(a, b));
+    if (fairway) return fairway;
+  }
 
   if (depth >= MAX_SPLIT_DEPTH || span < 50) {
     return null;
