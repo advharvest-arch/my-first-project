@@ -1339,8 +1339,12 @@ function nameAtSample(
 
     // Terminal / mouth: release back to the trunk.
     const atVetlugaMouth = key === 'ветлуга' && p.lat < 56.5;
+    // Селижаровка is short — drop sticky as soon as we are on the Volga stem.
     const pastSelizharovka =
-      key === 'селижаровка' && (p.lon > 33.72 || p.lat < 56.76);
+      key === 'селижаровка' &&
+      (p.lon > 33.5 ||
+        p.lat < 56.8 ||
+        (peek?.kind === 'river' && peek.name.toLocaleLowerCase('ru') === 'волга'));
     if (atVetlugaMouth || pastSelizharovka) {
       stickyRiver = null;
       stickyRiverOutsideKm = 0;
@@ -1352,11 +1356,19 @@ function nameAtSample(
         stickyRiver,
         stickyRiverOutsideKm: 0,
       };
+    } else if (isStrongCorridorSticky(stickyRiver)) {
+      // Never flip a long climb (Ветлуга→Вохма) to Волга just because the
+      // track left a rectangular catalog box — real river meanders widely.
+      return {
+        name: stickyRiver,
+        stickyLake: null,
+        stickyOutsideKm: 0,
+        stickyRiver,
+        stickyRiverOutsideKm: 0,
+      };
     } else {
       const outside = stickyRiverOutsideKm + stepKm;
-      // Strong corridors: keep labeling through long meanders outside the box
-      // (otherwise Волга bbox swallows hundreds of km: «Ветлуга—Волга—Ветлуга»).
-      const holdKm = isStrongCorridorSticky(stickyRiver) ? 90 : 3;
+      const holdKm = 3;
       if (outside < holdKm) {
         return {
           name: stickyRiver,
