@@ -1280,23 +1280,19 @@ function nameAtSample(
   // Sticky tributary (Ветлуга, Селижаровка…): stay on it through Volga-bbox overlap.
   if (stickyRiver) {
     const body = catalogBodyByName(stickyRiver);
-    if (body && pointInCatalog(p, body)) {
-      // Mouth: Ветлуга south of 56.5 is really Volga — release sticky.
-      if (
-        stickyRiver.toLocaleLowerCase('ru') === 'ветлуга' &&
-        p.lat < 56.5
-      ) {
-        // fall through to normal pick below
-      } else {
-        return {
-          name: stickyRiver,
-          stickyLake: null,
-          stickyOutsideKm: 0,
-          stickyRiver,
-          stickyRiverOutsideKm: 0,
-        };
-      }
-    } else {
+    const inBody = !!(body && pointInCatalog(p, body));
+    const vetlugaMouth =
+      stickyRiver.toLocaleLowerCase('ru') === 'ветлуга' && p.lat < 56.5;
+    if (inBody && !vetlugaMouth) {
+      return {
+        name: stickyRiver,
+        stickyLake: null,
+        stickyOutsideKm: 0,
+        stickyRiver,
+        stickyRiverOutsideKm: 0,
+      };
+    }
+    if (!vetlugaMouth) {
       const outside = stickyRiverOutsideKm + stepKm;
       if (outside < 6) {
         return {
@@ -1307,9 +1303,9 @@ function nameAtSample(
           stickyRiverOutsideKm: outside,
         };
       }
-      stickyRiver = null;
-      stickyRiverOutsideKm = 0;
     }
+    stickyRiver = null;
+    stickyRiverOutsideKm = 0;
   }
 
   if (stickyLake) {
