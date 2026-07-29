@@ -1180,8 +1180,12 @@ type CatalogBody = {
 /**
  * Navigational reservoir extents (ship fairway):
  * - End = dam + lock: below the lock the stretch is river, not the reservoir.
- * - Start = where the river channel begins to widen into the backwater
- *   (often the previous hydroelectric dam, when the next reservoir backs up to it).
+ * - Start = channel widening into the backwater.
+ *
+ * Cascade notes (official backwater / rules of use):
+ * - Угличское: подпор до Иваньковского гидроузла → starts just below Dubna lock.
+ * - Рыбинское: подпор по Волге до Угличского гидроузла → starts just below Uglich lock;
+ *   ends at the Rybinsk lock.
  *
  * `below` is the cardinal side of the lower pool relative to the dam point.
  */
@@ -1386,11 +1390,11 @@ function nameAtSample(
 
     // Terminal / mouth: release back to the trunk.
     const atVetlugaMouth = key === 'ветлуга' && p.lat < 56.5;
-    // Селижаровка is short — drop sticky as soon as we are on the Volga stem.
+    // Селижаровка mouth in Селижарово (~33.455E, 56.854N) — do not keep sticky into the Volga.
     const pastSelizharovka =
       key === 'селижаровка' &&
-      (p.lon > 33.5 ||
-        p.lat < 56.8 ||
+      (p.lon > 33.46 ||
+        p.lat < 56.85 ||
         (peek?.kind === 'river' && peek.name.toLocaleLowerCase('ru') === 'волга'));
     if (atVetlugaMouth || pastSelizharovka) {
       stickyRiver = null;
