@@ -1,5 +1,6 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
+import { findSharedOpenLake, routeAcrossOpenLake } from './open-lake';
 import waterBodies from './water-bodies.json';
 import waterCore from './water-core.json';
 
@@ -2202,7 +2203,20 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     });
   };
 
-  // 1) BRouter — short legs OK as-is; long corridors are split before the request.
+  // 1) Natural open lakes (Onega, Ladoga, …): straight water chords that only
+  // bend around islands / peninsulas. BRouter river fairways hug the shore
+  // (~278 km coastal tours on Onega) and must not win here.
+  if (findSharedOpenLake(waypoints)) {
+    const open = await routeAcrossOpenLake(waypoints);
+    if (open && open.points.length >= 2 && open.lengthKm > 0) {
+      return finalizeMeasuredRoute(open.points, open.lengthKm, waypoints, {
+        waterName: open.waterName,
+        method: 'lake',
+      });
+    }
+  }
+
+  // 2) BRouter — short legs OK as-is; long corridors are split before the request.
   const brouted = await routeWithBrouterAdaptive(waypoints);
 
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
@@ -2227,7 +2241,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     return directFallback();
   }
 
-  // 2) Instant local fallback from water-core already in memory (no network).
+  // 3) Instant local fallback from water-core already in memory (no network).
   const cachedLines = mergeLines(
     cellsAlong(waypoints)
       .map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? [])
@@ -2236,7 +2250,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   const fromCache = await routeOnCachedLines(cachedLines);
   if (fromCache) return fromCache;
 
-  // 3) Fetch more OSM geometry, then route (may be slower).
+  // 4) Fetch more OSM geometry, then route (may be slower).
   const run = async (forceRefresh: boolean): Promise<WaterPath> => {
     const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
     return (await routeOnCachedLines(lines)) ?? directFallback();
