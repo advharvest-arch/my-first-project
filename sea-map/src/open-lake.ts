@@ -18,6 +18,7 @@ export type LakeMask = {
   name: string;
   osmId: number;
   outer: Array<[number, number]>;
+  outerBBox: BBox;
   holes: Hole[];
   bbox: BBox;
 };
@@ -41,6 +42,11 @@ const OPEN_LAKE_OSM: Record<string, number> = {
 const CATALOG = waterBodies as CatalogBody[];
 const lakeCache = new Map<number, LakeMask | null>();
 const lakeInflight = new Map<number, Promise<LakeMask | null>>();
+
+/** Sample spacing for water-safety checks (narrow islands / channels). */
+const CLEAR_STEP_KM = 0.18;
+/** A* cell size — fine enough that eroded cells keep paths off shore. */
+const GRID_STEP_KM = 0.7;
 
 function catalogKey(name: string): string {
   return name.trim().toLocaleLowerCase('ru');
@@ -69,6 +75,10 @@ function ringBBox(ring: Array<[number, number]>): BBox {
   return [w, s, e, n];
 }
 
+function overlapsBBox(a: BBox, b: BBox): boolean {
+  return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+}
+
 function pointInRing(lon: number, lat: number, ring: Array<[number, number]>): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -82,8 +92,57 @@ function pointInRing(lon: number, lat: number, ring: Array<[number, number]>): b
   return inside;
 }
 
-function overlapsBBox(a: BBox, b: BBox): boolean {
-  return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+function orient(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
+  return (by - ay) * (cx - bx) - (bx - ax) * (cy - by);
+}
+
+function onSeg(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): boolean {
+  return (
+    Math.min(ax, bx) - 1e-12 <= cx &&
+    cx <= Math.max(ax, bx) + 1e-12 &&
+    Math.min(ay, by) - 1e-12 <= cy &&
+    cy <= Math.max(ay, by) + 1e-12
+  );
+}
+
+/** True if open segment a→b properly intersects ring edge (leaves/enters polygon). */
+function segmentHitsRing(a: LngLat, b: LngLat, ring: Array<[number, number]>): boolean {
+  const ax = a.lon;
+  const ay = a.lat;
+  const bx = b.lon;
+  const by = b.lat;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const cx = ring[j]![0];
+    const cy = ring[j]![1];
+    const dx = ring[i]![0];
+    const dy = ring[i]![1];
+    const o1 = orient(ax, ay, bx, by, cx, cy);
+    const o2 = orient(ax, ay, bx, by, dx, dy);
+    const o3 = orient(cx, cy, dx, dy, ax, ay);
+    const o4 = orient(cx, cy, dx, dy, bx, by);
+    if (o1 * o2 < 0 && o3 * o4 < 0) return true;
+    if (Math.abs(o1) < 1e-14 && onSeg(ax, ay, bx, by, cx, cy)) return true;
+    if (Math.abs(o2) < 1e-14 && onSeg(ax, ay, bx, by, dx, dy)) return true;
+    if (Math.abs(o3) < 1e-14 && onSeg(cx, cy, dx, dy, ax, ay)) return true;
+    if (Math.abs(o4) < 1e-14 && onSeg(cx, cy, dx, dy, bx, by)) return true;
+  }
+  return false;
+}
+
+function segmentBBox(a: LngLat, b: LngLat, pad = 0.01): BBox {
+  return [
+    Math.min(a.lon, b.lon) - pad,
+    Math.min(a.lat, b.lat) - pad,
+    Math.max(a.lon, b.lon) + pad,
+    Math.max(a.lat, b.lat) + pad,
+  ];
 }
 
 /** True if point is on open water (inside outer, outside island holes). */
@@ -97,29 +156,35 @@ export function pointInOpenWater(p: LngLat, lake: LakeMask): boolean {
   return true;
 }
 
-function segmentBBox(a: LngLat, b: LngLat, pad = 0.01): BBox {
-  return [
-    Math.min(a.lon, b.lon) - pad,
-    Math.min(a.lat, b.lat) - pad,
-    Math.max(a.lon, b.lon) + pad,
-    Math.max(a.lat, b.lat) + pad,
-  ];
-}
-
-/** Geodesic-ish samples along the chord stay on water (islands / peninsulas block). */
+/**
+ * Chord stays on water: endpoints in water, no shore/island edge crossings,
+ * dense samples along the segment.
+ */
 export function openWaterLineClear(
   a: LngLat,
   b: LngLat,
   lake: LakeMask,
-  stepKm = 1.2,
+  stepKm = CLEAR_STEP_KM,
 ): boolean {
+  if (!pointInOpenWater(a, lake) || !pointInOpenWater(b, lake)) return false;
   const d = haversineKm(a, b);
-  if (d < 0.05) return pointInOpenWater(a, lake) && pointInOpenWater(b, lake);
-  const n = Math.max(2, Math.ceil(d / stepKm));
-  const segBox = segmentBBox(a, b, 0.02);
-  // Fast reject: chord bbox must overlap lake water extent.
+  if (d < 0.02) return true;
+
+  const segBox = segmentBBox(a, b, 0.01);
   if (!overlapsBBox(segBox, lake.bbox)) return false;
-  for (let i = 0; i <= n; i++) {
+
+  // Leaving the lake through the outer shoreline.
+  if (overlapsBBox(segBox, lake.outerBBox) && segmentHitsRing(a, b, lake.outer)) {
+    return false;
+  }
+  // Cutting an island / hole.
+  for (const hole of lake.holes) {
+    if (!overlapsBBox(segBox, hole.bbox)) continue;
+    if (segmentHitsRing(a, b, hole.ring)) return false;
+  }
+
+  const n = Math.max(2, Math.ceil(d / stepKm));
+  for (let i = 1; i < n; i++) {
     const t = i / n;
     const p = {
       lon: a.lon + (b.lon - a.lon) * t,
@@ -130,24 +195,32 @@ export function openWaterLineClear(
   return true;
 }
 
-function nearestOpenWater(p: LngLat, lake: LakeMask, maxKm = 6): LngLat | null {
+function nearestOpenWater(p: LngLat, lake: LakeMask, maxKm = 10): LngLat | null {
   if (pointInOpenWater(p, lake)) return { ...p };
-  const stepKm = 0.6;
+  const stepKm = 0.4;
   const rings = Math.ceil(maxKm / stepKm);
   const cos = Math.max(0.2, Math.cos((p.lat * Math.PI) / 180));
+  let best: LngLat | null = null;
+  let bestD = Infinity;
   for (let r = 1; r <= rings; r++) {
     const radKm = r * stepKm;
-    const n = Math.max(8, Math.round((2 * Math.PI * radKm) / stepKm));
+    const n = Math.max(12, Math.round((2 * Math.PI * radKm) / stepKm));
     for (let k = 0; k < n; k++) {
       const ang = (2 * Math.PI * k) / n;
       const cand = {
         lon: p.lon + ((radKm * Math.cos(ang)) / (111.32 * cos)),
         lat: p.lat + (radKm * Math.sin(ang)) / 110.54,
       };
-      if (pointInOpenWater(cand, lake)) return cand;
+      if (!pointInOpenWater(cand, lake)) continue;
+      const d = haversineKm(p, cand);
+      if (d < bestD) {
+        bestD = d;
+        best = cand;
+      }
     }
+    if (best && bestD <= radKm + stepKm * 0.5) return best;
   }
-  return null;
+  return best;
 }
 
 type Grid = {
@@ -160,32 +233,50 @@ type Grid = {
   walk: Uint8Array;
 };
 
-function buildWaterGrid(lake: LakeMask, focus: BBox, stepKm = 1.35): Grid {
-  const west = Math.max(lake.bbox[0], focus[0]);
-  const south = Math.max(lake.bbox[1], focus[1]);
-  const east = Math.min(lake.bbox[2], focus[2]);
-  const north = Math.min(lake.bbox[3], focus[3]);
+function buildWaterGrid(lake: LakeMask, focus: BBox, stepKm = GRID_STEP_KM): Grid {
+  const west = Math.max(lake.bbox[0] - 0.02, focus[0]);
+  const south = Math.max(lake.bbox[1] - 0.02, focus[1]);
+  const east = Math.min(lake.bbox[2] + 0.02, focus[2]);
+  const north = Math.min(lake.bbox[3] + 0.02, focus[3]);
   const midLat = (south + north) / 2;
   const cos = Math.max(0.2, Math.cos((midLat * Math.PI) / 180));
   const dLon = stepKm / (111.32 * cos);
   const dLat = stepKm / 110.54;
   const cols = Math.max(2, Math.ceil((east - west) / dLon) + 1);
   const rows = Math.max(2, Math.ceil((north - south) / dLat) + 1);
-  const walk = new Uint8Array(cols * rows);
+  const raw = new Uint8Array(cols * rows);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const p = { lon: west + c * dLon, lat: south + r * dLat };
-      walk[r * cols + c] = pointInOpenWater(p, lake) ? 1 : 0;
+      raw[r * cols + c] = pointInOpenWater(p, lake) ? 1 : 0;
     }
   }
+  // Erode by 1 cell: keep clearance from shore / island edges so neighbor
+  // chords do not nick land between cell centers.
+  const walk = new Uint8Array(cols * rows);
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols - 1; c++) {
+      const id = r * cols + c;
+      if (!raw[id]) continue;
+      let ok = true;
+      for (let dr = -1; dr <= 1 && ok; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (!raw[(r + dr) * cols + (c + dc)]) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      if (ok) walk[id] = 1;
+    }
+  }
+  // If erosion wiped a narrow channel, fall back to raw water for connectivity.
+  let walkable = 0;
+  for (let i = 0; i < walk.length; i++) walkable += walk[i]!;
+  if (walkable < 8) {
+    for (let i = 0; i < raw.length; i++) walk[i] = raw[i]!;
+  }
   return { west, south, cols, rows, dLon, dLat, walk };
-}
-
-function cellOf(p: LngLat, g: Grid): number {
-  const c = Math.round((p.lon - g.west) / g.dLon);
-  const r = Math.round((p.lat - g.south) / g.dLat);
-  if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) return -1;
-  return r * g.cols + c;
 }
 
 function cellPoint(id: number, g: Grid): LngLat {
@@ -194,9 +285,7 @@ function cellPoint(id: number, g: Grid): LngLat {
   return { lon: g.west + c * g.dLon, lat: g.south + r * g.dLat };
 }
 
-function nearestWalkableCell(p: LngLat, g: Grid, maxR = 12): number {
-  const start = cellOf(p, g);
-  if (start >= 0 && g.walk[start]) return start;
+function nearestWalkableCell(p: LngLat, g: Grid, maxR = 20): number {
   const c0 = Math.round((p.lon - g.west) / g.dLon);
   const r0 = Math.round((p.lat - g.south) / g.dLat);
   let best = -1;
@@ -210,8 +299,7 @@ function nearestWalkableCell(p: LngLat, g: Grid, maxR = 12): number {
         if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) continue;
         const id = r * g.cols + c;
         if (!g.walk[id]) continue;
-        const q = cellPoint(id, g);
-        const d = haversineKm(p, q);
+        const d = haversineKm(p, cellPoint(id, g));
         if (d < bestD) {
           bestD = d;
           best = id;
@@ -223,29 +311,30 @@ function nearestWalkableCell(p: LngLat, g: Grid, maxR = 12): number {
   return -1;
 }
 
-/** 8-connected A* on open-water cells. */
+/** 8-connected A* with water-safe edge checks between cell centers. */
 function astarOpenWater(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
-  const pad = 0.08;
-  const focus: BBox = [
-    Math.min(a.lon, b.lon, lake.bbox[0]) - pad,
-    Math.min(a.lat, b.lat, lake.bbox[1]) - pad,
-    Math.max(a.lon, b.lon, lake.bbox[2]) + pad,
-    Math.max(a.lat, b.lat, lake.bbox[3]) + pad,
+  const pad = 0.15;
+  const fullFocus: BBox = [
+    lake.bbox[0] - pad,
+    lake.bbox[1] - pad,
+    lake.bbox[2] + pad,
+    lake.bbox[3] + pad,
   ];
-  // Prefer a corridor around the chord; fall back to full lake mask.
   const chordFocus: BBox = [
-    Math.min(a.lon, b.lon) - 0.35,
-    Math.min(a.lat, b.lat) - 0.35,
-    Math.max(a.lon, b.lon) + 0.35,
-    Math.max(a.lat, b.lat) + 0.35,
+    Math.min(a.lon, b.lon) - 0.55,
+    Math.min(a.lat, b.lat) - 0.55,
+    Math.max(a.lon, b.lon) + 0.55,
+    Math.max(a.lat, b.lat) + 0.55,
   ];
 
   const tryGrid = (box: BBox): LngLat[] | null => {
-    const g = buildWaterGrid(lake, box, 1.4);
+    const g = buildWaterGrid(lake, box, GRID_STEP_KM);
     const start = nearestWalkableCell(a, g);
     const goal = nearestWalkableCell(b, g);
     if (start < 0 || goal < 0) return null;
-    if (start === goal) return [a, b];
+    if (start === goal) {
+      return openWaterLineClear(a, b, lake) ? [a, b] : null;
+    }
 
     const N = g.cols * g.rows;
     const came = new Int32Array(N).fill(-1);
@@ -268,8 +357,17 @@ function astarOpenWater(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
       [-1, -1],
     ] as const;
 
+    const edgeOk = new Map<string, boolean>();
+    const canTraverse = (from: number, to: number): boolean => {
+      const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+      const cached = edgeOk.get(key);
+      if (cached != null) return cached;
+      const ok = openWaterLineClear(cellPoint(from, g), cellPoint(to, g), lake);
+      edgeOk.set(key, ok);
+      return ok;
+    };
+
     while (open.length) {
-      // Linear pop-min — grids are small (~10–30k).
       let bi = 0;
       for (let i = 1; i < open.length; i++) {
         if (fScore[open[i]!]! < fScore[open[bi]!]!) bi = i;
@@ -289,13 +387,14 @@ function astarOpenWater(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
         if (nc < 0 || nr < 0 || nc >= g.cols || nr >= g.rows) continue;
         const nid = nr * g.cols + nc;
         if (!g.walk[nid]) continue;
-        const np = cellPoint(nid, g);
-        // Diagonal must not cut a land corner.
         if (dc !== 0 && dr !== 0) {
           const a1 = rr * g.cols + nc;
           const a2 = nr * g.cols + cc;
           if (!g.walk[a1] || !g.walk[a2]) continue;
         }
+        // Even orthogonal eroded cells can clip thin headlands — verify.
+        if (!canTraverse(cur, nid)) continue;
+        const np = cellPoint(nid, g);
         const tent = gScore[cur]! + haversineKm(curP, np);
         if (tent >= gScore[nid]!) continue;
         came[nid] = cur;
@@ -321,10 +420,10 @@ function astarOpenWater(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
     return cells.map((id) => cellPoint(id, g));
   };
 
-  return tryGrid(chordFocus) ?? tryGrid(focus);
+  return tryGrid(chordFocus) ?? tryGrid(fullFocus);
 }
 
-/** Collapse collinear / unnecessary bends while staying on water. */
+/** Collapse bends only along water-clear chords. */
 function smoothOpenWaterPath(points: LngLat[], lake: LakeMask): LngLat[] {
   if (points.length <= 2) return points;
   const out: LngLat[] = [points[0]!];
@@ -332,13 +431,20 @@ function smoothOpenWaterPath(points: LngLat[], lake: LakeMask): LngLat[] {
   while (i < points.length - 1) {
     let j = points.length - 1;
     while (j > i + 1) {
-      if (openWaterLineClear(points[i]!, points[j]!, lake, 1.0)) break;
+      if (openWaterLineClear(points[i]!, points[j]!, lake)) break;
       j -= 1;
     }
     out.push(points[j]!);
     i = j;
   }
   return out;
+}
+
+function pathWaterSafe(points: LngLat[], lake: LakeMask): boolean {
+  for (let i = 1; i < points.length; i++) {
+    if (!openWaterLineClear(points[i - 1]!, points[i]!, lake)) return false;
+  }
+  return true;
 }
 
 function parseNominatimLake(
@@ -354,8 +460,7 @@ function parseNominatimLake(
         : [];
   if (!polys.length) return null;
 
-  // Largest outer ring = main lake body.
-  let best: typeof polys[number] | null = null;
+  let best: (typeof polys)[number] | null = null;
   let bestN = 0;
   for (const poly of polys) {
     const n = poly[0]?.length ?? 0;
@@ -368,36 +473,34 @@ function parseNominatimLake(
 
   const outer = best[0].map(([lon, lat]) => [lon, lat] as [number, number]);
   const holes: Hole[] = [];
-  for (let h = 1; h < best.length; h++) {
-    const ring = best[h];
-    if (!ring || ring.length < 4) continue;
-    const mapped = ring.map(([lon, lat]) => [lon, lat] as [number, number]);
-    const bbox = ringBBox(mapped);
-    // Drop tiny rocks (< ~200 m) — noise for open-water legs.
+  const pushHole = (ring: Array<[number, number]>) => {
+    if (ring.length < 4) return;
+    const bbox = ringBBox(ring);
     const diag =
       haversineKm({ lon: bbox[0], lat: bbox[1] }, { lon: bbox[2], lat: bbox[3] }) * 1000;
-    if (diag < 200) continue;
-    holes.push({ ring: mapped, bbox });
+    // Keep small islets — they still block straight chords.
+    if (diag < 80) return;
+    holes.push({ ring, bbox });
+  };
+
+  for (let h = 1; h < best.length; h++) {
+    const ring = best[h];
+    if (!ring) continue;
+    pushHole(ring.map(([lon, lat]) => [lon, lat] as [number, number]));
   }
 
-  // Also treat other multipolygon parts' outers as obstacles if they are islands
-  // represented as separate polygons (rare for Nominatim lake dumps).
   for (const poly of polys) {
     if (poly === best) continue;
     const ring = poly[0];
-    if (!ring || ring.length < 4) continue;
-    const mapped = ring.map(([lon, lat]) => [lon, lat] as [number, number]);
-    const bbox = ringBBox(mapped);
-    const diag =
-      haversineKm({ lon: bbox[0], lat: bbox[1] }, { lon: bbox[2], lat: bbox[3] }) * 1000;
-    if (diag < 200 || diag > 80_000) continue;
-    holes.push({ ring: mapped, bbox });
+    if (!ring) continue;
+    pushHole(ring.map(([lon, lat]) => [lon, lat] as [number, number]));
   }
 
   return {
     name,
     osmId,
     outer,
+    outerBBox: ringBBox(outer),
     holes,
     bbox: ringBBox(outer),
   };
@@ -409,9 +512,10 @@ async function fetchLakeMask(name: string, osmId: number): Promise<LakeMask | nu
   if (pending) return pending;
 
   const job = (async (): Promise<LakeMask | null> => {
+    // Low threshold: simplified shores must not cut across peninsulas / islands.
     const url =
       `https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}` +
-      `&format=geojson&polygon_geojson=1&polygon_threshold=0.008`;
+      `&format=geojson&polygon_geojson=1&polygon_threshold=0.001`;
     try {
       const res = await fetch(url, {
         headers: {
@@ -463,6 +567,28 @@ export function findSharedOpenLake(points: LngLat[]): SharedOpenLake | null {
   return null;
 }
 
+function routeLegOnLake(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
+  if (openWaterLineClear(a, b, lake)) return [a, b];
+  const routed = astarOpenWater(a, b, lake);
+  if (!routed || routed.length < 2) return null;
+  // Attach true endpoints if they are on water and reachable by a short clear chord.
+  const path: LngLat[] = [];
+  if (openWaterLineClear(a, routed[0]!, lake)) path.push(a);
+  else path.push(routed[0]!);
+  for (let i = 1; i < routed.length - 1; i++) path.push(routed[i]!);
+  const last = routed[routed.length - 1]!;
+  if (openWaterLineClear(last, b, lake)) {
+    if (haversineKm(path[path.length - 1]!, last) > 0.05) path.push(last);
+    path.push(b);
+  } else {
+    path.push(last);
+  }
+  const smooth = smoothOpenWaterPath(path, lake);
+  if (pathWaterSafe(smooth, lake)) return smooth;
+  if (pathWaterSafe(path, lake)) return path;
+  return null;
+}
+
 /**
  * Straight open-water chords between waypoints, bending only to clear
  * islands / peninsulas / shore (grid A* on the lake mask).
@@ -478,46 +604,22 @@ export async function routeAcrossOpenLake(
 
   const snapped: LngLat[] = [];
   for (const p of waypoints) {
-    const s = nearestOpenWater(p, lake, 8);
+    const s = nearestOpenWater(p, lake, 12);
     if (!s) return null;
     snapped.push(s);
   }
 
-  const path: LngLat[] = [];
-  for (let i = 0; i < snapped.length; i++) {
-    const cur = snapped[i]!;
-    if (i === 0) {
-      path.push(waypoints[0]!, cur);
-      continue;
-    }
-    const prev = snapped[i - 1]!;
-    let leg: LngLat[];
-    if (openWaterLineClear(prev, cur, lake)) {
-      leg = [prev, cur];
-    } else {
-      const routed = astarOpenWater(prev, cur, lake);
-      if (!routed || routed.length < 2) return null;
-      leg = smoothOpenWaterPath(routed, lake);
-    }
-    // Drop duplicate joint.
+  // Route only on water. Do not draw click→snap stubs across shore.
+  const path: LngLat[] = [snapped[0]!];
+  for (let i = 1; i < snapped.length; i++) {
+    const leg = routeLegOnLake(snapped[i - 1]!, snapped[i]!, lake);
+    if (!leg || leg.length < 2) return null;
     for (let k = 1; k < leg.length; k++) path.push(leg[k]!);
   }
-  const lastWp = waypoints[waypoints.length - 1]!;
-  const last = path[path.length - 1]!;
-  if (haversineKm(last, lastWp) > 0.05) path.push(lastWp);
 
-  // Final global smooth (still water-safe).
-  const smooth = smoothOpenWaterPath(path, lake);
-  const lengthKm = pathLengthKm(smooth);
+  if (!pathWaterSafe(path, lake)) return null;
+
+  const lengthKm = pathLengthKm(path);
   if (!(lengthKm > 0)) return null;
-
-  // Guard: never accept a path that still cuts a long land chord.
-  for (let i = 1; i < smooth.length; i++) {
-    if (!openWaterLineClear(smooth[i - 1]!, smooth[i]!, lake, 1.5)) {
-      // Keep unsmoothed path if smooth introduced a cut (shouldn't).
-      return { points: path, lengthKm: pathLengthKm(path), waterName: shared.name };
-    }
-  }
-
-  return { points: smooth, lengthKm, waterName: shared.name };
+  return { points: path, lengthKm, waterName: shared.name };
 }
