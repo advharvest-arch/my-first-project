@@ -1301,14 +1301,20 @@ function pickCatalogName(
     return true;
   });
   if (!hits.length) return null;
-  hits.sort((a, b) => {
+  // On the Vetluga climb above the mouth, Чебоксарское must not re-enter the label set —
+  // lake↔river flicker there produced several hash marks at the same mouth.
+  const filtered = onVetlugaAboveMouth(sample)
+    ? hits.filter((h) => !h.n.toLocaleLowerCase('ru').includes('чебоксар'))
+    : hits;
+  const pool = filtered.length ? filtered : hits;
+  pool.sort((a, b) => {
     const lakeA = a.k === 'l' ? 0 : 1;
     const lakeB = b.k === 'l' ? 0 : 1;
     if (lakeA !== lakeB) return lakeA - lakeB;
     return catalogArea(a) - catalogArea(b);
   });
 
-  const best = hits[0]!;
+  const best = pool[0]!;
   const bestKey = best.n.toLocaleLowerCase('ru');
 
   // Чебоксарское backwater covers lower Ветлуга — still name the climb Ветлуга
@@ -1322,8 +1328,8 @@ function pickCatalogName(
 
   // Ветлуга box overlaps the Volga / Cheboksary band — don't label the stem as Ветлуга.
   if (bestKey === 'ветлуга') {
-    const volga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'волга');
-    const lake = hits.find((h) => h.k === 'l');
+    const volga = pool.find((h) => h.n.toLocaleLowerCase('ru') === 'волга');
+    const lake = pool.find((h) => h.k === 'l');
     if (lake) {
       const lakeKey = lake.n.toLocaleLowerCase('ru');
       if (lakeKey.includes('чебоксар') && onVetlugaAboveMouth(sample)) {
@@ -1338,9 +1344,9 @@ function pickCatalogName(
 
   // Вохма must not start south of its mouth on the Vetluga stem.
   if (bestKey === 'вохма' && !onVohmaAboveMouth(sample)) {
-    const vetluga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
+    const vetluga = pool.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
     if (vetluga) return { name: 'Ветлуга', kind: 'river' };
-    const next = hits.find((h) => h.n.toLocaleLowerCase('ru') !== 'вохма');
+    const next = pool.find((h) => h.n.toLocaleLowerCase('ru') !== 'вохма');
     if (next) {
       return { name: next.n, kind: next.k === 'l' ? 'lake' : 'river' };
     }
@@ -1348,7 +1354,7 @@ function pickCatalogName(
 
   // While climbing a corridor, never let the giant Волга box win over Ветлуга/Вохма.
   if (bestKey === 'волга') {
-    const trib = hits.find((h) => {
+    const trib = pool.find((h) => {
       const k = h.n.toLocaleLowerCase('ru');
       return k === 'ветлуга' || k === 'вохма' || k === 'селижаровка' || k === 'белая';
     });
@@ -1358,7 +1364,7 @@ function pickCatalogName(
         return { name: 'Волга', kind: 'river' };
       }
       if (k === 'вохма' && !onVohmaAboveMouth(sample)) {
-        const vetluga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
+        const vetluga = pool.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
         if (vetluga) return { name: 'Ветлуга', kind: 'river' };
         return { name: 'Волга', kind: 'river' };
       }
@@ -1465,15 +1471,25 @@ function nameAtSample(
       };
     }
 
-    // Reservoir / lake always wins over a sticky river.
+    // Reservoir / lake always wins over a sticky river — except Чебоксарское
+    // reclaiming the Vetluga climb (that flickered several ticks at the mouth).
     if (peek?.kind === 'lake') {
-      return {
-        name: peek.name,
-        stickyLake: peek.name,
-        stickyOutsideKm: 0,
-        stickyRiver: null,
-        stickyRiverOutsideKm: 0,
-      };
+      const lakeKey = peek.name.toLocaleLowerCase('ru');
+      if (
+        lakeKey.includes('чебоксар') &&
+        (key === 'ветлуга' || key === 'вохма' || onVetlugaAboveMouth(p))
+      ) {
+        usedNames.add(lakeKey);
+        // keep sticky river
+      } else {
+        return {
+          name: peek.name,
+          stickyLake: peek.name,
+          stickyOutsideKm: 0,
+          stickyRiver: null,
+          stickyRiverOutsideKm: 0,
+        };
+      }
     }
 
     // Terminal / mouth: release back to the trunk / parent river.
@@ -1535,8 +1551,13 @@ function nameAtSample(
     } else if (lakeKey.includes('чебоксар') && onVetlugaAboveMouth(p)) {
       // Reservoir box covers lower Ветлуга; leave Чебоксарское at the real mouth.
       usedNames.add(lakeKey);
-      stickyLake = null;
-      stickyOutsideKm = 0;
+      return {
+        name: 'Ветлуга',
+        stickyLake: null,
+        stickyOutsideKm: 0,
+        stickyRiver: 'Ветлуга',
+        stickyRiverOutsideKm: 0,
+      };
     } else if (body && pointInCatalog(p, body)) {
       return {
         name: stickyLake,
@@ -1619,7 +1640,59 @@ function nameAtSample(
   };
 }
 
-/** Fold tiny noise stretches into neighbours (keeps cascade readable). */
+/** Merge Чебоксарское↔Ветлуга↔Волга flickers at the Vetluga mouth into one clean cut. */
+function collapseVetlugaMouthFlicker(segments: ItinerarySegment[]): ItinerarySegment[] {
+  if (segments.length < 2) return segments;
+  const out = segments.map((s) => ({ ...s }));
+  const keyOf = (s: ItinerarySegment) => s.name.toLocaleLowerCase('ru');
+  const isCheb = (s: ItinerarySegment) => keyOf(s).includes('чебоксар');
+  const isVetluga = (s: ItinerarySegment) => keyOf(s) === 'ветлуга';
+  const isVolga = (s: ItinerarySegment) => keyOf(s) === 'волга';
+
+  let guard = 0;
+  while (guard++ < 40) {
+    let changed = false;
+    for (let i = 0; i < out.length - 1; i++) {
+      const a = out[i]!;
+      const b = out[i + 1]!;
+      const c = out[i + 2];
+
+      // Ветлуга — Чебоксарское → keep Ветлуга (climb already started).
+      if (isVetluga(a) && isCheb(b)) {
+        a.km += b.km;
+        out.splice(i + 1, 1);
+        changed = true;
+        break;
+      }
+      // Чебоксарское — Волга — Ветлуга → absorb Волга into Чебоксарское.
+      if (isCheb(a) && isVolga(b) && c && isVetluga(c)) {
+        a.km += b.km;
+        out.splice(i + 1, 1);
+        changed = true;
+        break;
+      }
+      // Чебоксарское — Ветлуга — Чебоксарское → absorb trailing reservoir into Ветлуга.
+      if (isCheb(a) && isVetluga(b) && c && isCheb(c)) {
+        b.km += c.km;
+        out.splice(i + 2, 1);
+        changed = true;
+        break;
+      }
+      // Волга — Ветлуга right after Чебоксарское already closed: absorb short Волга.
+      if (isVolga(a) && isVetluga(b) && a.km < 12) {
+        const prev = i > 0 ? out[i - 1] : null;
+        if (prev && isCheb(prev)) {
+          prev.km += a.km;
+          out.splice(i, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  return collapseAdjacentSegments(out);
+}
 function mergeShortSegments(segments: ItinerarySegment[], minKm = 3): ItinerarySegment[] {
   if (segments.length <= 1) return segments;
   const out: ItinerarySegment[] = segments.map((s) => ({ ...s }));
@@ -1875,7 +1948,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
       segments.push({ name: currentName, km: pendingKm });
     }
   }
-  return mergeShortSegments(segments, 3);
+  return mergeShortSegments(collapseVetlugaMouthFlicker(segments), 3);
 }
 
 export type ItineraryOptions = {
@@ -1941,6 +2014,7 @@ export async function describeWaterItinerary(
 
   // Collapse neighbours left adjacent after filters (e.g. Волга — [removed] — Волга).
   chain = collapseAdjacentSegments(chain);
+  chain = collapseVetlugaMouthFlicker(chain);
 
   const geo = haversineKm(origin, destination);
   if (opts.totalKm && geo > 40 && opts.totalKm > geo * 3.5) {

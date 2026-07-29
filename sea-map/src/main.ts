@@ -646,17 +646,18 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   const scale = pathKm / segSum;
 
   let cum = 0;
-  const boundsKm = [0];
-  for (const seg of segments) {
-    cum += seg.km;
+  const boundsKm: number[] = [];
+  // Internal stretch boundaries only (skip route start/end — they clutter mouths).
+  for (let i = 0; i < segments.length - 1; i++) {
+    cum += segments[i]!.km;
     boundsKm.push(cum);
   }
 
   const ticks: { point: LngLat; bearing: number }[] = [];
   for (const km of boundsKm) {
     const { point, bearing } = pointAlongPath(path, km * scale);
-    // One hash per place — double mouths (Чебоксарское/Ветлуга flicker) share a point.
-    if (ticks.some((t) => haversineKm(t.point, point) < 1.2)) continue;
+    // Wide merge: Чебоксарское↔Ветлуга flicker left marks several km apart at the mouth.
+    if (ticks.some((t) => haversineKm(t.point, point) < 8)) continue;
     ticks.push({ point, bearing });
   }
 
