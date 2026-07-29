@@ -1235,12 +1235,12 @@ function pastReservoirLock(p: LngLat, lock: ReservoirLock): boolean {
 
 const CATALOG = waterBodies as CatalogBody[];
 
-/** Устье Ветлуги → Чебоксарское вдхр. / Волга near Юрино (wiki ~56°25′N 46°15′E). */
-const VETLUGA_MOUTH: LngLat = { lon: 46.252, lat: 56.417 };
-/** Устье Вохмы → Ветлуга (wiki ~58°45′N 46°36′E). */
-const VOHMA_MOUTH: LngLat = { lon: 46.608, lat: 58.755 };
+/** Навигационное начало Ветлуги: рукав выше открытого плёса у Юрина (не wiki-устье в чаше вдхр.). */
+const VETLUGA_MOUTH: LngLat = { lon: 46.20, lat: 56.50 };
+/** Устье Вохмы → Ветлуга (OSM); восточнее створа, до впадения Сырденки (~46.597E, 58.759N). */
+const VOHMA_MOUTH: LngLat = { lon: 46.6064, lat: 58.7543 };
 
-/** Lower Vetluga channel north of the Volga confluence (not the Cheboksary stem). */
+/** Lower Vetluga channel above the open Cheboksary pool (not the Yurino bay). */
 function onVetlugaAboveMouth(p: LngLat): boolean {
   if (p.lat < VETLUGA_MOUTH.lat - 0.01) return false;
   // Near the mouth stay over the Vetluga valley, not east along the Volga pool.
@@ -1248,9 +1248,15 @@ function onVetlugaAboveMouth(p: LngLat): boolean {
   return p.lon >= 45.5 && p.lon <= 47.7;
 }
 
-/** Vohma channel upstream of its confluence with Vetluga. */
+/**
+ * Vohma channel upstream of its confluence with Vetluga.
+ * Do not claim the Vetluga stem near Сырденка (slightly west/north of the mouth).
+ */
 function onVohmaAboveMouth(p: LngLat): boolean {
-  return p.lat >= VOHMA_MOUTH.lat - 0.015 && p.lon >= 46.15 && p.lon <= 47.1;
+  if (p.lat < VOHMA_MOUTH.lat - 0.008) return false;
+  // Vohma leaves to the E/NE; Сырденка joins Vetluga just west of this lon.
+  if (p.lon < VOHMA_MOUTH.lon - 0.004) return false;
+  return p.lon <= 47.1 && p.lat <= 59.55;
 }
 
 function catalogArea(body: CatalogBody): number {
