@@ -1235,6 +1235,24 @@ function pastReservoirLock(p: LngLat, lock: ReservoirLock): boolean {
 
 const CATALOG = waterBodies as CatalogBody[];
 
+/** Устье Ветлуги → Чебоксарское вдхр. / Волга near Юрино (wiki ~56°25′N 46°15′E). */
+const VETLUGA_MOUTH: LngLat = { lon: 46.252, lat: 56.417 };
+/** Устье Вохмы → Ветлуга (wiki ~58°45′N 46°36′E). */
+const VOHMA_MOUTH: LngLat = { lon: 46.608, lat: 58.755 };
+
+/** Lower Vetluga channel north of the Volga confluence (not the Cheboksary stem). */
+function onVetlugaAboveMouth(p: LngLat): boolean {
+  if (p.lat < VETLUGA_MOUTH.lat - 0.01) return false;
+  // Near the mouth stay over the Vetluga valley, not east along the Volga pool.
+  if (p.lat < 56.7) return p.lon >= 45.7 && p.lon <= 46.75;
+  return p.lon >= 45.5 && p.lon <= 47.7;
+}
+
+/** Vohma channel upstream of its confluence with Vetluga. */
+function onVohmaAboveMouth(p: LngLat): boolean {
+  return p.lat >= VOHMA_MOUTH.lat - 0.015 && p.lon >= 46.15 && p.lon <= 47.1;
+}
+
 function catalogArea(body: CatalogBody): number {
   const [w, s, e, n] = body.b;
   return Math.max(1e-9, (e - w) * (n - s));
@@ -1276,17 +1294,42 @@ function pickCatalogName(
 
   const best = hits[0]!;
   const bestKey = best.n.toLocaleLowerCase('ru');
+
+  // Чебоксарское backwater covers lower Ветлуга — still name the climb Ветлуга
+  // from the real mouth near Юрино, not from the north edge of the reservoir box.
+  if (best.k === 'l' && bestKey.includes('чебоксар')) {
+    const vetluga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
+    if (vetluga && onVetlugaAboveMouth(sample)) {
+      return { name: 'Ветлуга', kind: 'river' };
+    }
+  }
+
   // Ветлуга box overlaps the Volga / Cheboksary band — don't label the stem as Ветлуга.
   if (bestKey === 'ветлуга') {
     const volga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'волга');
     const lake = hits.find((h) => h.k === 'l');
     if (lake) {
+      const lakeKey = lake.n.toLocaleLowerCase('ru');
+      if (lakeKey.includes('чебоксар') && onVetlugaAboveMouth(sample)) {
+        return { name: 'Ветлуга', kind: 'river' };
+      }
       return { name: lake.n, kind: 'lake' };
     }
-    if (volga && sample.lat < 56.52) {
+    if (volga && sample.lat < VETLUGA_MOUTH.lat) {
       return { name: 'Волга', kind: 'river' };
     }
   }
+
+  // Вохма must not start south of its mouth on the Vetluga stem.
+  if (bestKey === 'вохма' && !onVohmaAboveMouth(sample)) {
+    const vetluga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
+    if (vetluga) return { name: 'Ветлуга', kind: 'river' };
+    const next = hits.find((h) => h.n.toLocaleLowerCase('ru') !== 'вохма');
+    if (next) {
+      return { name: next.n, kind: next.k === 'l' ? 'lake' : 'river' };
+    }
+  }
+
   // While climbing a corridor, never let the giant Волга box win over Ветлуга/Вохма.
   if (bestKey === 'волга') {
     const trib = hits.find((h) => {
@@ -1295,7 +1338,12 @@ function pickCatalogName(
     });
     if (trib) {
       const k = trib.n.toLocaleLowerCase('ru');
-      if (k === 'ветлуга' && sample.lat < 56.52) {
+      if (k === 'ветлуга' && sample.lat < VETLUGA_MOUTH.lat) {
+        return { name: 'Волга', kind: 'river' };
+      }
+      if (k === 'вохма' && !onVohmaAboveMouth(sample)) {
+        const vetluga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
+        if (vetluga) return { name: 'Ветлуга', kind: 'river' };
         return { name: 'Волга', kind: 'river' };
       }
       return { name: trib.n, kind: 'river' };
@@ -1367,7 +1415,7 @@ function nameAtSample(
     const body = catalogBodyByName(stickyRiver);
     const inBody = !!(body && pointInCatalog(p, body));
 
-    // Prefer a more specific corridor ahead (Ветлуга → Вохма).
+    // Prefer a more specific corridor ahead (Ветлуга → Вохма) only above the mouth.
     const peek = pickCatalogName(p, usedNames);
     if (
       peek?.kind === 'river' &&
@@ -1375,7 +1423,8 @@ function nameAtSample(
       peek.name.toLocaleLowerCase('ru') !== key &&
       catalogBodyByName(peek.name) &&
       catalogArea(catalogBodyByName(peek.name)!) <=
-        (body ? catalogArea(body) : Infinity)
+        (body ? catalogArea(body) : Infinity) &&
+      !(peek.name.toLocaleLowerCase('ru') === 'вохма' && !onVohmaAboveMouth(p))
     ) {
       return {
         name: peek.name,
@@ -1397,15 +1446,16 @@ function nameAtSample(
       };
     }
 
-    // Terminal / mouth: release back to the trunk.
-    const atVetlugaMouth = key === 'ветлуга' && p.lat < 56.5;
+    // Terminal / mouth: release back to the trunk / parent river.
+    const atVetlugaMouth = key === 'ветлуга' && p.lat < VETLUGA_MOUTH.lat;
+    const atVohmaMouth = key === 'вохма' && !onVohmaAboveMouth(p);
     // Селижаровка mouth in Селижарово (~33.455E, 56.854N) — do not keep sticky into the Volga.
     const pastSelizharovka =
       key === 'селижаровка' &&
       (p.lon > 33.46 ||
         p.lat < 56.85 ||
         (peek?.kind === 'river' && peek.name.toLocaleLowerCase('ru') === 'волга'));
-    if (atVetlugaMouth || pastSelizharovka) {
+    if (atVetlugaMouth || atVohmaMouth || pastSelizharovka) {
       stickyRiver = null;
       stickyRiverOutsideKm = 0;
     } else if (inBody) {
@@ -1446,9 +1496,15 @@ function nameAtSample(
   if (stickyLake) {
     const body = catalogBodyByName(stickyLake);
     const lock = RESERVOIR_LOCKS[stickyLake.toLocaleLowerCase('ru')];
+    const lakeKey = stickyLake.toLocaleLowerCase('ru');
     // Past the dam/lock → river, not the reservoir (no hysteresis across the gate).
     if (lock && pastReservoirLock(p, lock)) {
-      usedNames.add(stickyLake.toLocaleLowerCase('ru'));
+      usedNames.add(lakeKey);
+      stickyLake = null;
+      stickyOutsideKm = 0;
+    } else if (lakeKey.includes('чебоксар') && onVetlugaAboveMouth(p)) {
+      // Reservoir box covers lower Ветлуга; leave Чебоксарское at the real mouth.
+      usedNames.add(lakeKey);
       stickyLake = null;
       stickyOutsideKm = 0;
     } else if (body && pointInCatalog(p, body)) {
