@@ -12,7 +12,7 @@
       media="print"
       onload="this.media='all'"
     />
-    <script type="module" crossorigin src="./assets/index-Bh5SPYdc.js"></script>
+    <script type="module" crossorigin src="./assets/index-Dlq98qD3.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Bb1NA2Xi.css">
   </head>
   <body>
@@ -46,17 +46,6 @@
           </label>
         </div>
 
-        <div class="controls" id="sea-controls">
-          <label class="field">
-            <span>Сеть маршрута</span>
-            <select id="route-prefer">
-              <option value="river" selected>Реки и каналы</option>
-              <option value="shortest">Кратчайший (река / море)</option>
-              <option value="sea">Море</option>
-            </select>
-          </label>
-        </div>
-
         <div class="waypoints-block" id="waypoints-block">
           <p class="muted" id="waypoint-count">Точек: 0</p>
           <div class="waypoint-list" id="waypoint-list" hidden></div>
@@ -74,6 +63,10 @@
           <label class="check-row">
             <input type="checkbox" id="show-km-labels" />
             <span>Километраж у точек</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="show-segment-labels" checked />
+            <span>Подписи отрезков и засечки</span>
           </label>
           <label class="check-row">
             <input type="checkbox" id="show-return" checked />
