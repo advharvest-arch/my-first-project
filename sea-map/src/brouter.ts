@@ -51,9 +51,14 @@ const VOLGA_STEM_CHAIN: LngLat[] = [
  * Dam crossings must go through the shipping locks (not across the crest).
  */
 const VOLGA_NAV_FAIRWAY: LngLat[] = [
-  // Дубна: только головы шлюза №1 (без южного крюка и длинных хвостов — они давали петли)
+  // Дубна: южный подходной канал → шлюз №1 → нижний бьеф (вода, не хорда через сушу/плотину)
+  { lon: 37.1031, lat: 56.7372 },
+  { lon: 37.1199, lat: 56.7289 },
   { lon: 37.1374, lat: 56.7343 }, // верхняя голова шлюза №1
   { lon: 37.1417, lat: 56.7361 }, // нижняя голова
+  { lon: 37.1564, lat: 56.7419 },
+  { lon: 37.1787, lat: 56.7489 },
+  { lon: 37.2058, lat: 56.7691 },
   { lon: 37.2207, lat: 56.7844 },
   { lon: 37.4682, lat: 56.8998 },
   { lon: 37.6136, lat: 57.1196 },
@@ -169,12 +174,33 @@ const DUBNA_LOCK: LngLat = DUBNA_LOCK_UPPER;
 const RYBINSK_LOCK: LngLat = { lon: 38.7086, lat: 58.0999 };
 
 /**
- * Forced chamber-only segment (OSM way 117109715).
- * Keep it short: long approach/exit tails caused west/east backtrack loops at splices.
+ * Forced Dubna fairway on water only (OSM):
+ * 121644654 approach canal → 36931172 → chamber 117109715 → 117109713 → Volga 1308453788.
+ * Straight chords through the lock heads alone cross the dam island.
  */
 const DUBNA_LOCK_CORRIDOR: LngLat[] = [
+  // южный подходной канал (аванпорт → камера)
+  { lon: 37.1031, lat: 56.7372 },
+  { lon: 37.1077, lat: 56.7322 },
+  { lon: 37.1136, lat: 56.7297 },
+  { lon: 37.1199, lat: 56.7289 },
+  { lon: 37.1240, lat: 56.7293 },
+  { lon: 37.1287, lat: 56.7306 },
+  { lon: 37.1312, lat: 56.7318 },
+  { lon: 37.1332, lat: 56.7326 },
   { lon: 37.1374, lat: 56.7343 }, // верхняя голова
   { lon: 37.1417, lat: 56.7361 }, // нижняя голова
+  // нижний подводящий канал → Волга
+  { lon: 37.1508, lat: 56.7400 },
+  { lon: 37.1564, lat: 56.7419 },
+  { lon: 37.1629, lat: 56.7439 },
+  { lon: 37.1675, lat: 56.7454 },
+  { lon: 37.1745, lat: 56.7476 },
+  { lon: 37.1787, lat: 56.7489 },
+  { lon: 37.1842, lat: 56.7510 },
+  { lon: 37.1903, lat: 56.7543 },
+  { lon: 37.1975, lat: 56.7601 },
+  { lon: 37.2058, lat: 56.7691 },
 ];
 
 /** OSM «Волга» centerline that skips the lock (north of the chamber). */
@@ -219,25 +245,118 @@ function hasDubnaLonLoops(points: LngLat[], eastbound: boolean): boolean {
   return false;
 }
 
-/** True only if the track visits both lock heads (not the dam Volga line). */
+/** Path near southern approach canal (not a land chord to the lock heads). */
+function nearDubnaApproachCanal(points: LngLat[]): boolean {
+  const canalPins: LngLat[] = [
+    { lon: 37.1199, lat: 56.7289 },
+    { lon: 37.1287, lat: 56.7306 },
+  ];
+  return canalPins.some((pin) => points.some((p) => haversineKm(p, pin) <= 0.25));
+}
+
+/** True only if the track visits both lock heads via water (not dam / land chords). */
 function passesDubnaLockProperly(points: LngLat[]): boolean {
   const nearUpper = points.some((p) => haversineKm(p, DUBNA_LOCK_UPPER) <= 0.12);
   const nearLower = points.some((p) => haversineKm(p, DUBNA_LOCK_LOWER) <= 0.12);
   if (!nearUpper || !nearLower) return false;
   if (dubnaDamChordKm(points) > 0.15) return false;
+  if (!nearDubnaApproachCanal(points)) return false;
   return true;
 }
 
 /**
- * Replace the whole Dubna gate band with a straight chamber splice.
- * Always runs when the path loops or skips the lock — not only on dam chords.
+ * Clip the OSM water corridor between the cut endpoints without lon backtracks.
+ */
+function clipDubnaCorridor(
+  corridor: LngLat[],
+  from: LngLat,
+  to: LngLat,
+  eastbound: boolean,
+): LngLat[] {
+  let c0 = -1;
+  let best0 = Infinity;
+  for (let i = 0; i < corridor.length; i++) {
+    const p = corridor[i]!;
+    const behind = eastbound ? p.lon < from.lon - 0.002 : p.lon > from.lon + 0.002;
+    if (behind) continue;
+    const d = haversineKm(from, p);
+    if (d < best0) {
+      best0 = d;
+      c0 = i;
+    }
+  }
+  if (c0 < 0) {
+    c0 = 0;
+    best0 = Infinity;
+    for (let i = 0; i < corridor.length; i++) {
+      const d = haversineKm(from, corridor[i]!);
+      if (d < best0) {
+        best0 = d;
+        c0 = i;
+      }
+    }
+  }
+
+  let c1 = -1;
+  let best1 = Infinity;
+  for (let i = c0; i < corridor.length; i++) {
+    const p = corridor[i]!;
+    const ahead = eastbound ? p.lon > to.lon + 0.002 : p.lon < to.lon - 0.002;
+    if (ahead) continue;
+    const d = haversineKm(to, p);
+    if (d < best1) {
+      best1 = d;
+      c1 = i;
+    }
+  }
+  if (c1 < 0) c1 = corridor.length - 1;
+
+  // Always keep both lock heads.
+  for (let i = 0; i < corridor.length; i++) {
+    const p = corridor[i]!;
+    if (
+      haversineKm(p, DUBNA_LOCK_UPPER) <= 0.05 ||
+      haversineKm(p, DUBNA_LOCK_LOWER) <= 0.05
+    ) {
+      c0 = Math.min(c0, i);
+      c1 = Math.max(c1, i);
+    }
+  }
+
+  let slice = corridor.slice(c0, c1 + 1);
+  if (slice.length < 2) slice = corridor.slice();
+
+  while (
+    slice.length > 2 &&
+    haversineKm(from, slice[1]!) + 0.03 < haversineKm(from, slice[0]!)
+  ) {
+    slice = slice.slice(1);
+  }
+  while (
+    slice.length > 2 &&
+    haversineKm(to, slice[slice.length - 2]!) + 0.03 <
+      haversineKm(to, slice[slice.length - 1]!)
+  ) {
+    slice = slice.slice(0, -1);
+  }
+
+  // Trimming must not drop the chamber.
+  const hasUpper = slice.some((p) => haversineKm(p, DUBNA_LOCK_UPPER) <= 0.05);
+  const hasLower = slice.some((p) => haversineKm(p, DUBNA_LOCK_LOWER) <= 0.05);
+  if (!hasUpper || !hasLower) return corridor.slice(c0, c1 + 1);
+  return slice;
+}
+
+/**
+ * Replace the Dubna gate band with the OSM water corridor (canal → lock → Volga).
+ * Always runs unless the path already follows that water geometry without loops.
  */
 function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
   if (points.length < 2 || !crossesDubnaBarrier(points)) return points;
 
-  // Wide cut swallows southern approach-canal hooks and NE exit zigzags.
+  // Cut just outside the corridor ends so splices stay on water.
   const WEST = 37.100;
-  const EAST = 37.200;
+  const EAST = 37.208;
   const inLat = (p: LngLat) => p.lat >= 56.65 && p.lat <= 56.92;
 
   const band = points
@@ -282,7 +401,45 @@ function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
   }
   if (iIn < 0 || iOut < 0 || iOut <= iIn) return points;
 
-  // Trim residual approach/exit backtracks just outside the cut.
+  // Prefer the cut endpoint nearest the canal mouth / Volga exit (avoid land chords).
+  const mouth = eastbound
+    ? DUBNA_LOCK_CORRIDOR[0]!
+    : DUBNA_LOCK_CORRIDOR[DUBNA_LOCK_CORRIDOR.length - 1]!;
+  const exit = eastbound
+    ? DUBNA_LOCK_CORRIDOR[DUBNA_LOCK_CORRIDOR.length - 1]!
+    : DUBNA_LOCK_CORRIDOR[0]!;
+
+  let bestIn = iIn;
+  let bestInD = haversineKm(points[iIn]!, mouth);
+  for (let j = iIn; j >= Math.max(0, iIn - 50); j--) {
+    const p = points[j]!;
+    if (!inLat(p)) continue;
+    if (eastbound ? p.lon > WEST : p.lon < EAST) continue;
+    if (!inDubnaGateBand(p) && haversineKm(p, mouth) > 3) break;
+    const d = haversineKm(p, mouth);
+    if (d + 0.05 < bestInD) {
+      bestInD = d;
+      bestIn = j;
+    }
+  }
+  iIn = bestIn;
+
+  let bestOut = iOut;
+  let bestOutD = haversineKm(points[iOut]!, exit);
+  for (let j = iOut; j < Math.min(points.length, iOut + 50); j++) {
+    const p = points[j]!;
+    if (!inLat(p)) continue;
+    if (eastbound ? p.lon < EAST : p.lon > WEST) continue;
+    if (!inDubnaGateBand(p) && haversineKm(p, exit) > 3) break;
+    const d = haversineKm(p, exit);
+    if (d + 0.05 < bestOutD) {
+      bestOutD = d;
+      bestOut = j;
+    }
+  }
+  iOut = bestOut;
+
+  // Trim residual approach/exit lon backtracks just outside the cut.
   if (eastbound) {
     while (
       iIn > 0 &&
@@ -318,8 +475,14 @@ function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
   const corridor = eastbound
     ? DUBNA_LOCK_CORRIDOR
     : DUBNA_LOCK_CORRIDOR.slice().reverse();
+  const slice = clipDubnaCorridor(
+    corridor,
+    points[iIn]!,
+    points[iOut]!,
+    eastbound,
+  );
 
-  return [...points.slice(0, iIn + 1), ...corridor, ...points.slice(iOut)];
+  return [...points.slice(0, iIn + 1), ...slice, ...points.slice(iOut)];
 }
 
 /**
