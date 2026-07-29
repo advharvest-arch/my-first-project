@@ -1493,8 +1493,15 @@ function nameAtSample(
     }
 
     // Terminal / mouth: release back to the trunk / parent river.
-    const atVetlugaMouth = key === 'ветлуга' && p.lat < VETLUGA_MOUTH.lat;
-    const atVohmaMouth = key === 'вохма' && !onVohmaAboveMouth(p);
+    // Do not release Вохма→Ветлуга on upstream meanders north of the confluence.
+    const atVetlugaMouth =
+      key === 'ветлуга' &&
+      p.lat < VETLUGA_MOUTH.lat - 0.02 &&
+      !onVetlugaAboveMouth(p);
+    const atVohmaMouth =
+      key === 'вохма' &&
+      p.lat < VOHMA_MOUTH.lat - 0.02 &&
+      haversineKm(p, MALOE_RAMENYE) + 0.5 < haversineKm(p, VOHMA_MOUTH);
     // Селижаровка mouth in Селижарово (~33.455E, 56.854N) — do not keep sticky into the Volga.
     const pastSelizharovka =
       key === 'селижаровка' &&
@@ -1504,6 +1511,24 @@ function nameAtSample(
     if (atVetlugaMouth || atVohmaMouth || pastSelizharovka) {
       stickyRiver = null;
       stickyRiverOutsideKm = 0;
+    } else if (key === 'вохма' && peek?.kind === 'river' && peek.name.toLocaleLowerCase('ru') === 'ветлуга') {
+      // Once on the Vohma climb, never fall back to Vetluga labeling.
+      return {
+        name: stickyRiver,
+        stickyLake: null,
+        stickyOutsideKm: 0,
+        stickyRiver,
+        stickyRiverOutsideKm: 0,
+      };
+    } else if (key === 'ветлуга' && peek?.kind === 'river' && peek.name.toLocaleLowerCase('ru') === 'волга') {
+      // Keep Vetluga through short Volga catalog hits on the climb.
+      return {
+        name: stickyRiver,
+        stickyLake: null,
+        stickyOutsideKm: 0,
+        stickyRiver,
+        stickyRiverOutsideKm: 0,
+      };
     } else if (inBody) {
       return {
         name: stickyRiver,
@@ -1640,23 +1665,39 @@ function nameAtSample(
   };
 }
 
-/** Merge Чебоксарское↔Ветлуга↔Волга flickers at the Vetluga mouth into one clean cut. */
+/** Merge Чебоксарское↔Ветлуга↔Волга / Вохма flickers into a clean cascade climb. */
 function collapseVetlugaMouthFlicker(segments: ItinerarySegment[]): ItinerarySegment[] {
   if (segments.length < 2) return segments;
   const out = segments.map((s) => ({ ...s }));
   const keyOf = (s: ItinerarySegment) => s.name.toLocaleLowerCase('ru');
   const isCheb = (s: ItinerarySegment) => keyOf(s).includes('чебоксар');
+  const isKuib = (s: ItinerarySegment) => keyOf(s).includes('куйбышев');
+  const isCascadeLake = (s: ItinerarySegment) =>
+    isCheb(s) ||
+    isKuib(s) ||
+    keyOf(s).includes('горьков') ||
+    keyOf(s).includes('рыбин') ||
+    keyOf(s).includes('углич') ||
+    keyOf(s).includes('иваньков');
   const isVetluga = (s: ItinerarySegment) => keyOf(s) === 'ветлуга';
+  const isVohma = (s: ItinerarySegment) => keyOf(s) === 'вохма';
   const isVolga = (s: ItinerarySegment) => keyOf(s) === 'волга';
 
   let guard = 0;
-  while (guard++ < 40) {
+  while (guard++ < 60) {
     let changed = false;
     for (let i = 0; i < out.length - 1; i++) {
       const a = out[i]!;
       const b = out[i + 1]!;
       const c = out[i + 2];
 
+      // Cascade lake — short Волга — cascade lake → absorb Волга into the previous lake.
+      if (isCascadeLake(a) && isVolga(b) && b.km < 20 && c && isCascadeLake(c)) {
+        a.km += b.km;
+        out.splice(i + 1, 1);
+        changed = true;
+        break;
+      }
       // Ветлуга — Чебоксарское → keep Ветлуга (climb already started).
       if (isVetluga(a) && isCheb(b)) {
         a.km += b.km;
@@ -1671,6 +1712,31 @@ function collapseVetlugaMouthFlicker(segments: ItinerarySegment[]): ItinerarySeg
         changed = true;
         break;
       }
+      // Чебоксарское — Ветлуга — Волга — Ветлуга (mouth flicker) → one Ветлуга climb.
+      if (isCheb(a) && isVetluga(b) && c && isVolga(c) && out[i + 3] && isVetluga(out[i + 3]!)) {
+        const longVetluga = out[i + 3]!;
+        longVetluga.km += b.km + c.km;
+        out.splice(i + 1, 2);
+        changed = true;
+        break;
+      }
+      // Ветлуга — Волга — Ветлуга → one Ветлуга.
+      if (isVetluga(a) && isVolga(b) && c && isVetluga(c)) {
+        a.km += b.km + c.km;
+        out.splice(i + 1, 2);
+        changed = true;
+        break;
+      }
+      // Short Ветлуга — Волга — Ветлуга after a lake.
+      if (isVetluga(a) && isVolga(b) && a.km < 20 && b.km < 20) {
+        const prev = i > 0 ? out[i - 1] : null;
+        if (prev && isCheb(prev) && c && isVetluga(c)) {
+          prev.km += a.km + b.km;
+          out.splice(i, 2);
+          changed = true;
+          break;
+        }
+      }
       // Чебоксарское — Ветлуга — Чебоксарское → absorb trailing reservoir into Ветлуга.
       if (isCheb(a) && isVetluga(b) && c && isCheb(c)) {
         b.km += c.km;
@@ -1678,12 +1744,48 @@ function collapseVetlugaMouthFlicker(segments: ItinerarySegment[]): ItinerarySeg
         changed = true;
         break;
       }
-      // Волга — Ветлуга right after Чебоксарское already closed: absorb short Волга.
-      if (isVolga(a) && isVetluga(b) && a.km < 12) {
+      // Волга — Ветлуга right after Чебоксарское: absorb short Волга.
+      if (isVolga(a) && isVetluga(b) && a.km < 20) {
         const prev = i > 0 ? out[i - 1] : null;
         if (prev && isCheb(prev)) {
           prev.km += a.km;
           out.splice(i, 1);
+          changed = true;
+          break;
+        }
+      }
+      // … — Вохма — Ветлуга (trailing): stay on Вохма once the climb entered it.
+      if (isVohma(a) && isVetluga(b) && !c) {
+        a.km += b.km;
+        out.splice(i + 1, 1);
+        changed = true;
+        break;
+      }
+      // Ветлуга — Вохма — Ветлуга
+      if (isVetluga(a) && isVohma(b) && c && isVetluga(c)) {
+        if (b.km >= 20) {
+          // Real Вохма climb with a false trailing Ветлуга label → keep Вохма.
+          b.km += c.km;
+          out.splice(i + 2, 1);
+        } else {
+          // Tiny Вохма blip on the Vetluga stem.
+          a.km += b.km + c.km;
+          out.splice(i + 1, 2);
+        }
+        changed = true;
+        break;
+      }
+      // Short Волга anywhere between corridor/cascade names.
+      if (isVolga(b) && b.km < 12) {
+        const prev = a;
+        const next = c;
+        if (
+          next &&
+          (isCascadeLake(prev) || isVetluga(prev) || isVohma(prev)) &&
+          (isCascadeLake(next) || isVetluga(next) || isVohma(next))
+        ) {
+          prev.km += b.km;
+          out.splice(i + 1, 1);
           changed = true;
           break;
         }
