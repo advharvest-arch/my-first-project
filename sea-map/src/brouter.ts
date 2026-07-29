@@ -32,7 +32,7 @@ const VOLGA_UPPER_VIAS: LngLat[] = [
 const VOLGA_STEM_CHAIN: LngLat[] = [
   { lon: 33.45, lat: 56.85 }, // Селижарово
   { lon: 35.92, lat: 56.86 }, // Тверь
-  { lon: 37.1376, lat: 56.7378 }, // Дубна / шлюз №1
+  { lon: 37.1374, lat: 56.7343 }, // Дубна / шлюз №1
   { lon: 38.33, lat: 57.53 }, // Углич
   { lon: 38.7086, lat: 58.0999 }, // Рыбинск / шлюзы №11–12
   { lon: 39.89, lat: 57.63 }, // Ярославль
@@ -51,19 +51,20 @@ const VOLGA_STEM_CHAIN: LngLat[] = [
  * Dam crossings must go through the shipping locks (not across the crest).
  */
 const VOLGA_NAV_FAIRWAY: LngLat[] = [
-  // Дубна шлюз №1 — реальный судовой ход (не южный крюк / не гребень плотины)
-  { lon: 37.0956, lat: 56.7447 },
+  // Дубна: подходной канал + шлюз №1 (не OSM «Волга» по плотине)
+  { lon: 37.1000, lat: 56.7400 },
   { lon: 37.1031, lat: 56.7372 },
-  { lon: 37.1128, lat: 56.7359 },
-  { lon: 37.1206, lat: 56.7364 },
-  { lon: 37.1287, lat: 56.7371 },
-  { lon: 37.1356, lat: 56.7374 },
-  { lon: 37.1376, lat: 56.7378 },
-  { lon: 37.1503, lat: 56.7417 },
-  { lon: 37.1581, lat: 56.7425 },
-  { lon: 37.1675, lat: 56.7454 },
+  { lon: 37.1077, lat: 56.7322 },
+  { lon: 37.1136, lat: 56.7297 },
+  { lon: 37.1199, lat: 56.7289 },
+  { lon: 37.1240, lat: 56.7293 },
+  { lon: 37.1287, lat: 56.7306 },
+  { lon: 37.1332, lat: 56.7326 },
+  { lon: 37.1374, lat: 56.7343 }, // верхняя голова шлюза №1
+  { lon: 37.1417, lat: 56.7361 }, // нижняя голова
+  { lon: 37.1508, lat: 56.7400 },
+  { lon: 37.1564, lat: 56.7419 },
   { lon: 37.1787, lat: 56.7489 },
-  { lon: 37.1903, lat: 56.7543 },
   { lon: 37.2207, lat: 56.7844 },
   { lon: 37.4682, lat: 56.8998 },
   { lon: 37.6136, lat: 57.1196 },
@@ -165,27 +166,40 @@ const MOSCOW_CANAL_VIAS: LngLat[] = [
   { lon: 37.455, lat: 55.91 }, // Химкинское (судовой ход)
   { lon: 37.48, lat: 56.15 }, // Икша
   { lon: 37.51, lat: 56.35 }, // Дмитров
-  { lon: 37.1376, lat: 56.7378 }, // Дубна / шлюз №1
+  { lon: 37.1374, lat: 56.7343 }, // Дубна / шлюз №1 (верхняя голова)
 ];
 
-/** Shipping lock №1 (Дубна) — chamber on the river fairway (not the dam road). */
-const DUBNA_LOCK: LngLat = { lon: 37.1376, lat: 56.7378 };
+/**
+ * Шлюз №1 (Дубна) — OSM geometry.
+ * BRouter's river graph follows «Волга» north of the chamber (across the dam).
+ * Ships must use the right-bank approach canal + lock chamber instead.
+ */
+const DUBNA_LOCK_UPPER: LngLat = { lon: 37.1374, lat: 56.7343 };
+const DUBNA_LOCK_LOWER: LngLat = { lon: 37.1417, lat: 56.7361 };
+const DUBNA_LOCK: LngLat = DUBNA_LOCK_UPPER;
 const RYBINSK_LOCK: LngLat = { lon: 38.7086, lat: 58.0999 };
 
 /**
- * Real river centerline through шлюз №1 (from BRouter river profile).
- * Must stay ~56.736–56.742 in the chamber — a south dip looks like a land cut.
+ * Forced fairway: reservoir → southern approach canal → lock №1 → Volga NE.
+ * Source: OSM ways 121644654, 36931172, 117109715, 117109713.
  */
 const DUBNA_LOCK_CORRIDOR: LngLat[] = [
-  { lon: 37.0956, lat: 56.7447 },
+  { lon: 37.1000, lat: 56.7400 },
   { lon: 37.1031, lat: 56.7372 },
-  { lon: 37.1128, lat: 56.7359 },
-  { lon: 37.1206, lat: 56.7364 },
-  { lon: 37.1287, lat: 56.7371 },
-  { lon: 37.1356, lat: 56.7374 },
-  { lon: 37.1376, lat: 56.7378 }, // камера
-  { lon: 37.1503, lat: 56.7417 },
-  { lon: 37.1581, lat: 56.7425 },
+  // правый берег / подходной канал (южнее плотины)
+  { lon: 37.1077, lat: 56.7322 },
+  { lon: 37.1136, lat: 56.7297 },
+  { lon: 37.1199, lat: 56.7289 },
+  { lon: 37.1240, lat: 56.7293 },
+  { lon: 37.1287, lat: 56.7306 },
+  { lon: 37.1312, lat: 56.7318 },
+  { lon: 37.1332, lat: 56.7326 },
+  // камера шлюза №1
+  { lon: 37.1374, lat: 56.7343 }, // верхняя голова
+  { lon: 37.1417, lat: 56.7361 }, // нижняя голова
+  // нижний бьеф → Волга
+  { lon: 37.1508, lat: 56.7400 },
+  { lon: 37.1564, lat: 56.7419 },
   { lon: 37.1675, lat: 56.7454 },
   { lon: 37.1787, lat: 56.7489 },
   { lon: 37.1903, lat: 56.7543 },
@@ -193,10 +207,10 @@ const DUBNA_LOCK_CORRIDOR: LngLat[] = [
   { lon: 37.2207, lat: 56.7844 },
 ];
 
-/** Auto road / crest of Иваньковская плотина (north of the lock fairway). */
-function onDubnaDamCrest(p: LngLat): boolean {
-  // Keep above the river centerline (~56.737–56.746); road sits on the dam to the north.
-  return p.lon >= 37.142 && p.lon <= 37.170 && p.lat >= 56.748 && p.lat <= 56.758;
+/** OSM «Волга» centerline that skips the lock (north of the chamber). */
+function onDubnaDamChord(p: LngLat): boolean {
+  // False track across the pressure front — north of шлюз №1 chamber (lower head ~56.7361).
+  return p.lon >= 37.125 && p.lon <= 37.150 && p.lat >= 56.7368 && p.lat <= 56.743;
 }
 
 function crossesDubnaBarrier(points: LngLat[]): boolean {
@@ -210,46 +224,35 @@ function crossesDubnaBarrier(points: LngLat[]): boolean {
   return west && east;
 }
 
-function dubnaDamCrestKm(points: LngLat[]): number {
+function dubnaDamChordKm(points: LngLat[]): number {
   let km = 0;
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1]!;
     const b = points[i]!;
-    if (onDubnaDamCrest(a) || onDubnaDamCrest(b)) km += haversineKm(a, b);
+    if (onDubnaDamChord(a) || onDubnaDamChord(b)) km += haversineKm(a, b);
   }
   return km;
 }
 
-/** True if the track follows the lock fairway (not a south land kink / dam road). */
+/** True only if the track visits both lock heads (not the dam Volga line). */
 function passesDubnaLockProperly(points: LngLat[]): boolean {
-  if (!points.some((p) => haversineKm(p, DUBNA_LOCK) <= 0.45)) return false;
-  if (dubnaDamCrestKm(points) > 0.2) return false;
-  // Chamber band: reject south dip below the real canal (~56.736).
-  let southKink = false;
-  for (const p of points) {
-    if (p.lon >= 37.125 && p.lon <= 37.160 && p.lat < 56.733) {
-      southKink = true;
-      break;
-    }
-  }
-  if (southKink) return false;
-  const upper = points.some(
-    (p) => p.lon >= 37.09 && p.lon <= 37.135 && p.lat >= 56.733 && p.lat <= 56.75,
-  );
-  const lower = points.some(
-    (p) => p.lon >= 37.145 && p.lon <= 37.22 && p.lat >= 56.738 && p.lat <= 56.79,
-  );
-  return upper && lower;
+  const nearUpper = points.some((p) => haversineKm(p, DUBNA_LOCK_UPPER) <= 0.12);
+  const nearLower = points.some((p) => haversineKm(p, DUBNA_LOCK_LOWER) <= 0.12);
+  if (!nearUpper || !nearLower) return false;
+  // Any travel on the dam's false Volga centerline is invalid.
+  if (dubnaDamChordKm(points) > 0.15) return false;
+  return true;
 }
 
 /**
- * If BRouter crossed Иваньково on the dam crest / road, splice the lock corridor in.
+ * Always replace a Dubna barrier crossing with the lock corridor.
+ * BRouter cannot be trusted here — its river graph skips шлюз №1.
  */
 function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
   if (points.length < 2 || !crossesDubnaBarrier(points)) return points;
   if (passesDubnaLockProperly(points)) return points;
 
-  const WEST = 37.125;
+  const WEST = 37.120;
   const EAST = 37.175;
   const inLat = (p: LngLat) => p.lat >= 56.65 && p.lat <= 56.92;
 
