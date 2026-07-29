@@ -51,20 +51,9 @@ const VOLGA_STEM_CHAIN: LngLat[] = [
  * Dam crossings must go through the shipping locks (not across the crest).
  */
 const VOLGA_NAV_FAIRWAY: LngLat[] = [
-  // Дубна: подходной канал + шлюз №1 (не OSM «Волга» по плотине)
-  { lon: 37.1000, lat: 56.7400 },
-  { lon: 37.1031, lat: 56.7372 },
-  { lon: 37.1077, lat: 56.7322 },
-  { lon: 37.1136, lat: 56.7297 },
-  { lon: 37.1199, lat: 56.7289 },
-  { lon: 37.1240, lat: 56.7293 },
-  { lon: 37.1287, lat: 56.7306 },
-  { lon: 37.1332, lat: 56.7326 },
+  // Дубна: только головы шлюза №1 (без южного крюка и длинных хвостов — они давали петли)
   { lon: 37.1374, lat: 56.7343 }, // верхняя голова шлюза №1
   { lon: 37.1417, lat: 56.7361 }, // нижняя голова
-  { lon: 37.1508, lat: 56.7400 },
-  { lon: 37.1564, lat: 56.7419 },
-  { lon: 37.1787, lat: 56.7489 },
   { lon: 37.2207, lat: 56.7844 },
   { lon: 37.4682, lat: 56.8998 },
   { lon: 37.6136, lat: 57.1196 },
@@ -172,7 +161,7 @@ const MOSCOW_CANAL_VIAS: LngLat[] = [
 /**
  * Шлюз №1 (Дубна) — OSM geometry.
  * BRouter's river graph follows «Волга» north of the chamber (across the dam).
- * Ships must use the right-bank approach canal + lock chamber instead.
+ * Ships must use the lock chamber; keep the forced segment short to avoid splice loops.
  */
 const DUBNA_LOCK_UPPER: LngLat = { lon: 37.1374, lat: 56.7343 };
 const DUBNA_LOCK_LOWER: LngLat = { lon: 37.1417, lat: 56.7361 };
@@ -180,31 +169,12 @@ const DUBNA_LOCK: LngLat = DUBNA_LOCK_UPPER;
 const RYBINSK_LOCK: LngLat = { lon: 38.7086, lat: 58.0999 };
 
 /**
- * Forced fairway: reservoir → southern approach canal → lock №1 → Volga NE.
- * Source: OSM ways 121644654, 36931172, 117109715, 117109713.
+ * Forced chamber-only segment (OSM way 117109715).
+ * Keep it short: long approach/exit tails caused west/east backtrack loops at splices.
  */
 const DUBNA_LOCK_CORRIDOR: LngLat[] = [
-  { lon: 37.1000, lat: 56.7400 },
-  { lon: 37.1031, lat: 56.7372 },
-  // правый берег / подходной канал (южнее плотины)
-  { lon: 37.1077, lat: 56.7322 },
-  { lon: 37.1136, lat: 56.7297 },
-  { lon: 37.1199, lat: 56.7289 },
-  { lon: 37.1240, lat: 56.7293 },
-  { lon: 37.1287, lat: 56.7306 },
-  { lon: 37.1312, lat: 56.7318 },
-  { lon: 37.1332, lat: 56.7326 },
-  // камера шлюза №1
   { lon: 37.1374, lat: 56.7343 }, // верхняя голова
   { lon: 37.1417, lat: 56.7361 }, // нижняя голова
-  // нижний бьеф → Волга
-  { lon: 37.1508, lat: 56.7400 },
-  { lon: 37.1564, lat: 56.7419 },
-  { lon: 37.1675, lat: 56.7454 },
-  { lon: 37.1787, lat: 56.7489 },
-  { lon: 37.1903, lat: 56.7543 },
-  { lon: 37.2058, lat: 56.7691 },
-  { lon: 37.2207, lat: 56.7844 },
 ];
 
 /** OSM «Волга» centerline that skips the lock (north of the chamber). */
@@ -234,26 +204,40 @@ function dubnaDamChordKm(points: LngLat[]): number {
   return km;
 }
 
+function inDubnaGateBand(p: LngLat): boolean {
+  return p.lat >= 56.70 && p.lat <= 56.80 && p.lon >= 37.05 && p.lon <= 37.25;
+}
+
+/** Lon backtracks in the Dubna gate band (the “loops” before/after the lock). */
+function hasDubnaLonLoops(points: LngLat[], eastbound: boolean): boolean {
+  const band = points.filter(inDubnaGateBand);
+  for (let i = 1; i < band.length; i++) {
+    const dlon = band[i]!.lon - band[i - 1]!.lon;
+    if (eastbound && dlon < -0.006) return true;
+    if (!eastbound && dlon > 0.006) return true;
+  }
+  return false;
+}
+
 /** True only if the track visits both lock heads (not the dam Volga line). */
 function passesDubnaLockProperly(points: LngLat[]): boolean {
   const nearUpper = points.some((p) => haversineKm(p, DUBNA_LOCK_UPPER) <= 0.12);
   const nearLower = points.some((p) => haversineKm(p, DUBNA_LOCK_LOWER) <= 0.12);
   if (!nearUpper || !nearLower) return false;
-  // Any travel on the dam's false Volga centerline is invalid.
   if (dubnaDamChordKm(points) > 0.15) return false;
   return true;
 }
 
 /**
- * Always replace a Dubna barrier crossing with the lock corridor.
- * BRouter cannot be trusted here — its river graph skips шлюз №1.
+ * Replace the whole Dubna gate band with a straight chamber splice.
+ * Always runs when the path loops or skips the lock — not only on dam chords.
  */
 function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
   if (points.length < 2 || !crossesDubnaBarrier(points)) return points;
-  if (passesDubnaLockProperly(points)) return points;
 
-  const WEST = 37.120;
-  const EAST = 37.175;
+  // Wide cut swallows southern approach-canal hooks and NE exit zigzags.
+  const WEST = 37.100;
+  const EAST = 37.200;
   const inLat = (p: LngLat) => p.lat >= 56.65 && p.lat <= 56.92;
 
   const band = points
@@ -261,6 +245,13 @@ function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
     .filter(({ p }) => inLat(p) && p.lon >= 36.9 && p.lon <= 37.5);
   if (band.length < 2) return points;
   const eastbound = band[band.length - 1]!.p.lon >= band[0]!.p.lon;
+
+  if (
+    passesDubnaLockProperly(points) &&
+    !hasDubnaLonLoops(points, eastbound)
+  ) {
+    return points;
+  }
 
   let iIn = -1;
   let iOut = -1;
@@ -291,9 +282,43 @@ function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
   }
   if (iIn < 0 || iOut < 0 || iOut <= iIn) return points;
 
+  // Trim residual approach/exit backtracks just outside the cut.
+  if (eastbound) {
+    while (
+      iIn > 0 &&
+      inDubnaGateBand(points[iIn]!) &&
+      points[iIn]!.lon < points[iIn - 1]!.lon
+    ) {
+      iIn -= 1;
+    }
+    while (
+      iOut + 1 < points.length &&
+      inDubnaGateBand(points[iOut]!) &&
+      points[iOut + 1]!.lon < points[iOut]!.lon
+    ) {
+      iOut += 1;
+    }
+  } else {
+    while (
+      iIn > 0 &&
+      inDubnaGateBand(points[iIn]!) &&
+      points[iIn]!.lon > points[iIn - 1]!.lon
+    ) {
+      iIn -= 1;
+    }
+    while (
+      iOut + 1 < points.length &&
+      inDubnaGateBand(points[iOut]!) &&
+      points[iOut + 1]!.lon > points[iOut]!.lon
+    ) {
+      iOut += 1;
+    }
+  }
+
   const corridor = eastbound
     ? DUBNA_LOCK_CORRIDOR
     : DUBNA_LOCK_CORRIDOR.slice().reverse();
+
   return [...points.slice(0, iIn + 1), ...corridor, ...points.slice(iOut)];
 }
 
@@ -594,7 +619,9 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   if (ia > ib) slice = slice.slice().reverse();
 
   const keepLockPin = (v: LngLat) =>
-    haversineKm(v, DUBNA_LOCK) < 1.5 || haversineKm(v, RYBINSK_LOCK) < 1.5;
+    haversineKm(v, DUBNA_LOCK_UPPER) < 0.8 ||
+    haversineKm(v, DUBNA_LOCK_LOWER) < 0.8 ||
+    haversineKm(v, RYBINSK_LOCK) < 1.5;
 
   const vias = slice.filter(
     (v) => keepLockPin(v) || (haversineKm(a, v) >= 30 && haversineKm(b, v) >= 30),
@@ -608,11 +635,11 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
     const fair = fairwaySliceBetween(fa.idx, fb.idx).filter(
       (v) => keepLockPin(v) || (haversineKm(a, v) >= 20 && haversineKm(b, v) >= 20),
     );
-    // Always pin the full Dubna lock corridor when the span crosses Иваньково.
+    // Pin only lock heads when the span crosses Иваньково (full corridor vias caused loops).
     const spanCrossesDubna =
       Math.min(a.lon, b.lon) <= 37.12 && Math.max(a.lon, b.lon) >= 37.18;
     if (spanCrossesDubna) {
-      for (const v of DUBNA_LOCK_CORRIDOR) {
+      for (const v of [DUBNA_LOCK_UPPER, DUBNA_LOCK_LOWER]) {
         if (!fair.some((m) => haversineKm(m, v) < 0.4)) fair.push(v);
       }
     }
@@ -1178,7 +1205,9 @@ function fairwaySlice(fairway: LngLat[], ia: number, ib: number): LngLat[] {
 function thinVias(vias: LngLat[], maxN: number): LngLat[] {
   if (vias.length <= maxN) return vias;
   const critical = (v: LngLat) =>
-    haversineKm(v, DUBNA_LOCK) < 1.5 || haversineKm(v, RYBINSK_LOCK) < 1.5;
+    haversineKm(v, DUBNA_LOCK_UPPER) < 0.8 ||
+    haversineKm(v, DUBNA_LOCK_LOWER) < 0.8 ||
+    haversineKm(v, RYBINSK_LOCK) < 1.5;
   const keep = new Set<number>();
   for (let i = 0; i < maxN; i++) {
     keep.add(Math.round((i * (vias.length - 1)) / (maxN - 1)));
