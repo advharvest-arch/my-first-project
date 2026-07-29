@@ -1192,13 +1192,19 @@ type CatalogBody = {
 type ReservoirLock = {
   lon: number;
   lat: number;
-  below: 'N' | 'S' | 'E' | 'W';
+  /**
+   * Cardinal / diagonal side of the lower pool relative to the dam/lock.
+   * SE = south of lock AND not far west (avoids cutting the Volga arm of a reservoir).
+   */
+  below: 'N' | 'S' | 'E' | 'W' | 'SE';
 };
 
 const RESERVOIR_LOCKS: Record<string, ReservoirLock> = {
-  'иваньковское водохранилище': { lon: 37.14, lat: 56.725, below: 'E' }, // Дубна
+  // Шлюз №1 КиМ / Иваньковский гидроузел (Дубна)
+  'иваньковское водохранилище': { lon: 37.1388, lat: 56.7346, below: 'E' },
   'угличское водохранилище': { lon: 38.314, lat: 57.526, below: 'N' }, // Углич
-  'рыбинское водохранилище': { lon: 38.83, lat: 58.09, below: 'E' }, // Рыбинск
+  // Шлюзы №11–12 Переборы (не водосброс восточнее ~38.83)
+  'рыбинское водохранилище': { lon: 38.7086, lat: 58.0999, below: 'SE' },
   'горьковское водохранилище': { lon: 43.47, lat: 56.65, below: 'E' }, // Городец
   'чебоксарское водохранилище': { lon: 47.37, lat: 56.14, below: 'E' }, // Новочебоксарск
   'куйбышевское водохранилище': { lon: 49.48, lat: 53.42, below: 'S' }, // Жигули / Тольятти
@@ -1221,6 +1227,9 @@ function pastReservoirLock(p: LngLat, lock: ReservoirLock): boolean {
       return p.lon > lock.lon;
     case 'W':
       return p.lon < lock.lon;
+    case 'SE':
+      // Lower pool south of the lock; keep the reservoir's southern Volga arm (west of lock).
+      return p.lat < lock.lat && p.lon > lock.lon - 0.04;
   }
 }
 

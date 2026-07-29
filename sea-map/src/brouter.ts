@@ -32,9 +32,9 @@ const VOLGA_UPPER_VIAS: LngLat[] = [
 const VOLGA_STEM_CHAIN: LngLat[] = [
   { lon: 33.45, lat: 56.85 }, // Селижарово
   { lon: 35.92, lat: 56.86 }, // Тверь
-  { lon: 37.16, lat: 56.74 }, // Дубна / Иваньково
+  { lon: 37.1388, lat: 56.7346 }, // Дубна / шлюз №1 Иваньковского гидроузла
   { lon: 38.33, lat: 57.53 }, // Углич
-  { lon: 38.7, lat: 58.05 }, // Рыбинск
+  { lon: 38.7086, lat: 58.0999 }, // Рыбинск / шлюзы №11–12
   { lon: 39.89, lat: 57.63 }, // Ярославль
   { lon: 40.93, lat: 57.77 }, // Кострома
   { lon: 42.13, lat: 57.44 }, // Кинешма
@@ -48,18 +48,22 @@ const VOLGA_STEM_CHAIN: LngLat[] = [
 /**
  * Dense navigable fairway Dubna → Рыбинск → НН → Чебоксары → Казань → южный Куйбышев.
  * Open-reservoir clicks often collapse in BRouter; snap onto these pins.
+ * Dam crossings must go through the shipping locks (not across the crest).
  */
 const VOLGA_NAV_FAIRWAY: LngLat[] = [
-  { lon: 37.1574, lat: 56.7423 },
+  { lon: 37.12, lat: 56.745 }, // Иваньковское, подход к шлюзу №1
+  { lon: 37.1388, lat: 56.7346 }, // шлюз №1 (Дубна)
+  { lon: 37.16, lat: 56.74 }, // нижний бьеф / Волга ниже шлюза
   { lon: 37.4682, lat: 56.8998 },
   { lon: 37.6136, lat: 57.1196 },
   { lon: 37.8525, lat: 57.2466 },
   { lon: 38.1256, lat: 57.4176 },
   { lon: 38.3805, lat: 57.612 },
   { lon: 38.4964, lat: 57.8509 },
-  { lon: 38.65, lat: 58.13 }, // Рыбинское вдхр. севернее города
-  { lon: 38.83, lat: 58.1 }, // шлюзы / плотина Рыбинска (не Черёмуха)
-  { lon: 38.95, lat: 58.06 }, // Волга ниже плотины, Горьковское
+  { lon: 38.65, lat: 58.13 }, // Рыбинское вдхр., подход к шлюзам
+  { lon: 38.7086, lat: 58.0999 }, // шлюзы №11–12 (Переборы)
+  { lon: 38.72, lat: 58.07 }, // нижний бьеф Рыбинска
+  { lon: 38.95, lat: 58.06 }, // Волга ниже шлюза
   { lon: 39.14, lat: 58.027 },
   { lon: 39.524, lat: 57.882 },
   { lon: 39.8135, lat: 57.6987 },
@@ -150,8 +154,11 @@ const MOSCOW_CANAL_VIAS: LngLat[] = [
   { lon: 37.455, lat: 55.91 }, // Химкинское (судовой ход)
   { lon: 37.48, lat: 56.15 }, // Икша
   { lon: 37.51, lat: 56.35 }, // Дмитров
-  { lon: 37.16, lat: 56.74 }, // Дубна
+  { lon: 37.1388, lat: 56.7346 }, // Дубна / шлюз №1
 ];
+
+/** Shipping lock center that cascade routes must pass (not chord across the dam). */
+const DUBNA_LOCK: LngLat = { lon: 37.1388, lat: 56.7346 };
 
 /** Кама / Белая (Н. Челны → Уфа → Белорецк) — east of the Volga stem end. */
 const KAMA_BELAYA_VIAS: LngLat[] = [
@@ -499,7 +506,7 @@ function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   const to = nwIsB ? b : a;
 
   const towardRybinsk: LngLat[] = [];
-  const rybinsk = { lon: 38.7, lat: 58.05 };
+  const rybinsk = { lon: 38.7086, lat: 58.0999 };
 
   if (nearMoscow(from)) {
     towardRybinsk.push(...MOSCOW_CANAL_VIAS);
@@ -510,7 +517,7 @@ function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   } else if (nearUpperVolga(from)) {
     towardRybinsk.push(...VOLGA_UPPER_VIAS);
     towardRybinsk.push(
-      { lon: 37.16, lat: 56.74 }, // Дубна
+      DUBNA_LOCK, // шлюз №1, не хорда через плотину
       { lon: 38.33, lat: 57.53 }, // Углич
       rybinsk,
     );
@@ -858,6 +865,26 @@ function looksLikeUglichBeforeRybinsk(points: LngLat[], a: LngLat, b: LngLat): b
 }
 
 /**
+ * Path crosses Иваньковская плотина (reservoir west ↔ Volga east) without
+ * passing шлюз №1 — BRouter sometimes chords the dam crest at Dubna.
+ */
+function looksLikeSkippingDubnaLock(points: LngLat[]): boolean {
+  let hasUpper = false;
+  let hasLower = false;
+  let minLockKm = Infinity;
+  for (const p of points) {
+    if (p.lat >= 56.68 && p.lat <= 56.82) {
+      if (p.lon >= 36.9 && p.lon <= 37.12) hasUpper = true;
+      if (p.lon >= 37.18 && p.lon <= 37.5) hasLower = true;
+    }
+    const d = haversineKm(p, DUBNA_LOCK);
+    if (d < minLockKm) minLockKm = d;
+  }
+  if (!hasUpper || !hasLower) return false;
+  return minLockKm > 0.7;
+}
+
+/**
  * Черёмуха — правый приток в центре Рыбинска. Городец→Талица / Волга must
  * stay on the lock/fairway, not climb the Cheremukha.
  */
@@ -972,7 +999,8 @@ function isHardBadVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
     looksLikeUglichBeforeRybinsk(points, a, b) ||
     looksLikeMoskvaDetour(points, a, b) ||
     looksLikeCheremukhaDetour(points, a, b) ||
-    looksLikeDubnaTrapOnBaltic(points, a, b)
+    looksLikeDubnaTrapOnBaltic(points, a, b) ||
+    looksLikeSkippingDubnaLock(points)
   );
 }
 
