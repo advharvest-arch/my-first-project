@@ -1550,8 +1550,13 @@ function mergeShortSegments(segments: ItinerarySegment[], minKm = 3): ItineraryS
     }
     i += 1;
   }
+  return collapseAdjacentSegments(out);
+}
+
+/** Merge consecutive stretches that share the same name. */
+function collapseAdjacentSegments(segments: ItinerarySegment[]): ItinerarySegment[] {
   const collapsed: ItinerarySegment[] = [];
-  for (const s of out) {
+  for (const s of segments) {
     const prev = collapsed[collapsed.length - 1];
     if (prev && prev.name.toLocaleLowerCase('ru') === s.name.toLocaleLowerCase('ru')) {
       prev.km += s.km;
@@ -1826,14 +1831,17 @@ export async function describeWaterItinerary(
     destination.lon <= 38.1;
 
   // «Москва» / канал on a cascade itinerary = wrong branch (unless endpoint is Moscow).
-  // Drop those stretches and keep the rest — do not hide the whole description.
+  // Drop only those false stretches — never strip Иваньковское (it sits next to the canal junction).
   if (hasMoskva && hasCascade && !nearMos && !nearMosB) {
     chain = chain.filter((s) => {
       const k = s.name.toLocaleLowerCase('ru');
-      return k !== 'москва' && !k.includes('канал имени москвы') && !k.includes('иваньков');
+      return k !== 'москва' && !k.includes('канал имени москвы');
     });
     if (!chain.length) return [];
   }
+
+  // Collapse neighbours left adjacent after filters (e.g. Волга — [removed] — Волга).
+  chain = collapseAdjacentSegments(chain);
 
   const geo = haversineKm(origin, destination);
   if (opts.totalKm && geo > 40 && opts.totalKm > geo * 3.5) {

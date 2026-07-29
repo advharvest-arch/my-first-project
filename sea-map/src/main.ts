@@ -581,10 +581,8 @@ function pointAlongPath(
 }
 
 function shortSegmentName(name: string): string {
-  return name
-    .replace(/\s+водохранилище$/i, '')
-    .replace(/\s+озеро$/i, '')
-    .trim();
+  // Keep «водохранилище» on map labels; only shorten «озеро».
+  return name.replace(/\s+озеро$/i, '').trim();
 }
 
 function formatSegmentKm(km: number): string {
