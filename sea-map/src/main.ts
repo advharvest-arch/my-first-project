@@ -129,6 +129,16 @@ let lastRoutePath: LngLat[] | null = null;
 let lastCumKm: number[] = [];
 /** Named stretches for map ticks (start/end + km). */
 let lastItinerary: ItinerarySegment[] = [];
+/**
+ * Water route kept on the map when switching to the ruler so measurement
+ * does not wipe the built track.
+ */
+let pinnedWaterRoute: {
+  path: LngLat[];
+  itinerary: ItinerarySegment[];
+  cumKm: number[];
+  distanceKm: number | null;
+} | null = null;
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
 
@@ -626,6 +636,7 @@ function segmentTickHalfMeters(at: LngLat): number {
 /**
  * Perpendicular hash marks at stretch boundaries; name + km above each stretch midpoint.
  * Ticks are short geographic polylines across the route (bearing ± 90°).
+ * Near-duplicate boundaries (e.g. flicker at a mouth) collapse to one tick.
  */
 function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   if (path.length < 2 || segments.length === 0) return;
@@ -641,8 +652,15 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
     boundsKm.push(cum);
   }
 
+  const ticks: { point: LngLat; bearing: number }[] = [];
   for (const km of boundsKm) {
     const { point, bearing } = pointAlongPath(path, km * scale);
+    // One hash per place — double mouths (Чебоксарское/Ветлуга flicker) share a point.
+    if (ticks.some((t) => haversineKm(t.point, point) < 1.2)) continue;
+    ticks.push({ point, bearing });
+  }
+
+  for (const { point, bearing } of ticks) {
     const half = segmentTickHalfMeters(point);
     // Across the line: left/right of travel, not along it.
     const a = destinationMeters(point, bearing - 90, half);
@@ -751,10 +769,21 @@ function drawDirectionArrows(path: LngLat[], color: string): void {
  * Same-color route; opposing legs drawn as separate parallel polylines
  * with a constant on-screen gap at every zoom.
  */
-function drawRouteGeometry(path: LngLat[]): void {
-  const style = lineStyle();
+function drawRouteGeometry(
+  path: LngLat[],
+  opts: { itinerary?: ItinerarySegment[]; muted?: boolean } = {},
+): void {
+  const base = lineStyle();
+  const style = opts.muted
+    ? {
+        ...base,
+        opacity: Math.min(0.55, Number(base.opacity ?? 1) * 0.65),
+        weight: Math.max(2, Number(base.weight ?? 4) - 1),
+      }
+    : base;
   const color = String(style.color ?? '#2ec4b6');
-  const parallelLegs = buildParallelLegs(path);
+  const itinerary = opts.itinerary ?? (opts.muted ? [] : lastItinerary);
+  const parallelLegs = opts.muted ? null : buildParallelLegs(path);
   if (parallelLegs) {
     for (const leg of parallelLegs) {
       if (leg.length < 2) continue;
@@ -765,15 +794,15 @@ function drawRouteGeometry(path: LngLat[]): void {
       drawDirectionArrows(leg, color);
     }
     // Segment ticks on the geographic route (not offset lanes).
-    if (lastItinerary.length) drawSegmentTicks(path, lastItinerary);
+    if (itinerary.length) drawSegmentTicks(path, itinerary);
     return;
   }
   L.polyline(
     path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
     { ...style, interactive: false },
   ).addTo(drawLayer);
-  drawDirectionArrows(path, color);
-  if (lastItinerary.length) drawSegmentTicks(path, lastItinerary);
+  if (!opts.muted) drawDirectionArrows(path, color);
+  if (itinerary.length) drawSegmentTicks(path, itinerary);
 }
 
 function attachWaypointMarker(wp: Waypoint, index: number): void {
@@ -850,6 +879,19 @@ function attachWaypointMarker(wp: Waypoint, index: number): void {
 
 function redrawWaypoints(path?: LngLat[]): void {
   drawLayer.clearLayers();
+
+  // Keep the built water track under ruler measurements.
+  if (
+    mode === 'ruler' &&
+    pinnedWaterRoute &&
+    pinnedWaterRoute.path.length >= 2
+  ) {
+    drawRouteGeometry(pinnedWaterRoute.path, {
+      itinerary: pinnedWaterRoute.itinerary,
+      muted: true,
+    });
+  }
+
   waypoints.forEach((wp, i) => attachWaypointMarker(wp, i));
 
   const forward = path && path.length >= 2 ? path : null;
@@ -1090,6 +1132,22 @@ function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
 }
 
 function setMode(next: AppMode): void {
+  const prev = mode;
+  // Pin the water track before leaving inland mode so the ruler can keep it.
+  if (
+    prev === 'water' &&
+    next === 'ruler' &&
+    lastRoutePath &&
+    lastRoutePath.length >= 2
+  ) {
+    pinnedWaterRoute = {
+      path: lastRoutePath.slice(),
+      itinerary: lastItinerary.map((s) => ({ ...s })),
+      cumKm: lastCumKm.slice(),
+      distanceKm: lastDistanceKm,
+    };
+  }
+
   mode = next;
   document.querySelectorAll('.mode-btn').forEach((btn) => {
     btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === next);
@@ -1101,7 +1159,42 @@ function setMode(next: AppMode): void {
   waypoints = [];
   lastRoutePath = null;
   lastCumKm = [];
+  lastItinerary = [];
   drawLayer.clearLayers();
+
+  if (next === 'ruler' && pinnedWaterRoute) {
+    // Keep water stats/description; ruler will overlay its own distance when set.
+    if (pinnedWaterRoute.distanceKm != null) {
+      lastDistanceKm = pinnedWaterRoute.distanceKm;
+      showStats(pinnedWaterRoute.distanceKm);
+    }
+    if (pinnedWaterRoute.itinerary.length) {
+      showRouteDesc(formatItinerary(pinnedWaterRoute.itinerary));
+    }
+    redrawWaypoints();
+    syncControls();
+    setStatus('Кликните точки для измерения. Построенный маршрут остаётся на карте.');
+    return;
+  }
+
+  if (next === 'water' && pinnedWaterRoute) {
+    // Restore the pinned inland route when returning from the ruler.
+    lastRoutePath = pinnedWaterRoute.path;
+    lastItinerary = pinnedWaterRoute.itinerary;
+    lastCumKm = pinnedWaterRoute.cumKm;
+    lastDistanceKm = pinnedWaterRoute.distanceKm;
+    if (lastDistanceKm != null) showStats(lastDistanceKm);
+    if (lastItinerary.length) {
+      showRouteDesc(formatItinerary(lastItinerary));
+    }
+    redrawWaypoints(lastRoutePath);
+    syncControls();
+    setStatus('Кликните точки маршрута на воде.');
+    warmWaterCache();
+    return;
+  }
+
+  pinnedWaterRoute = null;
   clearStats();
   syncControls();
   setStatus(water ? 'Кликните точки маршрута на воде.' : 'Кликните точки для измерения.');
@@ -1182,6 +1275,7 @@ clearBtn.addEventListener('click', () => {
   lastRoutePath = null;
   lastCumKm = [];
   lastItinerary = [];
+  pinnedWaterRoute = null;
   drawLayer.clearLayers();
   clearStats();
   syncControls();

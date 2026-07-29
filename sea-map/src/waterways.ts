@@ -1237,10 +1237,13 @@ const CATALOG = waterBodies as CatalogBody[];
 
 /** Навигационное начало Ветлуги: рукав выше открытого плёса у Юрина (не wiki-устье в чаше вдхр.). */
 const VETLUGA_MOUTH: LngLat = { lon: 46.20, lat: 56.50 };
-/** Устье Вохмы → Ветлуга (OSM confluence). Малое Раменье лежит ниже по Ветлуге. */
-const VOHMA_MOUTH: LngLat = { lon: 46.6064, lat: 58.7543 };
-/** Пос. Малое Раменье on Vetluga, just below the Vohma confluence. */
+/** д. Малое Раменье on Vetluga (below the Vohma turn). */
 const MALOE_RAMENYE: LngLat = { lon: 46.5598, lat: 58.7603 };
+/**
+ * Устье Вохмы: ~4 km upstream of Малое Раменье along Vetluga
+ * (= OSM confluence of Вохма, way 142440981 → Ветлуга).
+ */
+const VOHMA_MOUTH: LngLat = { lon: 46.6064, lat: 58.7543 };
 
 /** Lower Vetluga channel above the open Cheboksary pool (not the Yurino bay). */
 function onVetlugaAboveMouth(p: LngLat): boolean {
@@ -1251,22 +1254,18 @@ function onVetlugaAboveMouth(p: LngLat): boolean {
 }
 
 /**
- * Vohma from its confluence east/NE.
- * Do not start on the Vetluga stem toward Малое Раменье / Сырденка (west of the mouth).
+ * Vohma from its confluence (~4 km above Малое Раменье) east/NE up the tributary.
+ * The Vetluga stem by the village stays Ветлуга.
  */
 function onVohmaAboveMouth(p: LngLat): boolean {
-  // Village and Vetluga below the mouth stay Ветлуга.
-  if (
-    p.lon < VOHMA_MOUTH.lon - 0.01 &&
-    haversineKm(p, MALOE_RAMENYE) <= 2.5
-  ) {
-    return false;
-  }
-  // At the confluence itself.
-  if (haversineKm(p, VOHMA_MOUTH) <= 0.4) return true;
-  // Upstream along Vohma only (E/NE of the mouth) — not south down Vetluga.
-  if (p.lon < VOHMA_MOUTH.lon - 0.002) return false;
-  if (p.lat < VOHMA_MOUTH.lat - 0.002) return false;
+  const dMouth = haversineKm(p, VOHMA_MOUTH);
+  const dMaloe = haversineKm(p, MALOE_RAMENYE);
+  // Closer to the village than to the confluence → still on Vetluga below the mouth.
+  if (dMaloe + 0.3 < dMouth) return false;
+  if (dMouth <= 0.5) return true;
+  // Upstream along Vohma (E/NE of the confluence), not back down Vetluga.
+  if (p.lon < VOHMA_MOUTH.lon - 0.003) return false;
+  if (p.lat < VOHMA_MOUTH.lat - 0.003) return false;
   return p.lon <= 47.1 && p.lat <= 59.55;
 }
 
@@ -1365,6 +1364,11 @@ function pickCatalogName(
       }
       return { name: trib.n, kind: 'river' };
     }
+    // At the Vetluga mouth band, skip a bare «Волга» flicker (it doubled the tick).
+    if (onVetlugaAboveMouth(sample)) {
+      const vetluga = hits.find((h) => h.n.toLocaleLowerCase('ru') === 'ветлуга');
+      if (vetluga) return { name: 'Ветлуга', kind: 'river' };
+    }
   }
 
   return { name: best.n, kind: best.k === 'l' ? 'lake' : 'river' };
@@ -1432,13 +1436,9 @@ function nameAtSample(
     const body = catalogBodyByName(stickyRiver);
     const inBody = !!(body && pointInCatalog(p, body));
 
-    // Snap to Вохма at the confluence (east of mouth), before Малое Раменье on Vetluga.
+    // Snap to Вохма at the confluence (~4 km above Малое Раменье).
     const peek = pickCatalogName(p, usedNames);
-    if (
-      key === 'ветлуга' &&
-      haversineKm(p, VOHMA_MOUTH) <= 0.4 &&
-      p.lon >= VOHMA_MOUTH.lon - 0.002
-    ) {
+    if (key === 'ветлуга' && onVohmaAboveMouth(p) && haversineKm(p, VOHMA_MOUTH) <= 0.6) {
       return {
         name: 'Вохма',
         stickyLake: null,
