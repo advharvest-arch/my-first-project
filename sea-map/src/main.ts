@@ -101,17 +101,16 @@ const routeBtn = document.querySelector<HTMLButtonElement>('#route-btn')!;
 const clearBtn = document.querySelector<HTMLButtonElement>('#clear-btn')!;
 const undoBtn = document.querySelector<HTMLButtonElement>('#undo-btn')!;
 const speedInput = document.querySelector<HTMLInputElement>('#speed')!;
-const routePreferSelect = document.querySelector<HTMLSelectElement>('#route-prefer')!;
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const panelToggle = document.querySelector<HTMLButtonElement>('#panel-toggle')!;
 const collapseBtn = document.querySelector<HTMLButtonElement>('#collapse-btn')!;
 const basemapSelect = document.querySelector<HTMLSelectElement>('#basemap-select')!;
-const seaControls = document.querySelector<HTMLElement>('#sea-controls')!;
 const waypointCountEl = document.querySelector<HTMLElement>('#waypoint-count')!;
 const waypointListEl = document.querySelector<HTMLElement>('#waypoint-list')!;
 const lineColorInput = document.querySelector<HTMLInputElement>('#line-color')!;
 const lineWeightInput = document.querySelector<HTMLInputElement>('#line-weight')!;
 const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-labels')!;
+const showSegmentLabelsInput = document.querySelector<HTMLInputElement>('#show-segment-labels')!;
 const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
 const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')!;
 const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
@@ -639,6 +638,7 @@ function segmentTickHalfMeters(at: LngLat): number {
  * Near-duplicate boundaries (e.g. flicker at a mouth) collapse to one tick.
  */
 function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
+  if (!showSegmentLabelsInput.checked) return;
   if (path.length < 2 || segments.length === 0) return;
   const pathKm = pathLengthKm(path);
   const segSum = segments.reduce((s, x) => s + x.km, 0);
@@ -958,8 +958,7 @@ function seaRestrictions(): Passage[] {
 }
 
 function routePrefer(): RoutePrefer {
-  const v = routePreferSelect.value;
-  if (v === 'shortest' || v === 'sea') return v;
+  // Panel control removed — inland rivers/canals are the default network.
   return 'river';
 }
 
@@ -1154,7 +1153,6 @@ function setMode(next: AppMode): void {
     btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === next);
   });
   const water = next === 'water';
-  seaControls.hidden = !water;
   routeBtn.textContent = next === 'ruler' ? 'Измерить' : 'Проложить';
 
   waypoints = [];
@@ -1309,9 +1307,9 @@ showArrowsInput.addEventListener('change', () => {
   if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
   else restyleRouteLine();
 });
-
-routePreferSelect.addEventListener('change', () => {
-  if (mode === 'water' && waypoints.length >= 2) void computeWaterRoute({ fit: false });
+showSegmentLabelsInput.addEventListener('change', () => {
+  if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
+  else if (pinnedWaterRoute && pinnedWaterRoute.path.length >= 2) redrawWaypoints();
 });
 
 basemapSelect.addEventListener('change', () => {
