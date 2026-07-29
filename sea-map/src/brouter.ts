@@ -51,9 +51,15 @@ const VOLGA_STEM_CHAIN: LngLat[] = [
  * Dam crossings must go through the shipping locks (not across the crest).
  */
 const VOLGA_NAV_FAIRWAY: LngLat[] = [
-  { lon: 37.12, lat: 56.745 }, // Иваньковское, подход к шлюзу №1
-  { lon: 37.1388, lat: 56.7346 }, // шлюз №1 (Дубна)
-  { lon: 37.16, lat: 56.74 }, // нижний бьеф / Волга ниже шлюза
+  // Дубна: только через шлюз №1 (не по автодороге/гребню плотины)
+  { lon: 37.100, lat: 56.750 }, // верхний бьеф, подход
+  { lon: 37.118, lat: 56.743 },
+  { lon: 37.130, lat: 56.737 }, // подходной канал
+  { lon: 37.1388, lat: 56.7346 }, // камера шлюза №1
+  { lon: 37.148, lat: 56.731 }, // нижняя голова
+  { lon: 37.162, lat: 56.733 }, // нижний канал
+  { lon: 37.180, lat: 56.748 }, // Волга восточнее плотины
+  { lon: 37.220, lat: 56.785 },
   { lon: 37.4682, lat: 56.8998 },
   { lon: 37.6136, lat: 57.1196 },
   { lon: 37.8525, lat: 57.2466 },
@@ -157,8 +163,120 @@ const MOSCOW_CANAL_VIAS: LngLat[] = [
   { lon: 37.1388, lat: 56.7346 }, // Дубна / шлюз №1
 ];
 
-/** Shipping lock center that cascade routes must pass (not chord across the dam). */
+/** Shipping lock №1 (Дубна) — Volga cascade must pass the chamber, not the dam road. */
 const DUBNA_LOCK: LngLat = { lon: 37.1388, lat: 56.7346 };
+const RYBINSK_LOCK: LngLat = { lon: 38.7086, lat: 58.0999 };
+
+/** Dense corridor through шлюз №1 (upper approach → chamber → lower Volga). */
+const DUBNA_LOCK_CORRIDOR: LngLat[] = [
+  { lon: 37.100, lat: 56.750 },
+  { lon: 37.118, lat: 56.743 },
+  { lon: 37.130, lat: 56.737 },
+  { lon: 37.1388, lat: 56.7346 }, // камера
+  { lon: 37.148, lat: 56.731 }, // нижняя голова (южнее автодороги по плотине)
+  { lon: 37.162, lat: 56.733 }, // нижний канал
+  { lon: 37.180, lat: 56.748 }, // выход в Волгу восточнее плотины
+  { lon: 37.220, lat: 56.785 },
+];
+
+/** Auto road / crest of Иваньковская плотина (north of lock №1 chamber). */
+function onDubnaDamCrest(p: LngLat): boolean {
+  return p.lon >= 37.145 && p.lon <= 37.172 && p.lat >= 56.742 && p.lat <= 56.755;
+}
+
+function crossesDubnaBarrier(points: LngLat[]): boolean {
+  let west = false;
+  let east = false;
+  for (const p of points) {
+    if (p.lat < 56.65 || p.lat > 56.92) continue;
+    if (p.lon <= 37.12) west = true;
+    if (p.lon >= 37.18) east = true;
+  }
+  return west && east;
+}
+
+function dubnaDamCrestKm(points: LngLat[]): number {
+  let km = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    if (onDubnaDamCrest(a) || onDubnaDamCrest(b)) km += haversineKm(a, b);
+  }
+  return km;
+}
+
+function passesDubnaLockProperly(points: LngLat[]): boolean {
+  if (!points.some((p) => haversineKm(p, DUBNA_LOCK) <= 0.3)) return false;
+  // Road across the dam is never a valid ship track.
+  if (dubnaDamCrestKm(points) > 0.15) return false;
+  const upper = points.some(
+    (p) => p.lon >= 37.09 && p.lon <= 37.135 && p.lat >= 56.73 && p.lat <= 56.76,
+  );
+  const lower = points.some(
+    (p) => p.lon >= 37.145 && p.lon <= 37.22 && p.lat >= 56.728 && p.lat <= 56.78,
+  );
+  return upper && lower;
+}
+
+/**
+ * If BRouter crossed Иваньково on the dam crest / road, splice the lock corridor in.
+ */
+function repairDubnaLockPassage(points: LngLat[]): LngLat[] {
+  if (points.length < 2 || !crossesDubnaBarrier(points)) return points;
+  if (passesDubnaLockProperly(points)) return points;
+
+  const WEST = 37.125;
+  const EAST = 37.175;
+  const inLat = (p: LngLat) => p.lat >= 56.65 && p.lat <= 56.92;
+
+  const band = points
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => inLat(p) && p.lon >= 36.9 && p.lon <= 37.5);
+  if (band.length < 2) return points;
+  const eastbound = band[band.length - 1]!.p.lon >= band[0]!.p.lon;
+
+  let iIn = -1;
+  let iOut = -1;
+  if (eastbound) {
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i]!;
+      if (inLat(p) && p.lon <= WEST) iIn = i;
+    }
+    for (let i = iIn + 1; i < points.length; i++) {
+      const p = points[i]!;
+      if (inLat(p) && p.lon >= EAST) {
+        iOut = i;
+        break;
+      }
+    }
+  } else {
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i]!;
+      if (inLat(p) && p.lon >= EAST) iIn = i;
+    }
+    for (let i = iIn + 1; i < points.length; i++) {
+      const p = points[i]!;
+      if (inLat(p) && p.lon <= WEST) {
+        iOut = i;
+        break;
+      }
+    }
+  }
+  if (iIn < 0 || iOut < 0 || iOut <= iIn) return points;
+
+  const corridor = eastbound
+    ? DUBNA_LOCK_CORRIDOR
+    : DUBNA_LOCK_CORRIDOR.slice().reverse();
+  return [...points.slice(0, iIn + 1), ...corridor, ...points.slice(iOut)];
+}
+
+/**
+ * Path crosses Иваньковская плотина without a proper lock №1 passage.
+ */
+function looksLikeSkippingDubnaLock(points: LngLat[]): boolean {
+  if (!crossesDubnaBarrier(points)) return false;
+  return !passesDubnaLockProperly(points);
+}
 
 /** Кама / Белая (Н. Челны → Уфа → Белорецк) — east of the Volga stem end. */
 const KAMA_BELAYA_VIAS: LngLat[] = [
@@ -448,8 +566,11 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
 
   if (ia > ib) slice = slice.slice().reverse();
 
+  const keepLockPin = (v: LngLat) =>
+    haversineKm(v, DUBNA_LOCK) < 1.5 || haversineKm(v, RYBINSK_LOCK) < 1.5;
+
   const vias = slice.filter(
-    (v) => haversineKm(a, v) >= 30 && haversineKm(b, v) >= 30,
+    (v) => keepLockPin(v) || (haversineKm(a, v) >= 30 && haversineKm(b, v) >= 30),
   );
 
   // Prefer dense fairway pins between stem indices (more reliable than a
@@ -458,12 +579,20 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   const fb = nearestFairwayIndex(b);
   if (fa.dist <= 100 && fb.dist <= 100 && fa.idx !== fb.idx) {
     const fair = fairwaySliceBetween(fa.idx, fb.idx).filter(
-      (v) => haversineKm(a, v) >= 20 && haversineKm(b, v) >= 20,
+      (v) => keepLockPin(v) || (haversineKm(a, v) >= 20 && haversineKm(b, v) >= 20),
     );
+    // Always pin the full Dubna lock corridor when the span crosses Иваньково.
+    const spanCrossesDubna =
+      Math.min(a.lon, b.lon) <= 37.12 && Math.max(a.lon, b.lon) >= 37.18;
+    if (spanCrossesDubna) {
+      for (const v of DUBNA_LOCK_CORRIDOR) {
+        if (!fair.some((m) => haversineKm(m, v) < 0.4)) fair.push(v);
+      }
+    }
     if (fair.length) {
       const merged = [...vias];
       for (const v of fair) {
-        if (!merged.some((m) => haversineKm(m, v) < 15)) merged.push(v);
+        if (!merged.some((m) => haversineKm(m, v) < 8)) merged.push(v);
       }
       // Keep travel order along lon for east/west Volga.
       const eastbound = b.lon >= a.lon;
@@ -473,7 +602,7 @@ function volgaStemCorridorVias(a: LngLat, b: LngLat): LngLat[] {
         if (nearMoscow(b)) return [...merged, ...canal];
         return [...canal.slice().reverse(), ...merged];
       }
-      return thinVias(merged, 8);
+      return thinVias(merged, 10);
     }
   }
 
@@ -865,26 +994,6 @@ function looksLikeUglichBeforeRybinsk(points: LngLat[], a: LngLat, b: LngLat): b
 }
 
 /**
- * Path crosses Иваньковская плотина (reservoir west ↔ Volga east) without
- * passing шлюз №1 — BRouter sometimes chords the dam crest at Dubna.
- */
-function looksLikeSkippingDubnaLock(points: LngLat[]): boolean {
-  let hasUpper = false;
-  let hasLower = false;
-  let minLockKm = Infinity;
-  for (const p of points) {
-    if (p.lat >= 56.68 && p.lat <= 56.82) {
-      if (p.lon >= 36.9 && p.lon <= 37.12) hasUpper = true;
-      if (p.lon >= 37.18 && p.lon <= 37.5) hasLower = true;
-    }
-    const d = haversineKm(p, DUBNA_LOCK);
-    if (d < minLockKm) minLockKm = d;
-  }
-  if (!hasUpper || !hasLower) return false;
-  return minLockKm > 0.7;
-}
-
-/**
  * Черёмуха — правый приток в центре Рыбинска. Городец→Талица / Волга must
  * stay on the lock/fairway, not climb the Cheremukha.
  */
@@ -1041,9 +1150,18 @@ function fairwaySlice(fairway: LngLat[], ia: number, ib: number): LngLat[] {
 
 function thinVias(vias: LngLat[], maxN: number): LngLat[] {
   if (vias.length <= maxN) return vias;
-  const out: LngLat[] = [];
+  const critical = (v: LngLat) =>
+    haversineKm(v, DUBNA_LOCK) < 1.5 || haversineKm(v, RYBINSK_LOCK) < 1.5;
+  const keep = new Set<number>();
   for (let i = 0; i < maxN; i++) {
-    const idx = Math.round((i * (vias.length - 1)) / (maxN - 1));
+    keep.add(Math.round((i * (vias.length - 1)) / (maxN - 1)));
+  }
+  // Never drop шлюз vias — thinning otherwise lets BRouter chord the dam.
+  for (let i = 0; i < vias.length; i++) {
+    if (critical(vias[i]!)) keep.add(i);
+  }
+  const out: LngLat[] = [];
+  for (const idx of [...keep].sort((a, b) => a - b)) {
     const v = vias[idx]!;
     const last = out[out.length - 1];
     if (!last || last.lon !== v.lon || last.lat !== v.lat) out.push(v);
@@ -1118,8 +1236,16 @@ async function routeViaRegionalFairway(a: LngLat, b: LngLat): Promise<BrouterRes
 
     const acceptPinRoute = (route: BrouterResult | null): BrouterResult | null => {
       if (!route || route.points.length < 2 || route.lengthKm <= 0) return null;
-      if (fairway === VOLGA_NAV_FAIRWAY && isHardBadVolgaPath(route.points, a, b)) {
-        return null;
+      if (fairway === VOLGA_NAV_FAIRWAY) {
+        const fixed = repairDubnaLockPassage(route.points);
+        if (fixed !== route.points) {
+          route = {
+            points: fixed,
+            lengthKm: pathLengthKm(fixed),
+            wayTags: route.wayTags,
+          };
+        }
+        if (isHardBadVolgaPath(route.points, a, b)) return null;
       }
       const pinGeo = haversineKm(pinA, pinB);
       if (pinGeo >= 8 && route.lengthKm < pinGeo * 0.85) return null;
@@ -1239,6 +1365,17 @@ async function routePairAdaptive(a: LngLat, b: LngLat, depth: number): Promise<B
 
   const accept = (route: BrouterResult | null): BrouterResult | null => {
     if (!route) return null;
+    // Force Dubna through шлюз №1 whenever the track crosses Иваньково.
+    if (inVolgaBasin(a) && inVolgaBasin(b)) {
+      const fixed = repairDubnaLockPassage(route.points);
+      if (fixed !== route.points) {
+        route = {
+          points: fixed,
+          lengthKm: pathLengthKm(fixed),
+          wayTags: route.wayTags,
+        };
+      }
+    }
     if (depth === 0 && moscowSpb && !looksLikeVolgaBaltic(route.points)) {
       return null;
     }
