@@ -1,6 +1,6 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
-import { findSharedOpenLake, routeAcrossOpenLake } from './open-lake';
+import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans } from './open-lake';
 import waterBodies from './water-bodies.json';
 import waterCore from './water-core.json';
 
@@ -2203,9 +2203,9 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     });
   };
 
-  // 1) Natural open lakes (Onega, Ladoga, …): straight water chords that only
+  // 1) Pure open-water legs (lake or reservoir): straight chords that only
   // bend around islands / peninsulas. BRouter river fairways hug the shore
-  // (~278 km coastal tours on Onega) and must not win here.
+  // and must not win here.
   if (findSharedOpenLake(waypoints)) {
     const open = await routeAcrossOpenLake(waypoints);
     if (open && open.points.length >= 2 && open.lengthKm > 0) {
@@ -2227,9 +2227,11 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         return directFallback();
       }
     }
-    const waterRef = brouted.points;
+    // Straighten lake/reservoir spans (Белое, Рыбинское, …) that BRouter
+    // followed along the shore or fairway instead of open water.
+    const waterRef = await straightenOpenWaterSpans(brouted.points);
     const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(waterRef);
-    return finalizeMeasuredRoute(waterRef, brouted.lengthKm, waypoints, {
+    return finalizeMeasuredRoute(waterRef, pathLength(waterRef), waypoints, {
       waterName: named,
       method: 'waterway',
     });

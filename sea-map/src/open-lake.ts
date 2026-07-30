@@ -24,10 +24,10 @@ export type LakeMask = {
 };
 
 /**
- * Natural open lakes with OSM multipolygon relations (outers + island holes).
- * Reservoirs stay on BRouter fairways — not listed here.
+ * Natural lakes and large reservoirs with OSM multipolygon relations.
+ * Straight open-water chords bend only around islands / capes / shore.
  */
-const OPEN_LAKE_OSM: Record<string, number> = {
+const OPEN_WATER_OSM: Record<string, number> = {
   'ладожское озеро': 21149039,
   'онежское озеро': 1308279,
   'чудское озеро': 17388038,
@@ -37,6 +37,16 @@ const OPEN_LAKE_OSM: Record<string, number> = {
   выгозеро: 253836,
   топозеро: 253609,
   пяозеро: 53963,
+  // Reservoirs — same open-water rule as natural lakes.
+  'рыбинское водохранилище': 1521563,
+  'иваньковское водохранилище': 72136,
+  'горьковское водохранилище': 1672785,
+  'чебоксарское водохранилище': 16760694,
+  'куйбышевское водохранилище': 116060,
+  'саратовское водохранилище': 6193700,
+  'цимлянское водохранилище': 966973,
+  'камское водохранилище': 14648915,
+  'воткинское водохранилище': 1350708,
 };
 
 const CATALOG = waterBodies as CatalogBody[];
@@ -552,17 +562,29 @@ export type SharedOpenLake = {
   catalog: CatalogBody;
 };
 
-/** Same natural open lake (catalog + OSM mask id), not a reservoir. */
-export function findSharedOpenLake(points: LngLat[]): SharedOpenLake | null {
-  if (points.length < 2) return null;
+function openWaterBodiesByArea(): SharedOpenLake[] {
+  const out: SharedOpenLake[] = [];
   for (const body of CATALOG) {
     if (body.k !== 'l') continue;
-    const key = catalogKey(body.n);
-    const osmId = OPEN_LAKE_OSM[key];
+    const osmId = OPEN_WATER_OSM[catalogKey(body.n)];
     if (!osmId) continue;
-    if (/водохран/i.test(body.n)) continue;
-    if (!points.every((p) => inBBox(p, body.b, 0.05))) continue;
-    return { name: body.n, osmId, catalog: body };
+    out.push({ name: body.n, osmId, catalog: body });
+  }
+  out.sort((a, b) => catalogArea(b.catalog) - catalogArea(a.catalog));
+  return out;
+}
+
+function catalogArea(body: CatalogBody): number {
+  const [w, s, e, n] = body.b;
+  return Math.max(0, e - w) * Math.max(0, n - s);
+}
+
+/** Same lake/reservoir (catalog + OSM mask) for pure open-water legs. */
+export function findSharedOpenLake(points: LngLat[]): SharedOpenLake | null {
+  if (points.length < 2) return null;
+  for (const body of openWaterBodiesByArea()) {
+    if (!points.every((p) => inBBox(p, body.catalog.b, 0.05))) continue;
+    return body;
   }
   return null;
 }
@@ -587,6 +609,130 @@ function routeLegOnLake(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
   if (pathWaterSafe(smooth, lake)) return smooth;
   if (pathWaterSafe(path, lake)) return path;
   return null;
+}
+
+/**
+ * Replace BRouter shore-hugging spans inside a lake/reservoir with straight
+ * open-water chords (around islands / capes only).
+ */
+function replaceSpansOnMask(points: LngLat[], lake: LakeMask, catalogBBox: BBox): LngLat[] {
+  if (points.length < 4) return points;
+
+  // Soft membership: catalog bbox (route corridor) or near/in the water mask.
+  const onBody = points.map((p) => {
+    if (inBBox(p, catalogBBox, 0.04)) return true;
+    if (pointInOpenWater(p, lake)) return true;
+    return nearestOpenWater(p, lake, 2.5) != null;
+  });
+
+  const onCount = onBody.filter(Boolean).length;
+  if (onCount < 4) return points;
+
+  type Span = { lo: number; hi: number };
+  const spans: Span[] = [];
+  let i = 0;
+  while (i < points.length) {
+    while (i < points.length && !onBody[i]) i += 1;
+    if (i >= points.length) break;
+    let lastOn = i;
+    let gap = 0;
+    let j = i + 1;
+    while (j < points.length) {
+      if (onBody[j]) {
+        lastOn = j;
+        gap = 0;
+        j += 1;
+        continue;
+      }
+      gap += 1;
+      if (gap > 4) break;
+      j += 1;
+    }
+    if (lastOn - i >= 3) spans.push({ lo: i, hi: lastOn });
+    i = Math.max(lastOn + 1, i + 1);
+  }
+
+  if (!spans.length) return points;
+
+  let out = points.slice();
+  for (let s = spans.length - 1; s >= 0; s--) {
+    const { lo, hi } = spans[s]!;
+    if (hi <= lo) continue;
+
+    // Snap span ends onto open water (entry / exit of the lake).
+    let enter = -1;
+    let leave = -1;
+    let a: LngLat | null = null;
+    let b: LngLat | null = null;
+    for (let k = lo; k <= hi; k++) {
+      const snap = nearestOpenWater(out[k]!, lake, 5);
+      if (!snap) continue;
+      if (enter < 0) {
+        enter = k;
+        a = snap;
+      }
+      leave = k;
+      b = snap;
+    }
+    if (enter < 0 || leave <= enter || !a || !b) continue;
+
+    const detourPts = out.slice(enter, leave + 1);
+    const detourKm = pathLengthKm(detourPts);
+    const chordKm = haversineKm(a, b);
+    if (detourKm < 5 || chordKm < 2.5) continue;
+    if (detourKm <= chordKm * 1.08 && detourPts.length <= 5) continue;
+
+    const open = routeLegOnLake(a, b, lake);
+    if (!open || open.length < 2) continue;
+    const openKm = pathLengthKm(open);
+    const improves =
+      openKm <= detourKm * 0.97 ||
+      (detourKm > chordKm * 1.15 && openKm <= detourKm * 1.02);
+    if (!improves) continue;
+    if (openKm > chordKm * 2.8) continue;
+
+    out = [...out.slice(0, enter), ...open, ...out.slice(leave + 1)];
+  }
+  return out;
+}
+
+/**
+ * After river routing, straighten every lake/reservoir span the track crosses.
+ */
+export async function straightenOpenWaterSpans(points: LngLat[]): Promise<LngLat[]> {
+  if (points.length < 4) return points;
+
+  let pathBBox: BBox = [180, 90, -180, -90];
+  for (const p of points) {
+    if (p.lon < pathBBox[0]) pathBBox[0] = p.lon;
+    if (p.lat < pathBBox[1]) pathBBox[1] = p.lat;
+    if (p.lon > pathBBox[2]) pathBBox[2] = p.lon;
+    if (p.lat > pathBBox[3]) pathBBox[3] = p.lat;
+  }
+
+  let result = points;
+  for (const body of openWaterBodiesByArea()) {
+    const b = body.catalog.b;
+    if (
+      pathBBox[2] < b[0] - 0.05 ||
+      pathBBox[0] > b[2] + 0.05 ||
+      pathBBox[3] < b[1] - 0.05 ||
+      pathBBox[1] > b[3] + 0.05
+    ) {
+      continue;
+    }
+    let hits = 0;
+    for (const p of result) {
+      if (inBBox(p, b, 0.04)) hits += 1;
+      if (hits >= 4) break;
+    }
+    if (hits < 4) continue;
+
+    const lake = await fetchLakeMask(body.name, body.osmId);
+    if (!lake) continue;
+    result = replaceSpansOnMask(result, lake, body.catalog.b);
+  }
+  return result;
 }
 
 /**
