@@ -14,20 +14,14 @@
     <meta name="format-detection" content="telephone=no" />
     <title>AquaRoute — карта и измерения по воде</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <!-- Optional fonts; UI works with system stacks if Google is blocked/slow. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      id="aquaroute-fonts"
       href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
       rel="stylesheet"
-      media="print"
-      onload="this.media='all'"
     />
-    <noscript>
-      <link
-        href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
-        rel="stylesheet"
-      />
-    </noscript>
     <style>
       /* Inline boot styles so the shell paints before the bundle loads. */
       html,
@@ -35,9 +29,11 @@
         margin: 0;
         width: 100%;
         height: 100%;
+        min-height: 100%;
+        min-height: -webkit-fill-available;
         background: #0b3a4a;
         color: #e8f4f2;
-        font-family: Manrope, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       }
       #boot-fallback {
         display: none;
@@ -53,6 +49,20 @@
       #boot-fallback[data-show='1'] {
         display: block;
       }
+      #app[data-booting='1'] #map::after {
+        content: 'Загрузка карты…';
+        position: absolute;
+        z-index: 1000;
+        left: 50%;
+        top: 42%;
+        transform: translate(-50%, -50%);
+        padding: 0.65rem 1rem;
+        border-radius: 10px;
+        background: rgba(7, 24, 33, 0.72);
+        color: #e8f4f2;
+        font: 500 0.95rem/1.3 system-ui, sans-serif;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -61,7 +71,7 @@
       Chrome, Firefox, Safari, Edge или Яндекс&nbsp;Браузере.
     </div>
 
-    <div id="app">
+    <div id="app" data-booting="1">
       <div id="map" aria-label="Карта мира"></div>
 
       <aside class="panel" id="panel">
@@ -181,15 +191,45 @@
     </noscript>
 
     <script>
-      // If neither modern nor legacy bundle mounts the map, show a clear message.
-      window.setTimeout(function () {
-        var map = document.getElementById('map');
-        var fallback = document.getElementById('boot-fallback');
-        if (!map || !fallback) return;
-        if (!map.classList.contains('leaflet-container')) {
-          fallback.setAttribute('data-show', '1');
+      // Slow networks: wait longer before declaring the browser unsupported.
+      // Clear the message if the map mounts later.
+      (function () {
+        var shown = false;
+        function mapReady() {
+          var map = document.getElementById('map');
+          return !!(map && map.classList.contains('leaflet-container'));
         }
-      }, 8000);
+        function showFallback() {
+          var fallback = document.getElementById('boot-fallback');
+          var app = document.getElementById('app');
+          if (!fallback || mapReady()) return;
+          shown = true;
+          fallback.setAttribute('data-show', '1');
+          if (app) app.style.display = 'none';
+        }
+        function hideFallback() {
+          var fallback = document.getElementById('boot-fallback');
+          var app = document.getElementById('app');
+          if (fallback) fallback.removeAttribute('data-show');
+          if (app) {
+            app.style.display = '';
+            app.removeAttribute('data-booting');
+          }
+          shown = false;
+        }
+        var started = Date.now();
+        var timer = window.setInterval(function () {
+          if (mapReady()) {
+            hideFallback();
+            window.clearInterval(timer);
+            return;
+          }
+          if (!shown && Date.now() - started > 20000) showFallback();
+        }, 400);
+        window.setTimeout(function () {
+          if (!mapReady()) showFallback();
+        }, 20000);
+      })();
     </script>
     <script type="module" src="/src/main.ts"></script>
   </body>

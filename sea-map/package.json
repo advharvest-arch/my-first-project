@@ -5,9 +5,12 @@
   "type": "module",
   "browserslist": [
     "defaults",
+    "> 0.2%",
     "iOS >= 12",
     "Android >= 7",
-    "not IE 11"
+    "Samsung >= 12",
+    "not IE 11",
+    "not dead"
   ],
   "scripts": {
     "dev": "vite",

@@ -5,22 +5,33 @@ export default defineConfig({
   base: './',
   plugins: [
     legacy({
-      // Broad device coverage: desktop + iOS/Android WebViews (not IE 11).
-      targets: ['defaults', 'iOS >= 12', 'Android >= 7', 'not IE 11'],
-      // ESM browsers that still miss newer builtins get polyfills too.
+      // Desktop + phones / WebViews. IE 11 is intentionally out of scope.
+      targets: [
+        'defaults',
+        '> 0.2%',
+        'iOS >= 12',
+        'Android >= 7',
+        'Samsung >= 12',
+        'not IE 11',
+        'not dead',
+      ],
+      // Polyfill modern ESM browsers that still miss newer builtins.
       modernPolyfills: true,
+      // Keep modern chunk reachable for Safari 14 / older Chrome Android too.
       modernTargets: [
-        'edge>=90',
-        'firefox>=90',
-        'chrome>=90',
+        'edge>=88',
+        'firefox>=78',
+        'chrome>=87',
         'safari>=14',
-        'chromeAndroid>=90',
+        'chromeAndroid>=87',
         'iOS>=14',
+        'samsung>=14',
       ],
     }),
   ],
   build: {
     chunkSizeWarningLimit: 2000,
+    cssTarget: ['chrome87', 'safari14', 'firefox78', 'edge88'],
   },
   preview: {
     allowedHosts: true,

@@ -89,14 +89,19 @@ const basemaps = createBasemaps();
 const basemapControl = attachBasemapControl(map, basemaps, 'osm');
 
 const refreshSize = () => map.invalidateSize({ animate: false });
-requestAnimationFrame(refreshSize);
-setTimeout(refreshSize, 100);
-setTimeout(refreshSize, 500);
+const scheduleRefresh = () => {
+  requestAnimationFrame(refreshSize);
+  setTimeout(refreshSize, 100);
+  setTimeout(refreshSize, 400);
+  setTimeout(refreshSize, 1000);
+};
+scheduleRefresh();
 window.addEventListener('resize', refreshSize);
-window.addEventListener('orientationchange', () => {
-  // iOS often needs a beat after rotate before layout settles.
-  setTimeout(refreshSize, 250);
-  setTimeout(refreshSize, 700);
+window.addEventListener('orientationchange', scheduleRefresh);
+// bfcache / tab restore on iOS Safari
+window.addEventListener('pageshow', scheduleRefresh);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') scheduleRefresh();
 });
 // Mobile browser chrome show/hide changes the visual viewport without a window resize.
 const vv = window.visualViewport;
@@ -104,6 +109,14 @@ if (vv) {
   vv.addEventListener('resize', refreshSize);
   vv.addEventListener('scroll', refreshSize);
 }
+// Mark boot complete for the inline loader UI.
+const appRoot = document.getElementById('app');
+if (appRoot) {
+  appRoot.removeAttribute('data-booting');
+  appRoot.style.display = '';
+}
+const bootFallback = document.getElementById('boot-fallback');
+if (bootFallback) bootFallback.removeAttribute('data-show');
 
 const drawLayer = L.layerGroup().addTo(map);
 
