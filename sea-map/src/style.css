@@ -26,20 +26,27 @@ body {
   margin: 0;
   width: 100%;
   height: 100%;
+  height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: #0b3a4a;
   color: var(--foam);
   font-family: var(--font-body);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
   position: relative;
   width: 100%;
   height: 100%;
+  height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: #0b3a4a;
+  /* iOS Safari address-bar / notch */
+  min-height: -webkit-fill-available;
 }
 
 #map {
@@ -91,17 +98,21 @@ body {
 .panel {
   position: absolute;
   z-index: 500;
-  top: 1.25rem;
-  left: 1.25rem;
-  width: min(360px, calc(100vw - 2.5rem));
-  max-height: calc(100vh - 2.5rem);
+  top: max(1.25rem, env(safe-area-inset-top, 0px));
+  left: max(1.25rem, env(safe-area-inset-left, 0px));
+  width: min(360px, calc(100vw - 2.5rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: calc(100vh - 2.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100dvh - 2.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 1.35rem 1.35rem 1.1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background:
     linear-gradient(160deg, rgba(20, 102, 122, 0.28), transparent 42%),
     var(--panel);
+  -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   box-shadow: var(--shadow);
   transform: translateX(0);
@@ -174,6 +185,14 @@ body {
   margin: 0.4rem 0 0;
 }
 
+.field select,
+.field input[type='number'],
+.field input[type='text'],
+.route-desc-body {
+  /* ≥16px avoids iOS Safari auto-zoom on focus */
+  font-size: 16px;
+}
+
 .field select {
   width: 100%;
   border: 1px solid var(--line);
@@ -181,8 +200,9 @@ body {
   padding: 0.7rem 0.85rem;
   background: rgba(7, 24, 33, 0.95);
   color: var(--foam);
-  font: 500 0.9rem/1.2 var(--font-body);
+  font: 500 16px/1.2 var(--font-body);
   outline: none;
+  max-width: 100%;
 }
 
 .actions {
@@ -474,7 +494,7 @@ body {
   padding: 0.7rem 0.85rem;
   background: rgba(255, 255, 255, 0.04);
   color: var(--foam);
-  font: 500 0.95rem/1.2 var(--font-body);
+  font: 500 16px/1.2 var(--font-body);
   outline: none;
 }
 
@@ -524,10 +544,18 @@ body {
   gap: 0.85rem;
 }
 
+.btn,
+.mode-btn,
+.panel-toggle,
+.check-row {
+  touch-action: manipulation;
+}
+
 .btn {
   border: 1px solid transparent;
   border-radius: 12px;
   padding: 0.78rem 0.9rem;
+  min-height: 44px;
   font: 600 0.92rem/1 var(--font-body);
   cursor: pointer;
   transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
@@ -637,7 +665,7 @@ body {
   padding: 0.65rem 0.7rem;
   background: rgba(4, 16, 22, 0.72);
   color: rgba(232, 244, 242, 0.95);
-  font: 500 0.92rem/1.55 var(--font-body);
+  font: 500 16px/1.55 var(--font-body);
   outline: none;
 }
 
@@ -659,8 +687,8 @@ body {
 .panel-toggle {
   position: absolute;
   z-index: 501;
-  top: 1.25rem;
-  left: 1.25rem;
+  top: max(1.25rem, env(safe-area-inset-top, 0px));
+  left: max(1.25rem, env(safe-area-inset-left, 0px));
   width: 44px;
   height: 44px;
   border: 1px solid var(--line);
@@ -669,6 +697,7 @@ body {
   color: var(--foam);
   font-size: 1.1rem;
   cursor: pointer;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow);
   opacity: 0;
@@ -725,6 +754,8 @@ body {
     right: 0;
     width: 100%;
     max-height: 48vh;
+    max-height: 48dvh;
+    padding-bottom: calc(1.1rem + env(safe-area-inset-bottom, 0px));
     border-radius: 22px 22px 0 0;
   }
 
@@ -734,11 +765,39 @@ body {
 
   .panel-toggle {
     top: auto;
-    bottom: 1rem;
-    left: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    left: max(1rem, env(safe-area-inset-left, 0px));
+  }
+
+  .actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .actions .btn.primary {
+    grid-column: 1 / -1;
   }
 
   .stats {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .leaflet-control-zoom {
+    margin-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+@media (pointer: coarse) {
+  .mode-btn {
+    min-height: 44px;
+  }
+
+  .check-row {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .wp-hit {
+    min-width: 44px;
+    min-height: 44px;
   }
 }

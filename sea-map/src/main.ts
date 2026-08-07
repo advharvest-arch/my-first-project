@@ -75,6 +75,10 @@ const map = L.map(mapEl, {
   maxZoom: 19,
   zoomControl: false,
   attributionControl: true,
+  // Touch / trackpad — keep defaults; preferCanvas helps weak mobile GPUs.
+  preferCanvas: true,
+  tapTolerance: 20,
+  bounceAtZoomLimits: false,
 }).setView([55.75, 37.62], 5);
 
 map.getContainer().style.cursor = 'default';
@@ -89,7 +93,17 @@ requestAnimationFrame(refreshSize);
 setTimeout(refreshSize, 100);
 setTimeout(refreshSize, 500);
 window.addEventListener('resize', refreshSize);
-window.addEventListener('orientationchange', refreshSize);
+window.addEventListener('orientationchange', () => {
+  // iOS often needs a beat after rotate before layout settles.
+  setTimeout(refreshSize, 250);
+  setTimeout(refreshSize, 700);
+});
+// Mobile browser chrome show/hide changes the visual viewport without a window resize.
+const vv = window.visualViewport;
+if (vv) {
+  vv.addEventListener('resize', refreshSize);
+  vv.addEventListener('scroll', refreshSize);
+}
 
 const drawLayer = L.layerGroup().addTo(map);
 
@@ -238,10 +252,14 @@ function waypointLabelHtml(wp: Waypoint, index: number): string {
 
 function escapeHtml(s: string): string {
   return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+    .split('&')
+    .join('&amp;')
+    .split('<')
+    .join('&lt;')
+    .split('>')
+    .join('&gt;')
+    .split('"')
+    .join('&quot;');
 }
 
 function setStatus(message: string, isError = false): void {
@@ -283,20 +301,52 @@ function showRouteDesc(text: string): void {
   routeDescCopy.textContent = 'Копировать';
 }
 
+function copyTextFallback(text: string): boolean {
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '0';
+    area.style.left = '0';
+    area.style.width = '1px';
+    area.style.height = '1px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    area.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 async function copyRouteDesc(): Promise<void> {
   const text = routeDescBody.value.trim();
   if (!text) return;
+  let ok = false;
   try {
-    await navigator.clipboard.writeText(text);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch {
+    ok = false;
+  }
+  if (!ok) ok = copyTextFallback(text);
+  if (ok) {
     routeDescCopy.textContent = 'Скопировано';
     window.setTimeout(() => {
       if (routeDescCopy.textContent === 'Скопировано') routeDescCopy.textContent = 'Копировать';
     }, 1600);
-  } catch {
-    routeDescBody.focus();
-    routeDescBody.select();
-    routeDescCopy.textContent = 'Ctrl+C';
+    return;
   }
+  routeDescBody.focus();
+  routeDescBody.select();
+  routeDescCopy.textContent = 'Ctrl+C / ⌘C';
 }
 
 async function updateRouteItinerary(

@@ -2,8 +2,18 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0b3a4a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
     <title>AquaRoute — карта и измерения по воде</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,8 +22,45 @@
       media="print"
       onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+    <style>
+      /* Inline boot styles so the shell paints before the bundle loads. */
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b3a4a;
+        color: #e8f4f2;
+        font-family: Manrope, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      #boot-fallback {
+        display: none;
+        box-sizing: border-box;
+        max-width: 28rem;
+        margin: 2rem auto;
+        padding: 1.25rem 1.4rem;
+        border: 1px solid rgba(232, 244, 242, 0.2);
+        border-radius: 14px;
+        background: rgba(7, 24, 33, 0.9);
+        line-height: 1.45;
+      }
+      #boot-fallback[data-show='1'] {
+        display: block;
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-fallback" role="alert">
+      Не удалось загрузить AquaRoute в этом браузере. Обновите браузер или откройте страницу в
+      Chrome, Firefox, Safari, Edge или Яндекс&nbsp;Браузере.
+    </div>
+
     <div id="app">
       <div id="map" aria-label="Карта мира"></div>
 
@@ -40,7 +87,7 @@
         <div class="controls" id="shared-controls">
           <label class="field inline">
             <span>Скорость судна, км/ч</span>
-            <input id="speed" type="number" min="1" max="120" step="1" value="20" />
+            <input id="speed" type="number" min="1" max="120" step="1" value="20" inputmode="numeric" />
           </label>
         </div>
 
@@ -118,6 +165,32 @@
         ☰
       </button>
     </div>
+
+    <noscript>
+      <style>
+        #boot-fallback {
+          display: block !important;
+        }
+        #app {
+          display: none !important;
+        }
+      </style>
+      <p id="boot-fallback" data-show="1">
+        Для работы AquaRoute нужен JavaScript. Включите его в настройках браузера.
+      </p>
+    </noscript>
+
+    <script>
+      // If neither modern nor legacy bundle mounts the map, show a clear message.
+      window.setTimeout(function () {
+        var map = document.getElementById('map');
+        var fallback = document.getElementById('boot-fallback');
+        if (!map || !fallback) return;
+        if (!map.classList.contains('leaflet-container')) {
+          fallback.setAttribute('data-show', '1');
+        }
+      }, 8000);
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
