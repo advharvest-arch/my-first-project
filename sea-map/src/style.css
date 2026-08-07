@@ -1,0 +1,805 @@
+:root {
+  --ink: #071821;
+  --foam: #e8f4f2;
+  --sea: #0b3d4a;
+  --sea-mid: #14667a;
+  --accent: #2ec4b6;
+  --accent-deep: #1a9b90;
+  --sand: #d9c3a0;
+  --danger: #e07a5f;
+  --panel: rgba(7, 24, 33, 0.82);
+  --line: rgba(232, 244, 242, 0.14);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  --radius: 18px;
+  /* System stacks first so blocked Google Fonts never blank the UI. */
+  --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-body: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #0b3a4a;
+  color: var(--foam);
+  font-family: var(--font-body);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #0b3a4a;
+  /* iOS Safari address-bar / notch */
+  min-height: -webkit-fill-available;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  background: #cdd7d5;
+}
+
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  background: #cdd7d5 !important;
+  font: inherit;
+}
+
+/* Always arrow cursor on the map (not the hand / grab). */
+.leaflet-container,
+.leaflet-container.leaflet-grab,
+.leaflet-container .leaflet-grab,
+.leaflet-container.leaflet-drag-target,
+.leaflet-dragging .leaflet-grab,
+.leaflet-dragging .leaflet-grab .leaflet-interactive,
+.leaflet-grabbing {
+  cursor: default !important;
+}
+
+.leaflet-container .leaflet-marker-pane .leaflet-interactive,
+.leaflet-container .leaflet-overlay-pane path.leaflet-interactive {
+  cursor: pointer !important;
+}
+
+.leaflet-land-pane path {
+  vector-effect: non-scaling-stroke;
+}
+
+.leaflet-control-attribution {
+  background: rgba(7, 24, 33, 0.55) !important;
+  color: rgba(232, 244, 242, 0.55) !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: rgba(46, 196, 182, 0.85) !important;
+}
+
+.panel {
+  position: absolute;
+  z-index: 500;
+  top: max(1.25rem, env(safe-area-inset-top, 0px));
+  left: max(1.25rem, env(safe-area-inset-left, 0px));
+  width: min(360px, calc(100vw - 2.5rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  max-height: calc(100vh - 2.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100dvh - 2.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 1.35rem 1.35rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(160deg, rgba(20, 102, 122, 0.28), transparent 42%),
+    var(--panel);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+  transform: translateX(0);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+}
+
+.panel.collapsed {
+  transform: translateX(calc(-100% - 2rem));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.brand-mark {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 4vw, 2.75rem);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--foam);
+}
+
+.brand-sub {
+  margin: 0.35rem 0 0;
+  font-size: 0.92rem;
+  color: rgba(232, 244, 242, 0.7);
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  margin: 1rem 0 0.75rem;
+}
+
+.mode-btn {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.35rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(232, 244, 242, 0.8);
+  font: 600 0.75rem/1.1 var(--font-body);
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background: rgba(46, 196, 182, 0.22);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.hint {
+  margin: 0.85rem 0 0.9rem;
+  padding: 0.75rem 0.85rem;
+  border-left: 3px solid var(--accent);
+  background: rgba(46, 196, 182, 0.08);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(232, 244, 242, 0.88);
+}
+
+.inland-help {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(232, 244, 242, 0.85);
+}
+
+.inland-help .muted {
+  color: rgba(232, 244, 242, 0.55);
+  margin: 0.4rem 0 0;
+}
+
+.field select,
+.field input[type='number'],
+.field input[type='text'],
+.route-desc-body {
+  /* ≥16px avoids iOS Safari auto-zoom on focus */
+  font-size: 16px;
+}
+
+.field select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(7, 24, 33, 0.95);
+  color: var(--foam);
+  font: 500 16px/1.2 var(--font-body);
+  outline: none;
+  max-width: 100%;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.collapse-btn {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.route-marker.way {
+  background: #7ec8ff;
+}
+
+.route-marker-wrap {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.wp-marker-wrap {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.wp-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+  cursor: pointer;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.wp-num {
+  font: 700 0.65rem/1 var(--font-body);
+  color: #073040;
+  pointer-events: none;
+  user-select: none;
+}
+
+.route-marker.origin .wp-num,
+.route-marker.dest .wp-num {
+  color: #fff;
+}
+
+.route-marker-label {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font: 600 0.72rem/1.2 var(--font-body);
+  color: var(--ink);
+  background: rgba(232, 244, 242, 0.95);
+  border: 1px solid rgba(7, 24, 33, 0.12);
+  border-radius: 8px;
+  padding: 0.18rem 0.4rem;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.wp-hit .route-marker-label {
+  /* Include label in the double-click hit target */
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.route-marker-label .km {
+  display: block;
+  margin-top: 0.1rem;
+  font-weight: 700;
+  color: var(--sea-mid);
+}
+
+.route-arrow-wrap {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.route-arrow {
+  width: var(--arrow-size, 16px);
+  height: var(--arrow-size, 16px);
+  transform: rotate(var(--brg, 0deg));
+  filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+
+.seg-tick-wrap,
+.seg-mid-wrap {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.seg-tick {
+  position: relative;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/*
+ * Hash mark across the route.
+ * Bar is drawn horizontal (E–W); CSS rotate(bearing) aligns its long axis
+ * perpendicular to travel (bearing 0° = north → tick stays E–W).
+ */
+.seg-tick-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 3px;
+  margin-left: -10px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: #071821;
+  box-shadow:
+    0 0 0 1.5px #fff,
+    0 1px 4px rgba(0, 0, 0, 0.45);
+  transform: rotate(var(--brg, 0deg));
+  transform-origin: center center;
+}
+
+.seg-mid {
+  position: relative;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Name + km centered above the stretch midpoint. */
+.seg-mid-label {
+  position: absolute;
+  left: 0;
+  bottom: 10px;
+  transform: translateX(-50%);
+  font: 600 0.72rem/1.25 var(--font-body);
+  color: var(--ink);
+  background: rgba(232, 244, 242, 0.96);
+  border: 1px solid rgba(7, 24, 33, 0.14);
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.seg-mid-label span {
+  display: block;
+  margin-top: 0.05rem;
+  font-weight: 700;
+  color: var(--sea-mid);
+}
+
+.route-arrow svg {
+  display: block;
+  overflow: visible;
+}
+
+.waypoint-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.waypoint-row {
+  display: grid;
+  grid-template-columns: 1.4rem 1fr auto auto;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.waypoint-idx {
+  font-size: 0.75rem;
+  color: rgba(232, 244, 242, 0.55);
+  text-align: center;
+}
+
+.waypoint-name {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  background: rgba(7, 24, 33, 0.95);
+  color: var(--foam);
+  font: 500 0.82rem/1.2 var(--font-body);
+  outline: none;
+}
+
+.waypoint-name:focus {
+  border-color: rgba(46, 196, 182, 0.55);
+}
+
+.waypoint-km {
+  min-width: 3.2rem;
+  text-align: right;
+  font-size: 0.75rem;
+  color: rgba(232, 244, 242, 0.7);
+}
+
+.waypoint-del {
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(7, 24, 33, 0.9);
+  color: rgba(232, 244, 242, 0.85);
+  font: 600 1rem/1 var(--font-body);
+  cursor: pointer;
+  padding: 0;
+}
+
+.waypoint-del:hover {
+  border-color: rgba(232, 120, 100, 0.55);
+  color: #ffb4a8;
+}
+
+.route-style {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.route-style input[type='color'] {
+  width: 3rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.route-style input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(232, 244, 242, 0.88);
+  cursor: pointer;
+}
+
+.check-row input {
+  accent-color: var(--accent);
+}
+
+.fields {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(232, 244, 242, 0.55);
+}
+
+.field.inline {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9rem;
+  color: var(--foam);
+}
+
+.field input[type='text'],
+.field input[type='number'] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--foam);
+  font: 500 16px/1.2 var(--font-body);
+  outline: none;
+}
+
+.field input[type='number'] {
+  width: 5.2rem;
+  text-align: center;
+}
+
+.field input:focus {
+  border-color: rgba(46, 196, 182, 0.65);
+  box-shadow: 0 0 0 3px rgba(46, 196, 182, 0.15);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(232, 244, 242, 0.85);
+  font: 500 0.78rem/1 var(--font-body);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.chip:hover {
+  background: rgba(46, 196, 182, 0.14);
+  border-color: rgba(46, 196, 182, 0.45);
+  transform: translateY(-1px);
+}
+
+.chip.active {
+  background: rgba(46, 196, 182, 0.22);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.controls {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.btn,
+.mode-btn,
+.panel-toggle,
+.check-row {
+  touch-action: manipulation;
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 0.78rem 0.9rem;
+  min-height: 44px;
+  font: 600 0.92rem/1 var(--font-body);
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  color: #042229;
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--foam);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  animation: rise 0.45s ease both;
+}
+
+.stat {
+  padding: 0.65rem 0.5rem;
+  border-top: 1px solid rgba(46, 196, 182, 0.35);
+}
+
+.stat-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(232, 244, 242, 0.5);
+}
+
+.stat strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.waypoints-block {
+  margin-top: 0.75rem;
+}
+
+.waypoints-block .muted {
+  margin: 0;
+  color: rgba(232, 244, 242, 0.55);
+  font-size: 0.88rem;
+}
+
+.route-desc {
+  margin-top: 1rem;
+  padding: 0.85rem 0.9rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(7, 24, 33, 0.55);
+  animation: rise 0.4s ease both;
+}
+
+.route-desc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.route-desc-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--foam);
+}
+
+.route-desc-copy {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+}
+
+.route-desc-body {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  resize: vertical;
+  min-height: 5.5rem;
+  border: 1px solid rgba(46, 196, 182, 0.28);
+  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+  background: rgba(4, 16, 22, 0.72);
+  color: rgba(232, 244, 242, 0.95);
+  font: 500 16px/1.55 var(--font-body);
+  outline: none;
+}
+
+.route-desc-body:focus {
+  border-color: var(--accent);
+}
+
+.status {
+  min-height: 1.2rem;
+  margin: 0.85rem 0 0;
+  font-size: 0.82rem;
+  color: var(--sand);
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.panel-toggle {
+  position: absolute;
+  z-index: 501;
+  top: max(1.25rem, env(safe-area-inset-top, 0px));
+  left: max(1.25rem, env(safe-area-inset-left, 0px));
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--foam);
+  font-size: 1.1rem;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.panel.collapsed ~ .panel-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.route-marker {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 6px rgba(46, 196, 182, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.route-marker.origin {
+  background: var(--accent);
+}
+
+.route-marker.dest {
+  background: var(--sand);
+}
+
+.leaflet-container .leaflet-overlay-pane path.route-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 720px) {
+  .panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 48vh;
+    max-height: 48dvh;
+    padding-bottom: calc(1.1rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 22px 22px 0 0;
+  }
+
+  .panel.collapsed {
+    transform: translateY(110%);
+  }
+
+  .panel-toggle {
+    top: auto;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    left: max(1rem, env(safe-area-inset-left, 0px));
+  }
+
+  .actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .actions .btn.primary {
+    grid-column: 1 / -1;
+  }
+
+  .stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .leaflet-control-zoom {
+    margin-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+@media (pointer: coarse) {
+  .mode-btn {
+    min-height: 44px;
+  }
+
+  .check-row {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .wp-hit {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
