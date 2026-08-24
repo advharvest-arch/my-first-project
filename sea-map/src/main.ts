@@ -75,8 +75,9 @@ const map = L.map(mapEl, {
   maxZoom: 19,
   zoomControl: false,
   attributionControl: true,
-  // Touch / trackpad — keep defaults; preferCanvas helps weak mobile GPUs.
-  preferCanvas: true,
+  // Prefer DOM tiles (crisper labels); canvas is only for vectors if needed.
+  preferCanvas: false,
+  fadeAnimation: false,
   tapTolerance: 20,
   bounceAtZoomLimits: false,
 }).setView([55.75, 37.62], 5);

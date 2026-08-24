@@ -67,6 +67,12 @@ body {
   font: inherit;
 }
 
+/* Never leave basemap tiles stuck at Leaflet's fade-in opacity 0. */
+.leaflet-tile-pane img,
+.leaflet-tile-container img {
+  opacity: 1 !important;
+}
+
 /* Always arrow cursor on the map (not the hand / grab). */
 .leaflet-container,
 .leaflet-container.leaflet-grab,

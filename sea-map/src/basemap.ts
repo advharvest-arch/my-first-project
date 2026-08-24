@@ -26,22 +26,64 @@ function offlineLandLayer(pane?: string): L.GeoJSON {
   });
 }
 
+/** Raster tiles with a secondary URL if the primary host fails (403/timeout). */
+function rasterLayer(
+  primaryUrl: string,
+  options: L.TileLayerOptions,
+  fallbackUrl?: string,
+): L.TileLayer {
+  const layer = L.tileLayer(primaryUrl, {
+    updateWhenIdle: true,
+    keepBuffer: 2,
+    ...options,
+  });
+
+  if (!fallbackUrl) return layer;
+
+  layer.on('tileerror', (e) => {
+    const tile = (e as L.TileErrorEvent).tile as HTMLImageElement | undefined;
+    const coords = (e as L.TileErrorEvent).coords;
+    if (!tile || !coords || tile.dataset.fallbackTried === '1') return;
+    tile.dataset.fallbackTried = '1';
+    const { z, x, y } = coords;
+    tile.src = L.Util.template(fallbackUrl, {
+      s: ['a', 'b', 'c', 'd'][Math.abs(x + y) % 4],
+      r: '',
+      z,
+      x,
+      y,
+    });
+  });
+
+  return layer;
+}
+
 export function createBasemaps(): Record<BasemapId, BasemapDef> {
-  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-    className: 'basemap-tiles',
-  });
+  // Standard OSM for clear water/land contrast; Carto as fallback if OSM rate-limits.
+  const osm = rasterLayer(
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+      className: 'basemap-tiles',
+    },
+    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  );
 
-  const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution:
-      '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> | &copy; OpenStreetMap',
-    subdomains: 'abc',
-    maxZoom: 17,
-    className: 'basemap-tiles',
-  });
+  const topo = rasterLayer(
+    'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    {
+      attribution:
+        '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> | &copy; OpenStreetMap',
+      subdomains: 'abc',
+      maxZoom: 17,
+      className: 'basemap-tiles',
+    },
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  );
 
-  const satellite = L.tileLayer(
+  const satellite = rasterLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     {
       attribution: 'Tiles &copy; Esri',
@@ -66,21 +108,35 @@ export function attachBasemapControl(
   initial: BasemapId = 'osm',
 ): { setBasemap: (id: BasemapId) => void; getBasemap: () => BasemapId } {
   let current = initial;
+
+  // Land contour only for offline mode — never under raster tiles
+  // (opaque fill washed out OSM/Carto and looked like a broken map).
   map.createPane('underlayPane');
   const underlayPane = map.getPane('underlayPane');
   if (underlayPane) {
-    underlayPane.style.zIndex = '150';
+    underlayPane.style.zIndex = '200';
     underlayPane.style.pointerEvents = 'none';
   }
-  offlineLandLayer('underlayPane').addTo(map);
+  const offlineUnderlay = offlineLandLayer('underlayPane');
+
+  const syncUnderlay = (id: BasemapId) => {
+    if (id === 'offline') {
+      if (!map.hasLayer(offlineUnderlay)) offlineUnderlay.addTo(map);
+    } else if (map.hasLayer(offlineUnderlay)) {
+      map.removeLayer(offlineUnderlay);
+    }
+  };
 
   basemaps[current].layer.addTo(map);
+  syncUnderlay(current);
+  map.getContainer().dataset.basemap = current;
 
   const setBasemap = (id: BasemapId) => {
     if (id === current) return;
     map.removeLayer(basemaps[current].layer);
     current = id;
     basemaps[current].layer.addTo(map);
+    syncUnderlay(id);
     map.getContainer().dataset.basemap = id;
   };
 
