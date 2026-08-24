@@ -1195,6 +1195,24 @@ function isGenericWaterwayName(name: string): boolean {
   return false;
 }
 
+/** Moscow Canal and its OSM name variants (must not be labeled from a giant bbox). */
+function isMoscowCanalName(name: string): boolean {
+  const k = name.trim().toLocaleLowerCase('ru');
+  if (!(k.includes('канал') && k.includes('москв'))) return false;
+  // Keep unrelated city canals out of this bucket.
+  if (k.includes('водоотвод') || k.includes('головин') || k.includes('гребн')) return false;
+  return /имени\s+москвы|им\.?\s*москвы|канал\s+им/.test(k) || k === 'канал имени москвы';
+}
+
+/** Stable display name for itinerary (merge OSM aliases). */
+function canonicalWaterwayName(name: string): string {
+  const raw = name.trim();
+  if (isMoscowCanalName(raw)) return 'Канал имени Москвы';
+  const k = raw.toLocaleLowerCase('ru');
+  if (k.includes('сходненск') && k.includes('деривац')) return 'Сходня';
+  return raw;
+}
+
 /**
  * Closest named waterway centerline from water-core / Overpass cache.
  * Includes trunk rivers — geometry distance beats giant catalog bboxes.
@@ -1207,10 +1225,13 @@ function nearestLocalWaterwayName(
   opts: { preferName?: string | null; excludeTrunk?: boolean } = {},
 ): { name: string; distKm: number } | null {
   const { cx, cy } = pointCell(p);
-  const preferKey = opts.preferName?.toLocaleLowerCase('ru') ?? null;
+  const preferKey = opts.preferName
+    ? canonicalWaterwayName(opts.preferName).toLocaleLowerCase('ru')
+    : null;
   let bestName: string | null = null;
   let bestD = maxKm;
   let bestIsTrunk = false;
+  let bestIsCanal = false;
   const seen = new Set<string>();
   let checked = 0;
   for (let dx = -1; dx <= 1; dx++) {
@@ -1221,24 +1242,32 @@ function nearestLocalWaterwayName(
         if (seen.has(line.id)) continue;
         seen.add(line.id);
         if (isGenericWaterwayName(line.name)) continue;
-        const trunk = isTrunkRiver(line.name);
+        const canon = canonicalWaterwayName(line.name);
+        const trunk = isTrunkRiver(canon);
+        const canal = isMoscowCanalName(canon);
         if (opts.excludeTrunk && trunk) continue;
         if (++checked > 160) break;
         const stride = Math.max(1, Math.floor(line.coords.length / 32));
         for (let j = stride; j < line.coords.length; j += stride) {
           const c = closestOnSegment(p, line.coords[j - stride]!, line.coords[j]!);
           if (c.distKm > bestD + 0.08) continue;
-          const nameKey = line.name.toLocaleLowerCase('ru');
+          const nameKey = canon.toLocaleLowerCase('ru');
           const preferBoost = preferKey && nameKey === preferKey ? 0.06 : 0;
           const score = c.distKm - preferBoost;
-          const bestScore = bestD - (preferKey && bestName?.toLocaleLowerCase('ru') === preferKey ? 0.06 : 0);
-          // Near-tie: keep non-trunk over trunk so tributaries win at mouths.
-          const tieTrunkPenalty =
-            trunk && bestName && !bestIsTrunk && Math.abs(score - bestScore) < 0.12 ? 0.05 : 0;
-          if (score + tieTrunkPenalty < bestScore) {
+          const bestScore =
+            bestD -
+            (preferKey && bestName?.toLocaleLowerCase('ru') === preferKey ? 0.06 : 0);
+          // Near-tie: keep river over trunk/canal so Горетовка/Сходня win beside КиМ.
+          const tiePenalty =
+            ((trunk || canal) && bestName && !bestIsTrunk && !bestIsCanal && Math.abs(score - bestScore) < 0.14
+              ? 0.06
+              : 0) +
+            (canal && bestName && !bestIsCanal && Math.abs(score - bestScore) < 0.22 ? 0.05 : 0);
+          if (score + tiePenalty < bestScore) {
             bestD = c.distKm;
-            bestName = line.name;
+            bestName = canon;
             bestIsTrunk = trunk;
+            bestIsCanal = canal;
           }
         }
       }
@@ -1256,8 +1285,11 @@ function shouldPreferLocalWaterway(
   const localKey = local.name.toLocaleLowerCase('ru');
   if (!catalog) return local.distKm <= 0.55;
   if (catalog.name.toLocaleLowerCase('ru') === localKey) return local.distKm <= 0.7;
-  // Open water / reservoirs keep catalog lake names.
-  if (catalog.kind === 'lake') return false;
+  // Reservoir bbox can cover a tributary mouth (Сходня vs Химкинское) — river centerline wins.
+  if (catalog.kind === 'lake') {
+    if (isMoscowCanalName(local.name)) return local.distKm <= 0.18;
+    return local.distKm <= 0.28;
+  }
   // Any nearby named centerline beats a coarse river bbox (Волга, Москва, …).
   if (local.distKm <= 0.45) return true;
   // Catalog trunk with a slightly farther tributary still nearby.
@@ -1265,6 +1297,23 @@ function shouldPreferLocalWaterway(
   // Mid-size catalog river vs a close local creek.
   if (local.distKm <= 0.3 && !isCorridorTributary(catalog.name)) return true;
   return false;
+}
+
+function stickyNameForRiver(name: string): string | null {
+  if (isMoscowCanalName(name) || isTrunkRiver(name)) return null;
+  return name;
+}
+
+/** Volga-cascade reservoirs are retired after leaving; small lakes (Химкинское) may re-enter. */
+function shouldRetireLakeName(name: string): boolean {
+  const k = name.toLocaleLowerCase('ru');
+  return /иваньков|углич|рыбин|горьков|чебоксар|куйбышев|саратов|волгоград|камск|воткин|нижнекам|цимлян|юмагузин/.test(
+    k,
+  );
+}
+
+function retireLakeName(usedNames: Set<string>, name: string): void {
+  if (shouldRetireLakeName(name)) usedNames.add(name.toLocaleLowerCase('ru'));
 }
 
 /**
@@ -1628,6 +1677,20 @@ function nameAtSample(
       ) {
         usedNames.add(lakeKey);
         // keep sticky river
+      } else if (
+        localNear &&
+        localNear.distKm <= 0.28 &&
+        localKey === key &&
+        !isMoscowCanalName(localNear.name)
+      ) {
+        // Still on the sticky river centerline inside a reservoir bbox (Сходня / Химкинское).
+        return {
+          name: stickyRiver,
+          stickyLake: null,
+          stickyOutsideKm: 0,
+          stickyRiver,
+          stickyRiverOutsideKm: 0,
+        };
       } else {
         return {
           name: peek.name,
@@ -1645,13 +1708,14 @@ function nameAtSample(
       localKey &&
       localKey !== key &&
       localNear.distKm <= 0.38 &&
-      !(isTrunkRiver(localNear.name) && !isTrunkRiver(stickyRiver) && localNear.distKm > 0.22)
+      !(isTrunkRiver(localNear.name) && !isTrunkRiver(stickyRiver) && localNear.distKm > 0.22) &&
+      !(isMoscowCanalName(localNear.name) && !isMoscowCanalName(stickyRiver) && localNear.distKm > 0.2)
     ) {
       return {
         name: localNear.name,
         stickyLake: null,
         stickyOutsideKm: 0,
-        stickyRiver: isTrunkRiver(localNear.name) ? null : localNear.name,
+        stickyRiver: stickyNameForRiver(localNear.name),
         stickyRiverOutsideKm: 0,
       };
     }
@@ -1745,12 +1809,12 @@ function nameAtSample(
     const lakeKey = stickyLake.toLocaleLowerCase('ru');
     // Past the dam/lock → river, not the reservoir (no hysteresis across the gate).
     if (lock && pastReservoirLock(p, lock)) {
-      usedNames.add(lakeKey);
+      retireLakeName(usedNames, stickyLake);
       stickyLake = null;
       stickyOutsideKm = 0;
     } else if (lakeKey.includes('чебоксар') && onVetlugaAboveMouth(p)) {
       // Reservoir box covers lower Ветлуга; leave Чебоксарское at the real mouth.
-      usedNames.add(lakeKey);
+      retireLakeName(usedNames, stickyLake);
       return {
         name: 'Ветлуга',
         stickyLake: null,
@@ -1778,7 +1842,7 @@ function nameAtSample(
           volga &&
           catalogArea(riverBody) < catalogArea(volga) * 0.45
         ) {
-          usedNames.add(stickyLake.toLocaleLowerCase('ru'));
+          retireLakeName(usedNames, stickyLake);
           const riverSticky = isCorridorTributary(catalogNow.name)
             ? catalogNow.name
             : null;
@@ -1804,16 +1868,25 @@ function nameAtSample(
           stickyRiverOutsideKm,
         };
       }
-      usedNames.add(stickyLake.toLocaleLowerCase('ru'));
+      retireLakeName(usedNames, stickyLake);
       stickyLake = null;
       stickyOutsideKm = 0;
     }
   }
 
-  // Catalog lakes first; rivers prefer nearby OSM/water-core centerlines so
-  // every tributary on the path is named (not swallowed by Волга / Москва bboxes).
+  // Catalog lakes first, but a river under the track (Сходня у Химкинского) wins.
   const catalog = pickCatalogName(p, usedNames);
   const local = nearestLocalWaterwayName(p);
+  if (shouldPreferLocalWaterway(catalog, local) && local) {
+    const stick = stickyNameForRiver(local.name);
+    return {
+      name: local.name,
+      stickyLake: null,
+      stickyOutsideKm: 0,
+      stickyRiver: stick ?? stickyRiver,
+      stickyRiverOutsideKm: stick ? 0 : stickyRiverOutsideKm,
+    };
+  }
   if (catalog?.kind === 'lake') {
     return {
       name: catalog.name,
@@ -1821,16 +1894,6 @@ function nameAtSample(
       stickyOutsideKm: 0,
       stickyRiver: null,
       stickyRiverOutsideKm: 0,
-    };
-  }
-  if (shouldPreferLocalWaterway(catalog, local) && local) {
-    const stick = isTrunkRiver(local.name) ? null : local.name;
-    return {
-      name: local.name,
-      stickyLake: null,
-      stickyOutsideKm: 0,
-      stickyRiver: stick ?? stickyRiver,
-      stickyRiverOutsideKm: stick ? 0 : stickyRiverOutsideKm,
     };
   }
 
@@ -1849,7 +1912,7 @@ function nameAtSample(
   }
   // Last resort: any nearby named waterway even without catalog coverage.
   if (local && local.distKm <= 0.7) {
-    const stick = isTrunkRiver(local.name) ? null : local.name;
+    const stick = stickyNameForRiver(local.name);
     return {
       name: local.name,
       stickyLake: null,
@@ -2040,6 +2103,78 @@ function mergeShortSegments(segments: ItinerarySegment[], minKm = 1.2): Itinerar
   return collapseAdjacentSegments(out);
 }
 
+/** Fold short Moscow-Canal blips that flicker between real rivers / Khimki. */
+function collapseMoscowCanalFlicker(segments: ItinerarySegment[]): ItinerarySegment[] {
+  if (segments.length < 2) return segments;
+  const out = segments.map((s) => ({
+    name: canonicalWaterwayName(s.name),
+    km: s.km,
+  }));
+  const isCanal = (s: ItinerarySegment) => isMoscowCanalName(s.name);
+  const isKhimki = (s: ItinerarySegment) =>
+    s.name.toLocaleLowerCase('ru').includes('химкинск');
+  let guard = 0;
+  while (guard++ < 40) {
+    let changed = false;
+    for (let i = 0; i < out.length; i++) {
+      const s = out[i]!;
+      const prev = i > 0 ? out[i - 1] : null;
+      const next = i + 1 < out.length ? out[i + 1] : null;
+
+      // Short Химкинское between rivers (Сходня mouth bbox) then real Moskva→Khimki:
+      // Химкинское — Москва — Химкинское → drop the first blip into Москва.
+      if (
+        isKhimki(s) &&
+        s.km < 5 &&
+        next &&
+        next.name.toLocaleLowerCase('ru') === 'москва' &&
+        out[i + 2] &&
+        isKhimki(out[i + 2]!)
+      ) {
+        next.km += s.km;
+        out.splice(i, 1);
+        changed = true;
+        break;
+      }
+
+      if (!isCanal(s)) continue;
+      // Short canal between two non-canal stretches → absorb into the longer neighbor.
+      if (s.km >= 8) continue;
+      if (prev && next && !isCanal(prev) && !isCanal(next)) {
+        if (prev.name.toLocaleLowerCase('ru') === next.name.toLocaleLowerCase('ru')) {
+          prev.km += s.km + next.km;
+          out.splice(i, 2);
+        } else if (prev.km >= next.km) {
+          prev.km += s.km;
+          out.splice(i, 1);
+        } else {
+          next.km += s.km;
+          out.splice(i, 1);
+        }
+        changed = true;
+        break;
+      }
+      // Leading short canal before a river (Горетовка/Сходня) — drop into the river.
+      if (!prev && next && !isCanal(next) && s.km < 12) {
+        next.km += s.km;
+        out.splice(i, 1);
+        changed = true;
+        break;
+      }
+      // Trailing short canal after a lake/river when destination is Khimki pool:
+      // keep canal only if longer than 6 km (real КиМ fairway).
+      if (prev && !next && !isCanal(prev) && s.km < 6) {
+        prev.km += s.km;
+        out.splice(i, 1);
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) break;
+  }
+  return collapseAdjacentSegments(out);
+}
+
 /** Merge consecutive stretches that share the same name. */
 function collapseAdjacentSegments(segments: ItinerarySegment[]): ItinerarySegment[] {
   const collapsed: ItinerarySegment[] = [];
@@ -2170,7 +2305,8 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     stickyRiver = hit.stickyRiver;
     stickyRiverOutsideKm = hit.stickyRiverOutsideKm;
     if (!hit.name) return null;
-    const key = hit.name.toLocaleLowerCase('ru');
+    const name = canonicalWaterwayName(hit.name);
+    const key = name.toLocaleLowerCase('ru');
     if (usedNames.has(key)) return null;
 
     if (key.includes('куйбышев') || key.includes('чебоксар') || key.includes('горьков')) {
@@ -2187,7 +2323,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
       // Still on the Volga cascade — do not label a canal detour here.
       return 'Волга';
     }
-    return hit.name;
+    return name;
   };
 
   let currentName = labelAt(path[0]!, 0);
@@ -2235,7 +2371,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
       flushNamed();
       if (currentName && name !== currentName) {
         if (isLakeCatalogName(currentName)) {
-          usedNames.add(currentName.toLocaleLowerCase('ru'));
+          retireLakeName(usedNames, currentName);
         } else if (
           // Never lock Ветлуга/Селижаровка/… on a Volga confluence flicker —
           // that turned the whole Vetluga climb into «Волга (500 км)».
@@ -2243,7 +2379,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
           !isCorridorTributary(currentName) &&
           isLakeCatalogName(name)
         ) {
-          usedNames.add(currentName.toLocaleLowerCase('ru'));
+          // Non-cascade river entering a lake — do not permanently ban the river name.
         }
       }
       currentName = name;
@@ -2264,7 +2400,10 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
       segments.push({ name: currentName, km: pendingKm });
     }
   }
-  return mergeShortSegments(collapseVetlugaMouthFlicker(segments), 1.2);
+  return mergeShortSegments(
+    collapseMoscowCanalFlicker(collapseVetlugaMouthFlicker(segments)),
+    1.2,
+  );
 }
 
 export type ItineraryOptions = {
@@ -2337,6 +2476,7 @@ export async function describeWaterItinerary(
   // Collapse neighbours left adjacent after filters (e.g. Волга — [removed] — Волга).
   chain = collapseAdjacentSegments(chain);
   chain = collapseVetlugaMouthFlicker(chain);
+  chain = collapseMoscowCanalFlicker(chain);
 
   const geo = haversineKm(origin, destination);
   if (opts.totalKm && geo > 40 && opts.totalKm > geo * 3.5) {
