@@ -778,6 +778,7 @@ function aroundWaterQuery(points: LngLat[]): string {
       const { lat, lon } = p;
       return `
   way(around:${radius},${lat},${lon})["waterway"~"^(river|canal|fairway|ship_canal|link)$"];
+  way(around:${radius},${lat},${lon})["waterway"="stream"]["name"];
   way(around:${radius},${lat},${lon})["landuse"="reservoir"];
   way(around:${radius},${lat},${lon})["natural"="water"]["water"~"^(lake|reservoir|basin)$"];
   way(around:${radius},${lat},${lon})["natural"="water"]["name"];`;
@@ -803,6 +804,7 @@ function cellBboxQuery(cx: number, cy: number): string {
 [out:json][timeout:10];
 (
   way["waterway"~"^(river|canal|fairway|ship_canal|link)$"](${s},${w},${n},${e});
+  way["waterway"="stream"]["name"](${s},${w},${n},${e});
   way["landuse"="reservoir"](${s},${w},${n},${e});
   way["natural"="water"]["water"~"^(lake|reservoir|basin)$"](${s},${w},${n},${e});
   way["natural"="water"]["name"](${s},${w},${n},${e});
@@ -1162,14 +1164,88 @@ function cumKmAlongPath(path: LngLat[], waypoints: LngLat[]): number[] {
 }
 
 function waterNameFromTags(tags: string[]): string | null {
+  const names: string[] = [];
   const kinds = new Set<string>();
   for (const t of tags) {
+    if (t.startsWith('name=') || t.startsWith('name:ru=')) {
+      const n = t.slice(t.indexOf('=') + 1).trim();
+      if (n && !isGenericWaterwayName(n)) names.push(n);
+      continue;
+    }
     if (t === 'waterway=river') kinds.add('река');
     else if (t === 'waterway=canal') kinds.add('канал');
+    else if (t === 'waterway=stream') kinds.add('ручей');
     else if (t === 'waterway=fairway') kinds.add('фарватер');
     else if (t.startsWith('waterway=')) kinds.add(t.slice('waterway='.length));
   }
+  if (names.length) return uniqueWaterName(...names);
   return kinds.size ? [...kinds].join(', ') : null;
+}
+
+/** Skip anonymous ditches / lock labels when naming itinerary stretches. */
+function isGenericWaterwayName(name: string): boolean {
+  const k = name.trim().toLocaleLowerCase('ru');
+  if (k.length < 2) return true;
+  if (/^шлюз\b/.test(k)) return true;
+  if (/^(канал|протока|рукав|водоток|ручей|река)\s*\d*$/i.test(k)) return true;
+  if (/водоотвод/i.test(k)) return true;
+  if (/^без названия/i.test(k)) return true;
+  return false;
+}
+
+/**
+ * Closest named waterway from water-core / Overpass cache.
+ * Used so small rivers (Сходня, Истра, …) are not swallowed by the Волга bbox.
+ */
+function nearestLocalWaterwayName(
+  p: LngLat,
+  maxKm = 0.28,
+): { name: string; distKm: number } | null {
+  const { cx, cy } = pointCell(p);
+  let bestName: string | null = null;
+  let bestD = maxKm;
+  const seen = new Set<string>();
+  let checked = 0;
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const lines = cellCache.get(cellKey(cx + dx, cy + dy)) ?? [];
+      for (const line of lines) {
+        if (!line.name || line.kind !== 'waterway') continue;
+        if (seen.has(line.id)) continue;
+        seen.add(line.id);
+        if (isGenericWaterwayName(line.name)) continue;
+        // Skip giant trunk centerlines here — catalog already covers them.
+        if (isTrunkRiver(line.name)) continue;
+        if (++checked > 120) break;
+        const stride = Math.max(1, Math.floor(line.coords.length / 28));
+        for (let j = stride; j < line.coords.length; j += stride) {
+          const c = closestOnSegment(p, line.coords[j - stride]!, line.coords[j]!);
+          if (c.distKm < bestD) {
+            bestD = c.distKm;
+            bestName = line.name;
+          }
+        }
+      }
+    }
+  }
+  return bestName ? { name: bestName, distKm: bestD } : null;
+}
+
+function shouldPreferLocalWaterway(
+  catalog: { name: string; kind: 'river' | 'lake' } | null,
+  local: { name: string; distKm: number } | null,
+): boolean {
+  if (!local) return false;
+  const localKey = local.name.toLocaleLowerCase('ru');
+  if (!catalog) return true;
+  if (catalog.name.toLocaleLowerCase('ru') === localKey) return false;
+  // Open water / reservoirs keep catalog lake names.
+  if (catalog.kind === 'lake') return false;
+  // Giant trunk bboxes (Волга, Обь, …) must not hide a nearby named tributary.
+  if (isTrunkRiver(catalog.name) && local.distKm <= 0.28) return true;
+  // Mid-size catalog river (Ока, Дон…) vs a much closer local creek.
+  if (local.distKm <= 0.15 && !isCorridorTributary(catalog.name)) return true;
+  return false;
 }
 
 type CatalogBody = {
@@ -1387,9 +1463,22 @@ function catalogBodyByName(name: string): CatalogBody | undefined {
 }
 
 const TRUNK_RIVERS = new Set(
-  ['волга', 'москва', 'нева', 'кама', 'дон', 'ока', 'белая'].map((s) =>
-    s.toLocaleLowerCase('ru'),
-  ),
+  [
+    'волга',
+    'москва',
+    'нева',
+    'кама',
+    'дон',
+    'ока',
+    'белая',
+    'обь',
+    'иртыш',
+    'енисей',
+    'лена',
+    'амур',
+    'печора',
+    'северная двина',
+  ].map((s) => s.toLocaleLowerCase('ru')),
 );
 
 /** Named corridors that must not be permanently locked on a Volga confluence flicker. */
@@ -1636,8 +1725,20 @@ function nameAtSample(
     }
   }
 
-  // Catalog only — never pull random OSM tributaries (e.g. «Ить»).
+  // Catalog first; local OSM/water-core names recover small rivers inside
+  // giant trunk bboxes (Волга swallowing Сходня / Истра / …).
   const catalog = pickCatalogName(p, usedNames);
+  const local = nearestLocalWaterwayName(p);
+  if (shouldPreferLocalWaterway(catalog, local) && local) {
+    return {
+      name: local.name,
+      stickyLake: null,
+      stickyOutsideKm: 0,
+      stickyRiver: isCorridorTributary(local.name) ? local.name : stickyRiver,
+      stickyRiverOutsideKm: isCorridorTributary(local.name) ? 0 : stickyRiverOutsideKm,
+    };
+  }
+
   if (catalog?.kind === 'lake') {
     return {
       name: catalog.name,
@@ -1925,7 +2026,8 @@ function densifyPathForItinerary(path: LngLat[], stepKm = 2.5): LngLat[] {
 
 /**
  * Build ordered waterway/reservoir chain with per-stretch distances.
- * Naming uses the curated catalog only (no OSM tributary noise).
+ * Prefer curated catalog; fall back to nearby named OSM/water-core rivers
+ * so small tributaries are not labeled as the trunk (Волга, …).
  */
 function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   if (path.length < 2) return [];
