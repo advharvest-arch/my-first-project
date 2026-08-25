@@ -130,28 +130,27 @@ function rasterLayer(sources: TileSource[], shared: L.TileLayerOptions = {}): L.
 }
 
 export function createBasemaps(): Record<BasemapId, BasemapDef> {
-  // Carto Voyager first: multi-subdomain CDN, clear water/land, rarely throttled.
-  // OSM.org is a fallback (usage policy + rate limits often blank the map).
-  // Esri streets as last resort.
+  // OSM standard first: local `name` tags → Cyrillic labels across Russia.
+  // OsmAnd HD also renders Russian place names well; Carto/Esri as last resort.
   const osm = rasterLayer(
     [
-      {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
-      },
       {
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         options: { maxZoom: 19 },
       },
       {
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        url: 'https://tile.osmand.net/hd/{z}/{x}/{y}.png',
         options: { maxZoom: 19 },
+      },
+      {
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        options: { subdomains: 'abcd', maxZoom: 20 },
       },
     ],
     {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      maxZoom: 20,
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
     },
   );
 
@@ -163,12 +162,12 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
         options: { maxZoom: 19 },
       },
       {
-        url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-        options: { subdomains: 'abc', maxZoom: 17 },
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        options: { maxZoom: 19 },
       },
       {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
+        url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        options: { subdomains: 'abc', maxZoom: 17 },
       },
     ],
     {
@@ -185,13 +184,12 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
         options: { maxZoom: 19 },
       },
       {
-        // Labels-free Esri imagery sometimes 404s at high z; OSM as land context.
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        options: { maxZoom: 19 },
       },
     ],
     {
-      attribution: 'Tiles &copy; Esri',
+      attribution: 'Tiles &copy; Esri | &copy; OpenStreetMap',
       maxZoom: 19,
     },
   );
@@ -199,7 +197,7 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
   const offline = L.layerGroup([offlineLandLayer()]);
 
   return {
-    osm: { id: 'osm', label: 'OSM (реки и озёра)', layer: osm },
+    osm: { id: 'osm', label: 'Карта (русские названия)', layer: osm },
     topo: { id: 'topo', label: 'Топокарта', layer: topo },
     satellite: { id: 'satellite', label: 'Спутник', layer: satellite },
     offline: { id: 'offline', label: 'Офлайн-контур', layer: offline },

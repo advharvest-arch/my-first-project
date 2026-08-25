@@ -5,8 +5,6 @@ import {
   officialGvrName,
   rememberGvrPair,
   resolveWaterName,
-  gvrSourceLabel,
-  gvrIndexStats,
 } from './gvr';
 import waterBodies from './water-bodies.json';
 import waterCore from './water-core.json';
@@ -2940,7 +2938,7 @@ export async function describeWaterItinerary(
   return chain;
 }
 
-/** Format itinerary for UI / clipboard. */
+/** Format itinerary for UI / clipboard — только имя и длина участка. */
 export function formatItinerary(segments: ItinerarySegment[]): string {
   return segments
     .filter((s) => s.name)
@@ -2950,20 +2948,9 @@ export function formatItinerary(segments: ItinerarySegment[]): string {
         minimumFractionDigits: 1,
         maximumFractionDigits: 1,
       });
-      const gvr = s.fromGvr && s.gvrCode ? ` · ГВР ${s.gvrCode}` : '';
-      return `${s.name} (${kmText} км${gvr})`;
+      return `${s.name} (${kmText} км)`;
     })
     .join(' — ');
-}
-
-/** Human-readable credit for the naming source. */
-export function itinerarySourceNote(segments: ItinerarySegment[]): string {
-  const gvrCount = segments.filter((s) => s.fromGvr).length;
-  const stats = gvrIndexStats();
-  if (gvrCount > 0) {
-    return `${gvrSourceLabel()}: ${gvrCount} из ${segments.length} участков по коду водного объекта (индекс ${stats.codes.toLocaleString('ru-RU')} записей).`;
-  }
-  return `Названия сопоставляются с ${gvrSourceLabel()} при наличии кода объекта.`;
 }
 
 export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {

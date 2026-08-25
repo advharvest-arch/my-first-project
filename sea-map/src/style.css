@@ -306,70 +306,78 @@ body {
 }
 
 .seg-tick-wrap,
-.seg-mid-wrap {
+.seg-mid-wrap,
+.dist-mark-wrap,
+.leaflet-label-clean {
   background: transparent !important;
   border: none !important;
   overflow: visible !important;
+  box-shadow: none !important;
 }
 
-.seg-tick {
-  position: relative;
-  width: 0;
-  height: 0;
-  pointer-events: none;
+.leaflet-label-clean.leaflet-div-icon,
+.seg-mid-wrap.leaflet-div-icon,
+.dist-mark-wrap.leaflet-div-icon {
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
 }
 
-/*
- * Hash mark across the route.
- * Bar is drawn horizontal (E–W); CSS rotate(bearing) aligns its long axis
- * perpendicular to travel (bearing 0° = north → tick stays E–W).
- */
-.seg-tick-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 20px;
-  height: 3px;
-  margin-left: -10px;
-  margin-top: -1.5px;
-  border-radius: 2px;
-  background: #071821;
-  box-shadow:
-    0 0 0 1.5px #fff,
-    0 1px 4px rgba(0, 0, 0, 0.45);
-  transform: rotate(var(--brg, 0deg));
-  transform-origin: center center;
-}
-
-.seg-mid {
-  position: relative;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-
-/* Name + km centered above the stretch midpoint. */
+/* Readable stretch label: name + length, no dots. */
 .seg-mid-label {
   position: absolute;
   left: 0;
-  bottom: 10px;
+  bottom: 14px;
   transform: translateX(-50%);
-  font: 600 0.72rem/1.25 var(--font-body);
-  color: var(--ink);
-  background: rgba(232, 244, 242, 0.96);
-  border: 1px solid rgba(7, 24, 33, 0.14);
-  border-radius: 8px;
-  padding: 0.2rem 0.45rem;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-  white-space: nowrap;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  max-width: min(70vw, 16rem);
+  padding: 0.35rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(7, 24, 33, 0.16);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 6px 18px rgba(0, 0, 0, 0.28);
+  color: #0b1c24;
+  font: 700 0.88rem/1.2 var(--font-body);
+  letter-spacing: -0.01em;
   text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-font-smoothing: antialiased;
 }
 
-.seg-mid-label span {
+.seg-mid-name {
   display: block;
-  margin-top: 0.05rem;
-  font-weight: 700;
-  color: var(--sea-mid);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 15rem;
+}
+
+.seg-mid-km {
+  display: block;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: #14667a;
+  font-variant-numeric: tabular-nums;
+}
+
+.dist-mark {
+  transform: translate(-50%, -130%);
+  padding: 0.18rem 0.45rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(7, 24, 33, 0.14);
+  color: #0b1c24;
+  font: 600 0.75rem/1.1 var(--font-body);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
 }
 
 .route-arrow svg {
@@ -577,32 +585,11 @@ body {
   color: var(--foam);
 }
 
-.itin-gvr {
-  display: inline-block;
-  margin-left: 0.45rem;
-  padding: 0.08rem 0.35rem;
-  border-radius: 6px;
-  background: rgba(46, 196, 182, 0.12);
-  border: 1px solid rgba(46, 196, 182, 0.28);
-  color: rgba(232, 244, 242, 0.72);
-  font-size: 0.68rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  vertical-align: middle;
-}
-
 .itin-km {
   flex: 0 0 auto;
   color: rgba(232, 244, 242, 0.62);
   font-variant-numeric: tabular-nums;
   font-size: 0.82rem;
-}
-
-.route-desc-source {
-  margin: 0 0 0.5rem;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: rgba(232, 244, 242, 0.55);
 }
 
 .controls {
@@ -770,19 +757,6 @@ body {
 .dist-mark-wrap {
   background: transparent !important;
   border: none !important;
-}
-
-.dist-mark {
-  transform: translate(-50%, -120%);
-  padding: 0.12rem 0.35rem;
-  border-radius: 999px;
-  background: rgba(7, 24, 33, 0.88);
-  border: 1px solid rgba(46, 196, 182, 0.45);
-  color: #e8f4f2;
-  font: 600 0.68rem/1 var(--font-body);
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .route-desc-body {

@@ -17,7 +17,6 @@ import { getPresetRoute, type PresetRouteId } from './presets';
 import {
   describeWaterItinerary,
   formatItinerary,
-  itinerarySourceNote,
   polishWaterPath,
   prefetchWaterBbox,
   prefetchWaterNear,
@@ -155,7 +154,6 @@ const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')
 const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
 const routeDescBody = document.querySelector<HTMLTextAreaElement>('#route-desc-body')!;
 const routeDescList = document.querySelector<HTMLOListElement>('#route-desc-list')!;
-const routeDescSource = document.querySelector<HTMLParagraphElement>('#route-desc-source')!;
 const routeDescCopy = document.querySelector<HTMLButtonElement>('#route-desc-copy')!;
 const shareRouteBtn = document.querySelector<HTMLButtonElement>('#share-route-btn')!;
 const gpxExportBtn = document.querySelector<HTMLButtonElement>('#gpx-export-btn')!;
@@ -324,8 +322,6 @@ function hideRouteDesc(): void {
   routeDescBody.value = '';
   routeDescList.innerHTML = '';
   routeDescList.hidden = true;
-  routeDescSource.textContent = '';
-  routeDescSource.hidden = true;
   routeDescCopy.textContent = 'Копировать';
 }
 
@@ -351,11 +347,7 @@ function renderItineraryList(segments: ItinerarySegment[]): void {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     });
-    const gvr =
-      s.fromGvr && s.gvrCode
-        ? `<span class="itin-gvr" title="Код Государственного водного реестра">ГВР ${escapeHtml(s.gvrCode)}</span>`
-        : '';
-    li.innerHTML = `<span class="itin-name">${escapeHtml(s.name)}${gvr}</span><span class="itin-km">${escapeHtml(kmText)} км</span>`;
+    li.innerHTML = `<span class="itin-name">${escapeHtml(s.name)}</span><span class="itin-km">${escapeHtml(kmText)} км</span>`;
     routeDescList.appendChild(li);
   }
 }
@@ -367,11 +359,7 @@ function showRouteDesc(text: string, segments?: ItinerarySegment[]): void {
     return;
   }
   routeDescBody.value = trimmed;
-  const segs = segments ?? lastItinerary;
-  renderItineraryList(segs);
-  const note = itinerarySourceNote(segs);
-  routeDescSource.textContent = note;
-  routeDescSource.hidden = !note;
+  renderItineraryList(segments ?? lastItinerary);
   routeDescEl.hidden = false;
   routeDescCopy.textContent = 'Копировать';
 }
@@ -728,40 +716,9 @@ function formatSegmentKm(km: number): string {
   })} км`;
 }
 
-/** Destination ~`meters` from `p` along geographic bearing (degrees). */
-function destinationMeters(p: LngLat, bearing: number, meters: number): LngLat {
-  const R = 6371000;
-  const δ = meters / R;
-  const θ = (bearing * Math.PI) / 180;
-  const φ1 = (p.lat * Math.PI) / 180;
-  const λ1 = (p.lon * Math.PI) / 180;
-  const sinφ2 =
-    Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
-  const φ2 = Math.asin(Math.min(1, Math.max(-1, sinφ2)));
-  const λ2 =
-    λ1 +
-    Math.atan2(
-      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
-      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2),
-    );
-  return {
-    lat: (φ2 * 180) / Math.PI,
-    lon: ((((λ2 * 180) / Math.PI + 540) % 360) - 180),
-  };
-}
-
-/** Half-length of a boundary tick so it stays ~10–12 px on screen. */
-function segmentTickHalfMeters(at: LngLat): number {
-  const z = map.getZoom();
-  const mPerPx =
-    (156543.03392 * Math.cos((at.lat * Math.PI) / 180)) / 2 ** z;
-  return Math.max(18, Math.min(350, mPerPx * 11));
-}
-
 /**
- * Perpendicular hash marks at stretch boundaries; name + km above each stretch midpoint.
- * Ticks are short geographic polylines across the route (bearing ± 90°).
- * Near-duplicate boundaries (e.g. flicker at a mouth) collapse to one tick.
+ * Name + km labels above each stretch midpoint.
+ * No boundary dots/ticks — only readable text chips.
  */
 function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   if (!showSegmentLabelsInput.checked) return;
@@ -772,59 +729,19 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   const scale = pathKm / segSum;
 
   let cum = 0;
-  const boundsKm: number[] = [];
-  // Internal stretch boundaries only (skip route start/end — they clutter mouths).
-  for (let i = 0; i < segments.length - 1; i++) {
-    cum += segments[i]!.km;
-    boundsKm.push(cum);
-  }
-
-  const ticks: { point: LngLat; bearing: number }[] = [];
-  for (const km of boundsKm) {
-    const { point, bearing } = pointAlongPath(path, km * scale);
-    // Wide merge: Чебоксарское↔Ветлуга flicker left marks several km apart at the mouth.
-    if (ticks.some((t) => haversineKm(t.point, point) < 8)) continue;
-    ticks.push({ point, bearing });
-  }
-
-  for (const { point, bearing } of ticks) {
-    const half = segmentTickHalfMeters(point);
-    // Across the line: left/right of travel, not along it.
-    const a = destinationMeters(point, bearing - 90, half);
-    const b = destinationMeters(point, bearing + 90, half);
-    L.polyline(
-      [
-        [a.lat, a.lon],
-        [b.lat, b.lon],
-      ],
-      {
-        color: '#ffffff',
-        weight: 5,
-        opacity: 0.95,
-        lineCap: 'butt',
-        interactive: false,
-      },
-    ).addTo(drawLayer);
-    L.polyline(
-      [
-        [a.lat, a.lon],
-        [b.lat, b.lon],
-      ],
-      {
-        color: '#071821',
-        weight: 2.5,
-        opacity: 1,
-        lineCap: 'butt',
-        interactive: false,
-      },
-    ).addTo(drawLayer);
-  }
-
-  cum = 0;
+  const placed: LngLat[] = [];
   for (const seg of segments) {
+    if (!seg.name || seg.km < 0.15) {
+      cum += seg.km;
+      continue;
+    }
     const midKm = (cum + seg.km / 2) * scale;
     cum += seg.km;
     const { point } = pointAlongPath(path, midKm);
+    // Avoid overlapping labels on short consecutive stretches.
+    if (placed.some((p) => haversineKm(p, point) < 0.35)) continue;
+    placed.push(point);
+
     const name = escapeHtml(shortSegmentName(seg.name));
     const kmText = escapeHtml(formatSegmentKm(seg.km));
     L.marker([point.lat, point.lon], {
@@ -832,11 +749,9 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
       keyboard: false,
       zIndexOffset: 460,
       icon: L.divIcon({
-        className: 'seg-mid-wrap',
-        html: `<div class="seg-mid">
-          <div class="seg-mid-label">${name}<span>${kmText}</span></div>
-        </div>`,
-        iconSize: [1, 1],
+        className: 'seg-mid-wrap leaflet-label-clean',
+        html: `<div class="seg-mid-label"><span class="seg-mid-name">${name}</span><span class="seg-mid-km">${kmText}</span></div>`,
+        iconSize: [0, 0],
         iconAnchor: [0, 0],
       }),
     }).addTo(drawLayer);
@@ -857,9 +772,9 @@ function drawDistanceMarks(path: LngLat[]): void {
       keyboard: false,
       zIndexOffset: 420,
       icon: L.divIcon({
-        className: 'dist-mark-wrap',
+        className: 'dist-mark-wrap leaflet-label-clean',
         html: `<div class="dist-mark">${Math.round(km)} км</div>`,
-        iconSize: [1, 1],
+        iconSize: [0, 0],
         iconAnchor: [0, 0],
       }),
     }).addTo(drawLayer);
