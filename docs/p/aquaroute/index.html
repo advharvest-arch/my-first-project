@@ -66,8 +66,8 @@
         pointer-events: none;
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-DMelc5fq.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-B4QEBL5i.css">
+    <script type="module" crossorigin src="./assets/index-DAqCX5gj.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-fAziy0V2.css">
     <script type="module">import'data:text/javascript,if(!import.meta.resolve)throw Error("import.meta.resolve not supported")';import.meta.url;import("_").catch(()=>1);(async function*(){})().next();window.__vite_is_modern_browser=true</script>
     <script type="module">!function(){if(window.__vite_is_modern_browser)return;console.warn("vite: loading legacy chunks, syntax error above and the same error below should be ignored");var e=document.getElementById("vite-legacy-polyfill"),n=document.createElement("script");n.src=e.src,n.onload=function(){System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))},document.body.appendChild(n)}();</script>
   </head>
@@ -84,7 +84,7 @@
         <header class="brand">
           <p class="brand-mark">AquaRoute</p>
           <p class="brand-sub">
-            Водный маршрут с именами рек и озёр — без подписки, с GPX и шарингом
+            Имена рек, притяжка к фарватеру, GPX и ссылка — без подписки
           </p>
         </header>
 
@@ -108,6 +108,12 @@
             <span>Скорость судна, км/ч</span>
             <input id="speed" type="number" min="1" max="120" step="1" value="20" inputmode="numeric" />
           </label>
+          <div class="presets speed-presets" id="speed-presets" role="group" aria-label="Пресет скорости">
+            <button type="button" class="chip" data-speed="5">Байдарка · 5</button>
+            <button type="button" class="chip" data-speed="12">Моторка · 12</button>
+            <button type="button" class="chip active" data-speed="20">Катер · 20</button>
+            <button type="button" class="chip" data-speed="40">Быстро · 40</button>
+          </div>
         </div>
 
         <div class="waypoints-block" id="waypoints-block">
@@ -153,6 +159,7 @@
         <div class="actions">
           <button type="button" class="btn primary" id="route-btn" disabled>Проложить</button>
           <button type="button" class="btn ghost" id="undo-btn" hidden>Отменить точку</button>
+          <button type="button" class="btn ghost" id="reverse-btn" hidden>Развернуть</button>
           <button type="button" class="btn ghost" id="clear-btn">Сбросить</button>
         </div>
 
@@ -190,11 +197,12 @@
               </button>
             </div>
           </header>
+          <ol class="route-desc-list" id="route-desc-list" hidden></ol>
           <textarea
             id="route-desc-body"
             class="route-desc-body"
             readonly
-            rows="4"
+            rows="3"
             spellcheck="false"
             aria-label="Описание маршрута"
           ></textarea>
@@ -266,6 +274,6 @@
     </script>
     <script nomodule>!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventListener("beforeload",(function(e){if(e.target===t)n=!0;else if(!e.target.hasAttribute("nomodule")||!n)return;e.preventDefault()}),!0),t.type="module",t.src=".",e.head.appendChild(t),t.remove()}}();</script>
     <script nomodule crossorigin id="vite-legacy-polyfill" src="./assets/polyfills-legacy-CTKu8899.js"></script>
-    <script nomodule crossorigin id="vite-legacy-entry" data-src="./assets/index-legacy-Gd8QaZZ6.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
+    <script nomodule crossorigin id="vite-legacy-entry" data-src="./assets/index-legacy-DLu31gQP.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
   </body>
 </html>

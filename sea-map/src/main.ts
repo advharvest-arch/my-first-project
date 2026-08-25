@@ -19,6 +19,7 @@ import {
   formatItinerary,
   prefetchWaterBbox,
   prefetchWaterNear,
+  snapClickToWater,
   type ItinerarySegment,
 } from './waterways';
 import './style.css';
@@ -128,7 +129,9 @@ const etaEl = document.querySelector<HTMLElement>('#stat-eta')!;
 const routeBtn = document.querySelector<HTMLButtonElement>('#route-btn')!;
 const clearBtn = document.querySelector<HTMLButtonElement>('#clear-btn')!;
 const undoBtn = document.querySelector<HTMLButtonElement>('#undo-btn')!;
+const reverseBtn = document.querySelector<HTMLButtonElement>('#reverse-btn')!;
 const speedInput = document.querySelector<HTMLInputElement>('#speed')!;
+const speedPresets = document.querySelector<HTMLElement>('#speed-presets');
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const panelToggle = document.querySelector<HTMLButtonElement>('#panel-toggle')!;
 const collapseBtn = document.querySelector<HTMLButtonElement>('#collapse-btn')!;
@@ -145,6 +148,7 @@ const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')
 const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')!;
 const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
 const routeDescBody = document.querySelector<HTMLTextAreaElement>('#route-desc-body')!;
+const routeDescList = document.querySelector<HTMLOListElement>('#route-desc-list')!;
 const routeDescCopy = document.querySelector<HTMLButtonElement>('#route-desc-copy')!;
 const shareRouteBtn = document.querySelector<HTMLButtonElement>('#share-route-btn')!;
 const gpxExportBtn = document.querySelector<HTMLButtonElement>('#gpx-export-btn')!;
@@ -309,6 +313,8 @@ function showStats(distanceKm: number): void {
 function hideRouteDesc(): void {
   routeDescEl.hidden = true;
   routeDescBody.value = '';
+  routeDescList.innerHTML = '';
+  routeDescList.hidden = true;
   routeDescCopy.textContent = 'Копировать';
 }
 
@@ -319,13 +325,34 @@ function hideElevation(): void {
   if (ctx) ctx.clearRect(0, 0, elevCanvas.width, elevCanvas.height);
 }
 
-function showRouteDesc(text: string): void {
+function renderItineraryList(segments: ItinerarySegment[]): void {
+  const named = segments.filter((s) => s.name);
+  routeDescList.innerHTML = '';
+  if (!named.length) {
+    routeDescList.hidden = true;
+    return;
+  }
+  routeDescList.hidden = false;
+  for (const s of named) {
+    const li = document.createElement('li');
+    const km = Math.max(0.1, Math.round(s.km * 10) / 10);
+    const kmText = km.toLocaleString('ru-RU', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+    li.innerHTML = `<span class="itin-name">${escapeHtml(s.name)}</span><span class="itin-km">${escapeHtml(kmText)} км</span>`;
+    routeDescList.appendChild(li);
+  }
+}
+
+function showRouteDesc(text: string, segments?: ItinerarySegment[]): void {
   const trimmed = text.trim();
   if (!trimmed) {
     hideRouteDesc();
     return;
   }
   routeDescBody.value = trimmed;
+  renderItineraryList(segments ?? lastItinerary);
   routeDescEl.hidden = false;
   routeDescCopy.textContent = 'Копировать';
 }
@@ -402,7 +429,7 @@ async function updateRouteItinerary(
           });
     if (segments.length) {
       lastItinerary = segments;
-      showRouteDesc(formatItinerary(segments));
+      showRouteDesc(formatItinerary(segments), segments);
       if (lastRoutePath && lastRoutePath.length >= 2) {
         redrawWaypoints(lastRoutePath);
       }
@@ -425,6 +452,7 @@ async function updateRouteItinerary(
 function syncControls(): void {
   routeBtn.disabled = waypoints.length < 2 || busy;
   undoBtn.hidden = false;
+  reverseBtn.hidden = waypoints.length < 2;
   waypointCountEl.textContent = `Точек: ${waypoints.length}`;
   renderWaypointList();
 }
@@ -1147,6 +1175,29 @@ function attachWaypointMarker(wp: Waypoint, index: number): void {
         suppressMapClick = false;
       }, 250);
       markerClickGuardUntil = Date.now() + 450;
+      if (mode === 'water') {
+        void (async () => {
+          const snapped = await snapClickToWater({ lon: wp.lon, lat: wp.lat });
+          // Only pull when clearly off the centerline but still near water.
+          if (snapped && snapped.distKm >= 0.04 && snapped.distKm <= 1.25) {
+            wp.lon = snapped.point.lon;
+            wp.lat = snapped.point.lat;
+            if (snapped.name && isAutoWaypointName(wp.name)) {
+              wp.name = snapped.name;
+            }
+            redrawWaypoints(lastRoutePath ?? undefined);
+            renderWaypointList();
+            const meters = Math.round(snapped.distKm * 1000);
+            setStatus(
+              snapped.name
+                ? `Притянули к «${snapped.name}» (${meters} м).`
+                : `Притянули к воде (${meters} м).`,
+            );
+          }
+          scheduleRebuildAfterDrag();
+        })();
+        return;
+      }
       scheduleRebuildAfterDrag();
     })
     .on('click', (e: L.LeafletMouseEvent) => {
@@ -1464,7 +1515,7 @@ function setMode(next: AppMode): void {
       showStats(pinnedWaterRoute.distanceKm);
     }
     if (pinnedWaterRoute.itinerary.length) {
-      showRouteDesc(formatItinerary(pinnedWaterRoute.itinerary));
+      showRouteDesc(formatItinerary(pinnedWaterRoute.itinerary), pinnedWaterRoute.itinerary);
     }
     redrawWaypoints();
     syncControls();
@@ -1480,7 +1531,7 @@ function setMode(next: AppMode): void {
     lastDistanceKm = pinnedWaterRoute.distanceKm;
     if (lastDistanceKm != null) showStats(lastDistanceKm);
     if (lastItinerary.length) {
-      showRouteDesc(formatItinerary(lastItinerary));
+      showRouteDesc(formatItinerary(lastItinerary), lastItinerary);
     }
     redrawWaypoints(lastRoutePath);
     syncControls();
@@ -1526,23 +1577,47 @@ map.on('click', (e: L.LeafletMouseEvent) => {
   if (Date.now() < markerClickGuardUntil) return;
   const { lat, lng } = e.latlng;
 
-  const label = nearestPortName(lng, lat) ?? undefined;
-  const wp = makeWaypoint(lng, lat, label);
-  waypoints.push(wp);
-  redrawWaypoints(lastRoutePath ?? undefined);
-  syncControls();
-  if (mode === 'water') prefetchWaterNear({ lon: lng, lat });
+  void (async () => {
+    let lon = lng;
+    let pointLat = lat;
+    let label = nearestPortName(lng, lat) ?? undefined;
+    let snapNote = '';
 
-  if (mode === 'water') {
-    if (waypoints.length === 1) {
-      setStatus('Старт отмечен. Кликните следующую точку на реке или море.');
-    } else {
-      void computeWaterRoute({ fit: waypoints.length === 2 });
+    if (mode === 'water') {
+      prefetchWaterNear({ lon: lng, lat });
+      const snapped = await snapClickToWater({ lon: lng, lat });
+      if (snapped && snapped.distKm <= 1.25) {
+        // Already on water (<40 m) — keep the click; otherwise pull to centerline.
+        if (snapped.distKm >= 0.04) {
+          lon = snapped.point.lon;
+          pointLat = snapped.point.lat;
+          const meters = Math.round(snapped.distKm * 1000);
+          snapNote = snapped.name
+            ? ` Притянули к «${snapped.name}» (${meters} м).`
+            : ` Притянули к воде (${meters} м).`;
+        }
+        if (!label && snapped.name) label = snapped.name;
+      }
     }
-  } else {
-    if (waypoints.length >= 2) computeRuler({ fit: waypoints.length === 2 });
-    else setStatus(`Точка ${waypoints.length}. Продолжайте кликать.`);
-  }
+
+    const wp = makeWaypoint(lon, pointLat, label);
+    waypoints.push(wp);
+    redrawWaypoints(lastRoutePath ?? undefined);
+    syncControls();
+    if (mode === 'water') prefetchWaterNear({ lon, lat: pointLat });
+
+    if (mode === 'water') {
+      if (waypoints.length === 1) {
+        setStatus(`Старт отмечен.${snapNote} Кликните следующую точку на реке или море.`);
+      } else {
+        if (snapNote) setStatus(snapNote.trim());
+        void computeWaterRoute({ fit: waypoints.length === 2 });
+      }
+    } else {
+      if (waypoints.length >= 2) computeRuler({ fit: waypoints.length === 2 });
+      else setStatus(`Точка ${waypoints.length}. Продолжайте кликать.`);
+    }
+  })();
 });
 
 routeBtn.addEventListener('click', () => {
@@ -1565,6 +1640,20 @@ undoBtn.addEventListener('click', () => {
   }
 });
 
+reverseBtn.addEventListener('click', () => {
+  if (waypoints.length < 2) return;
+  waypoints.reverse();
+  renormalizeWaypointNames();
+  lastRoutePath = lastRoutePath ? [...lastRoutePath].reverse() : null;
+  lastCumKm = [];
+  lastItinerary = [];
+  redrawWaypoints(lastRoutePath ?? undefined);
+  syncControls();
+  if (mode === 'water') void computeWaterRoute({ fit: false });
+  else computeRuler({ fit: false });
+  setStatus('Маршрут развёрнут.');
+});
+
 clearBtn.addEventListener('click', () => {
   waypoints = [];
   lastRoutePath = null;
@@ -1579,6 +1668,25 @@ clearBtn.addEventListener('click', () => {
 
 speedInput.addEventListener('input', () => {
   refreshEtaFromSpeed();
+  syncSpeedPresetChips();
+});
+
+function syncSpeedPresetChips(): void {
+  if (!speedPresets) return;
+  const v = Math.round(Number(speedInput.value) || 0);
+  speedPresets.querySelectorAll<HTMLButtonElement>('.chip[data-speed]').forEach((chip) => {
+    chip.classList.toggle('active', Number(chip.dataset.speed) === v);
+  });
+}
+
+speedPresets?.addEventListener('click', (ev) => {
+  const btn = (ev.target as HTMLElement).closest<HTMLButtonElement>('.chip[data-speed]');
+  if (!btn) return;
+  const speed = Number(btn.dataset.speed);
+  if (!Number.isFinite(speed)) return;
+  speedInput.value = String(speed);
+  refreshEtaFromSpeed();
+  syncSpeedPresetChips();
 });
 
 function restyleRouteLine(): void {
@@ -1708,6 +1816,7 @@ function bootFromQuery(): void {
 }
 
 syncControls();
+syncSpeedPresetChips();
 setStatus('Кликните точки маршрута на воде.');
 warmWaterCache();
 bootFromQuery();

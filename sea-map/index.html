@@ -78,7 +78,7 @@
         <header class="brand">
           <p class="brand-mark">AquaRoute</p>
           <p class="brand-sub">
-            Водный маршрут с именами рек и озёр — без подписки, с GPX и шарингом
+            Имена рек, притяжка к фарватеру, GPX и ссылка — без подписки
           </p>
         </header>
 
@@ -102,6 +102,12 @@
             <span>Скорость судна, км/ч</span>
             <input id="speed" type="number" min="1" max="120" step="1" value="20" inputmode="numeric" />
           </label>
+          <div class="presets speed-presets" id="speed-presets" role="group" aria-label="Пресет скорости">
+            <button type="button" class="chip" data-speed="5">Байдарка · 5</button>
+            <button type="button" class="chip" data-speed="12">Моторка · 12</button>
+            <button type="button" class="chip active" data-speed="20">Катер · 20</button>
+            <button type="button" class="chip" data-speed="40">Быстро · 40</button>
+          </div>
         </div>
 
         <div class="waypoints-block" id="waypoints-block">
@@ -147,6 +153,7 @@
         <div class="actions">
           <button type="button" class="btn primary" id="route-btn" disabled>Проложить</button>
           <button type="button" class="btn ghost" id="undo-btn" hidden>Отменить точку</button>
+          <button type="button" class="btn ghost" id="reverse-btn" hidden>Развернуть</button>
           <button type="button" class="btn ghost" id="clear-btn">Сбросить</button>
         </div>
 
@@ -184,11 +191,12 @@
               </button>
             </div>
           </header>
+          <ol class="route-desc-list" id="route-desc-list" hidden></ol>
           <textarea
             id="route-desc-body"
             class="route-desc-body"
             readonly
-            rows="4"
+            rows="3"
             spellcheck="false"
             aria-label="Описание маршрута"
           ></textarea>

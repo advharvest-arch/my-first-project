@@ -1130,6 +1130,65 @@ export function prefetchWaterBbox(south: number, west: number, north: number, ea
   void loadCell(midX, midY);
 }
 
+export type WaterSnap = {
+  point: LngLat;
+  distKm: number;
+  name: string | null;
+  kind: 'waterway' | 'lake';
+};
+
+/**
+ * Pull a map click onto the nearest river/canal/lake centerline.
+ * MapMagic only warns «move point to the river»; we snap automatically.
+ */
+export async function snapClickToWater(
+  click: LngLat,
+  maxKm = 1.25,
+): Promise<WaterSnap | null> {
+  const { cx, cy } = pointCell(click);
+  const loads: Promise<WaterLine[]>[] = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      loads.push(loadCell(cx + dx, cy + dy));
+    }
+  }
+  await Promise.all(loads);
+
+  let bestWay: WaterSnap | null = null;
+  let bestLake: WaterSnap | null = null;
+  const seen = new Set<string>();
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (const line of cellCache.get(cellKey(cx + dx, cy + dy)) ?? []) {
+        if (seen.has(line.id) || line.coords.length < 2) continue;
+        seen.add(line.id);
+        const stride = Math.max(1, Math.floor(line.coords.length / 80));
+        for (let j = stride; j < line.coords.length; j += stride) {
+          const c = closestOnSegment(click, line.coords[j - stride]!, line.coords[j]!);
+          if (c.distKm > maxKm) continue;
+          const name = line.name ? canonicalWaterwayName(line.name) : null;
+          const hit: WaterSnap = {
+            point: c.point,
+            distKm: c.distKm,
+            name: name && !isGenericWaterwayName(name) ? name : null,
+            kind: line.kind,
+          };
+          if (line.kind === 'lake') {
+            if (!bestLake || hit.distKm < bestLake.distKm) bestLake = hit;
+          } else if (!bestWay || hit.distKm < bestWay.distKm) {
+            bestWay = hit;
+          }
+        }
+      }
+    }
+  }
+
+  // Prefer a nearby river/canal; lakes only when clearly closer or no river.
+  if (bestWay && bestWay.distKm <= Math.min(maxKm, 0.9)) return bestWay;
+  if (bestLake && (!bestWay || bestLake.distKm + 0.12 < bestWay.distKm)) return bestLake;
+  return bestWay ?? bestLake;
+}
+
 function uniqueWaterName(...parts: Array<string | null | undefined>): string | null {
   const seen = new Set<string>();
   const out: string[] = [];

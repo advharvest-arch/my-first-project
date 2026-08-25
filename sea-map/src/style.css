@@ -523,9 +523,13 @@ body {
   margin: 0.9rem 0 0;
 }
 
+.speed-presets {
+  margin: 0.55rem 0 0;
+}
+
 .chip {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 10px;
   padding: 0.35rem 0.7rem;
   background: rgba(255, 255, 255, 0.03);
   color: rgba(232, 244, 242, 0.85);
@@ -544,6 +548,40 @@ body {
   background: rgba(46, 196, 182, 0.22);
   border-color: var(--accent);
   color: #fff;
+}
+
+.route-desc-list {
+  list-style: none;
+  margin: 0 0 0.55rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.route-desc-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.28rem 0.15rem;
+  border-bottom: 1px solid rgba(232, 244, 242, 0.08);
+  font: 500 0.88rem/1.35 var(--font-body);
+}
+
+.route-desc-list li:last-child {
+  border-bottom: none;
+}
+
+.itin-name {
+  color: var(--foam);
+}
+
+.itin-km {
+  flex: 0 0 auto;
+  color: rgba(232, 244, 242, 0.62);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
 }
 
 .controls {
