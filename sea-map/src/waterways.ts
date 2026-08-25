@@ -1453,11 +1453,19 @@ function canonicalWaterwayName(name: string): string {
  * Includes trunk rivers — geometry distance beats giant catalog bboxes.
  * When a trunk and a tributary are both nearby, prefer the closer one; on a
  * near-tie, prefer the non-trunk (Сходня over Волга at a confluence).
+ *
+ * Optional trackBearing penalizes rivers that only cross the track
+ * (passing tributaries) and boosts ones aligned with the route.
  */
 function nearestLocalWaterwayName(
   p: LngLat,
   maxKm = 0.55,
-  opts: { preferName?: string | null; excludeTrunk?: boolean } = {},
+  opts: {
+    preferName?: string | null;
+    excludeTrunk?: boolean;
+    /** Track heading in degrees (0–360); used to ignore crossing tributaries. */
+    trackBearing?: number | null;
+  } = {},
 ): { name: string; distKm: number } | null {
   const { cx, cy } = pointCell(p);
   const preferKey = opts.preferName
@@ -1465,6 +1473,7 @@ function nearestLocalWaterwayName(
     : null;
   let bestName: string | null = null;
   let bestD = maxKm;
+  let bestScore = maxKm;
   let bestIsTrunk = false;
   let bestIsCanal = false;
   const seen = new Set<string>();
@@ -1484,14 +1493,22 @@ function nearestLocalWaterwayName(
         if (++checked > 160) break;
         const stride = Math.max(1, Math.floor(line.coords.length / 32));
         for (let j = stride; j < line.coords.length; j += stride) {
-          const c = closestOnSegment(p, line.coords[j - stride]!, line.coords[j]!);
-          if (c.distKm > bestD + 0.08) continue;
+          const a = line.coords[j - stride]!;
+          const b = line.coords[j]!;
+          const c = closestOnSegment(p, a, b);
+          if (c.distKm > bestD + 0.12) continue;
           const nameKey = canon.toLocaleLowerCase('ru');
-          const preferBoost = preferKey && nameKey === preferKey ? 0.06 : 0;
-          const score = c.distKm - preferBoost;
-          const bestScore =
-            bestD -
-            (preferKey && bestName?.toLocaleLowerCase('ru') === preferKey ? 0.06 : 0);
+          const preferBoost = preferKey && nameKey === preferKey ? 0.14 : 0;
+          let alignPenalty = 0;
+          if (opts.trackBearing != null && Number.isFinite(opts.trackBearing)) {
+            const segBear = bearingDeg(a, b);
+            const diff = bearingDiffDeg(opts.trackBearing, segBear);
+            // Crossing (~90°) tributaries: strong penalty so they don't steal the label.
+            if (diff >= 55) alignPenalty = 0.22;
+            else if (diff >= 40) alignPenalty = 0.1;
+            else if (diff <= 25) alignPenalty = -0.04; // aligned with track
+          }
+          const score = c.distKm - preferBoost + alignPenalty;
           // Near-tie: keep river over trunk/canal so Горетовка/Сходня win beside КиМ.
           const tiePenalty =
             ((trunk || canal) && bestName && !bestIsTrunk && !bestIsCanal && Math.abs(score - bestScore) < 0.14
@@ -1499,6 +1516,7 @@ function nearestLocalWaterwayName(
               : 0) +
             (canal && bestName && !bestIsCanal && Math.abs(score - bestScore) < 0.22 ? 0.05 : 0);
           if (score + tiePenalty < bestScore) {
+            bestScore = score;
             bestD = c.distKm;
             bestName = canon;
             bestIsTrunk = trunk;
@@ -1511,6 +1529,56 @@ function nearestLocalWaterwayName(
   return bestName ? { name: bestName, distKm: bestD } : null;
 }
 
+/** Distance from a point to a specific named waterway centerline in the cell cache. */
+function distToNamedWaterway(
+  p: LngLat,
+  name: string,
+  maxKm = 0.9,
+): number | null {
+  const want = canonicalWaterwayName(name).toLocaleLowerCase('ru');
+  const { cx, cy } = pointCell(p);
+  let best = maxKm;
+  let found = false;
+  const seen = new Set<string>();
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (const line of cellCache.get(cellKey(cx + dx, cy + dy)) ?? []) {
+        if (!line.name || line.kind !== 'waterway' || line.coords.length < 2) continue;
+        if (seen.has(line.id)) continue;
+        seen.add(line.id);
+        if (canonicalWaterwayName(line.name).toLocaleLowerCase('ru') !== want) continue;
+        const stride = Math.max(1, Math.floor(line.coords.length / 40));
+        for (let j = stride; j < line.coords.length; j += stride) {
+          const c = closestOnSegment(p, line.coords[j - stride]!, line.coords[j]!);
+          if (c.distKm < best) {
+            best = c.distKm;
+            found = true;
+          }
+        }
+      }
+    }
+  }
+  return found ? best : null;
+}
+
+function bearingDeg(a: LngLat, b: LngLat): number {
+  const toR = (d: number) => (d * Math.PI) / 180;
+  const dLon = toR(b.lon - a.lon);
+  const lat1 = toR(a.lat);
+  const lat2 = toR(b.lat);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** Smallest angle between two bearings, 0..90 (direction-insensitive). */
+function bearingDiffDeg(a: number, b: number): number {
+  let d = Math.abs(a - b) % 360;
+  if (d > 180) d = 360 - d;
+  if (d > 90) d = 180 - d;
+  return d;
+}
+
 /** Use OSM/water-core geometry for river labels whenever it is close enough. */
 function shouldPreferLocalWaterway(
   catalog: { name: string; kind: 'river' | 'lake' } | null,
@@ -1518,18 +1586,21 @@ function shouldPreferLocalWaterway(
 ): boolean {
   if (!local) return false;
   const localKey = local.name.toLocaleLowerCase('ru');
-  if (!catalog) return local.distKm <= 0.55;
+  if (!catalog) return local.distKm <= 0.4;
   if (catalog.name.toLocaleLowerCase('ru') === localKey) return local.distKm <= 0.7;
   // Reservoir bbox can cover a tributary mouth (Сходня vs Химкинское) — river centerline wins.
   if (catalog.kind === 'lake') {
     if (isMoscowCanalName(local.name)) return local.distKm <= 0.18;
     return local.distKm <= 0.28;
   }
-  // Any nearby named centerline beats a coarse river bbox (Волга, Москва, …).
-  if (local.distKm <= 0.45) return true;
-  // Catalog trunk with a slightly farther tributary still nearby.
-  if (isTrunkRiver(catalog.name) && local.distKm <= 0.55) return true;
-  // Mid-size catalog river vs a close local creek.
+  // Catalog already names a river: only override with a different local when
+  // it is tightly under the track (otherwise nearby tributaries steal the label).
+  if (catalog.kind === 'river') {
+    if (isTrunkRiver(catalog.name) && !isTrunkRiver(local.name)) {
+      return local.distKm <= 0.22;
+    }
+    return local.distKm <= 0.2;
+  }
   if (local.distKm <= 0.3 && !isCorridorTributary(catalog.name)) return true;
   return false;
 }
@@ -1867,6 +1938,7 @@ function nameAtSample(
   stepKm: number,
   stickyRiver: string | null,
   stickyRiverOutsideKm: number,
+  trackBearing: number | null = null,
 ): {
   name: string | null;
   stickyLake: string | null;
@@ -1875,12 +1947,16 @@ function nameAtSample(
   stickyRiverOutsideKm: number;
 } {
   // Sticky river: keep a named stretch along meanders; switch when another
-  // named centerline is clearly closer (so every river on the path is listed).
+  // named centerline is clearly under the track — not merely a nearby tributary.
   if (stickyRiver) {
     const key = stickyRiver.toLocaleLowerCase('ru');
     const body = catalogBodyByName(stickyRiver);
     const inBody = !!(body && pointInCatalog(p, body));
-    const localNear = nearestLocalWaterwayName(p, 0.65, { preferName: stickyRiver });
+    const stickyDist = distToNamedWaterway(p, stickyRiver, 0.95);
+    const localNear = nearestLocalWaterwayName(p, 0.65, {
+      preferName: stickyRiver,
+      trackBearing,
+    });
     const localKey = localNear?.name.toLocaleLowerCase('ru') ?? null;
 
     // Snap to Вохма at the confluence (~4 km above Малое Раменье).
@@ -1903,13 +1979,19 @@ function nameAtSample(
         (body ? catalogArea(body) : Infinity) &&
       !(peek.name.toLocaleLowerCase('ru') === 'вохма' && !onVohmaAboveMouth(p))
     ) {
-      return {
-        name: peek.name,
-        stickyLake: null,
-        stickyOutsideKm: 0,
-        stickyRiver: peek.name,
-        stickyRiverOutsideKm: 0,
-      };
+      // Catalog bbox alone is not enough — require the track to sit on that
+      // tributary centerline (otherwise a wide bbox steals the sticky label).
+      const peekDist = distToNamedWaterway(p, peek.name, 0.7);
+      const stillOnSticky = stickyDist != null && stickyDist <= 0.35;
+      if (peekDist != null && peekDist <= 0.28 && (!stillOnSticky || peekDist + 0.12 < stickyDist!)) {
+        return {
+          name: peek.name,
+          stickyLake: null,
+          stickyOutsideKm: 0,
+          stickyRiver: peek.name,
+          stickyRiverOutsideKm: 0,
+        };
+      }
     }
 
     // Reservoir / lake always wins over a sticky river — except Чебоксарское
@@ -1948,25 +2030,47 @@ function nameAtSample(
     }
 
     // Another named waterway is clearly under the track → switch label.
-    if (
-      localNear &&
-      localKey &&
-      localKey !== key &&
-      localNear.distKm <= 0.38 &&
-      !(isTrunkRiver(localNear.name) && !isTrunkRiver(stickyRiver) && localNear.distKm > 0.22) &&
-      !(isMoscowCanalName(localNear.name) && !isMoscowCanalName(stickyRiver) && localNear.distKm > 0.2)
-    ) {
-      return {
-        name: localNear.name,
-        stickyLake: null,
-        stickyOutsideKm: 0,
-        stickyRiver: stickyNameForRiver(localNear.name),
-        stickyRiverOutsideKm: 0,
-      };
+    // Require leaving the sticky centerline OR a large distance gap — otherwise
+    // a tributary that only passes nearby steals the label for a few hundred m.
+    if (localNear && localKey && localKey !== key) {
+      const onSticky =
+        stickyDist != null && stickyDist <= 0.38
+          ? stickyDist
+          : stickyDist == null && localKey !== key
+            ? 0.5
+            : stickyDist ?? 0.5;
+      const other = localNear.distKm;
+      const clearlyOffSticky = onSticky > 0.42;
+      const clearlyCloser = other + 0.2 < onSticky;
+      const tightOnOther = other <= 0.14 && onSticky > 0.3;
+      const allowTrunkSteal =
+        isTrunkRiver(localNear.name) && !isTrunkRiver(stickyRiver)
+          ? other <= 0.18 && onSticky > 0.32
+          : true;
+      const allowCanalSteal =
+        isMoscowCanalName(localNear.name) && !isMoscowCanalName(stickyRiver)
+          ? other <= 0.16 && onSticky > 0.28
+          : true;
+      if (
+        ((clearlyOffSticky && other <= 0.28) || clearlyCloser || tightOnOther) &&
+        allowTrunkSteal &&
+        allowCanalSteal
+      ) {
+        return {
+          name: localNear.name,
+          stickyLake: null,
+          stickyOutsideKm: 0,
+          stickyRiver: stickyNameForRiver(localNear.name),
+          stickyRiverOutsideKm: 0,
+        };
+      }
     }
 
     // Still on the sticky river centerline.
-    if (localNear && localKey === key && localNear.distKm <= 0.6) {
+    if (
+      (localNear && localKey === key && localNear.distKm <= 0.65) ||
+      (stickyDist != null && stickyDist <= 0.45)
+    ) {
       return {
         name: stickyRiver,
         stickyLake: null,
@@ -2121,7 +2225,7 @@ function nameAtSample(
 
   // Catalog lakes first, but a river under the track (Сходня у Химкинского) wins.
   const catalog = pickCatalogName(p, usedNames);
-  const local = nearestLocalWaterwayName(p);
+  const local = nearestLocalWaterwayName(p, 0.55, { trackBearing });
   if (shouldPreferLocalWaterway(catalog, local) && local) {
     const stick = stickyNameForRiver(local.name);
     return {
@@ -2156,7 +2260,8 @@ function nameAtSample(
     };
   }
   // Last resort: any nearby named waterway even without catalog coverage.
-  if (local && local.distKm <= 0.7) {
+  // Tighter radius — avoid grabbing a tributary that only passes near the track.
+  if (local && local.distKm <= 0.35) {
     const stick = stickyNameForRiver(local.name);
     return {
       name: local.name,
@@ -2522,6 +2627,7 @@ function densifyPathForItinerary(path: LngLat[], stepKm = 1.2): LngLat[] {
  * Build ordered waterway/reservoir chain with per-stretch distances.
  * Prefer nearby named OSM/water-core centerlines along the track so every
  * river on the path appears; catalog lakes/reservoirs still win on open water.
+ * Crossing / nearby tributaries must persist ~0.7 km before stealing the label.
  */
 function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   if (path.length < 2) return [];
@@ -2538,7 +2644,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
   let seenEasternCascade = false;
   let seenIvankovo = false;
 
-  const labelAt = (p: LngLat, stepKm: number): string | null => {
+  const labelAt = (p: LngLat, stepKm: number, trackBearing: number | null): string | null => {
     const hit = nameAtSample(
       p,
       stickyLake,
@@ -2547,6 +2653,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
       stepKm,
       stickyRiver,
       stickyRiverOutsideKm,
+      trackBearing,
     );
     stickyLake = hit.stickyLake;
     stickyOutsideKm = hit.stickyOutsideKm;
@@ -2574,10 +2681,19 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     return name;
   };
 
-  let currentName = labelAt(path[0]!, 0);
+  const trackBearingAt = (i: number): number | null => {
+    if (i > 0) return bearingDeg(path[i - 1]!, path[i]!);
+    if (path.length > 1) return bearingDeg(path[0]!, path[1]!);
+    return null;
+  };
+
+  let currentName = labelAt(path[0]!, 0, trackBearingAt(0));
   let currentKm = 0;
   /** Unlabeled stretch — attach to the next named segment (never drop / rescale-inflate). */
   let pendingKm = 0;
+  /** Candidate name waiting for sustained confirmation (filters passing tributaries). */
+  let pendingSwitchName: string | null = null;
+  let pendingSwitchKm = 0;
 
   const flushNamed = () => {
     if (!currentName) {
@@ -2596,9 +2712,43 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     }
   };
 
+  const confirmKmFor = (from: string | null, to: string): number => {
+    if (!from) return 0;
+    if (isLakeCatalogName(from) || isLakeCatalogName(to)) return 0.35;
+    // Real river changes need a short sustained stretch; flickers are shorter.
+    return 0.7;
+  };
+
   for (let i = 1; i < path.length; i++) {
     const d = haversineKm(path[i - 1]!, path[i]!);
-    const name = labelAt(path[i]!, d);
+    let name = labelAt(path[i]!, d, trackBearingAt(i));
+
+    // Require sustained agreement before switching river labels — a tributary
+    // that only crosses or runs beside the track for <~700 m must not appear.
+    if (
+      name &&
+      currentName &&
+      name.toLocaleLowerCase('ru') !== currentName.toLocaleLowerCase('ru')
+    ) {
+      if (
+        pendingSwitchName &&
+        pendingSwitchName.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru')
+      ) {
+        pendingSwitchKm += d;
+      } else {
+        pendingSwitchName = name;
+        pendingSwitchKm = d;
+      }
+      if (pendingSwitchKm < confirmKmFor(currentName, name)) {
+        name = currentName;
+      } else {
+        pendingSwitchName = null;
+        pendingSwitchKm = 0;
+      }
+    } else {
+      pendingSwitchName = null;
+      pendingSwitchKm = 0;
+    }
 
     if (!name) {
       // Keep counting under the current label when possible; otherwise hold as pending.
