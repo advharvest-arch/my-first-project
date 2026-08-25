@@ -1,6 +1,13 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
 import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans } from './open-lake';
+import {
+  officialGvrName,
+  rememberGvrPair,
+  resolveWaterName,
+  gvrSourceLabel,
+  gvrIndexStats,
+} from './gvr';
 import waterBodies from './water-bodies.json';
 import waterCore from './water-core.json';
 
@@ -8,6 +15,10 @@ export type ItinerarySegment = {
   name: string;
   /** Length of this named stretch along the route geometry, km. */
   km: number;
+  /** Код водного объекта в Государственном водном реестре. */
+  gvrCode?: string;
+  /** true = имя из ГВР (по коду / реестру). */
+  fromGvr?: boolean;
 };
 
 export type WaterPath = {
@@ -42,6 +53,8 @@ type WaterLine = {
   kind: 'waterway' | 'lake';
   coords: LngLat[];
   closed: boolean;
+  /** Код ГВР с объекта OSM (`gvr:code`). */
+  gvrCode?: string | null;
 };
 
 type GraphNode = { id: number; lon: number; lat: number };
@@ -155,7 +168,11 @@ function isNavigableWaterway(tags: Record<string, string> | undefined): boolean 
 function linesFromElements(elements: OverpassElement[]): WaterLine[] {
   const lines: WaterLine[] = [];
   for (const el of elements) {
-    const name = el.tags?.['name:ru'] ?? el.tags?.name ?? null;
+    const rawName = el.tags?.['name:ru'] ?? el.tags?.name ?? null;
+    const gvrCode = el.tags?.['gvr:code']?.trim() || null;
+    if (gvrCode && rawName) rememberGvrPair(gvrCode, rawName);
+    const gvr = officialGvrName(rawName, gvrCode);
+    const name = gvr?.name ?? rawName;
     const area = isWaterArea(el.tags);
     const waterway = isNavigableWaterway(el.tags) || el.tags?.type === 'waterway';
 
@@ -173,6 +190,7 @@ function linesFromElements(elements: OverpassElement[]): WaterLine[] {
         kind: area || closed ? 'lake' : 'waterway',
         coords,
         closed,
+        gvrCode: gvr?.gvrCode ?? gvrCode,
       });
     }
 
@@ -187,6 +205,7 @@ function linesFromElements(elements: OverpassElement[]): WaterLine[] {
           kind: area ? 'lake' : 'waterway',
           coords,
           closed: Boolean(area),
+          gvrCode: gvr?.gvrCode ?? gvrCode,
         });
       }
     }
@@ -907,13 +926,17 @@ type CoreLine = { id: string; n: string | null; k: 'w' | 'l'; c: Array<[number, 
 
 function seedCoreWaterways(): void {
   const raw = waterCore as CoreLine[];
-  const lines: WaterLine[] = raw.map((row) => ({
-    id: row.id,
-    name: row.n,
-    kind: row.k === 'l' ? 'lake' : 'waterway',
-    coords: row.c.map(([lon, lat]) => ({ lon, lat })),
-    closed: row.k === 'l' && row.c.length > 3,
-  }));
+  const lines: WaterLine[] = raw.map((row) => {
+    const gvr = officialGvrName(row.n);
+    return {
+      id: row.id,
+      name: gvr?.name ?? row.n,
+      kind: row.k === 'l' ? 'lake' : 'waterway',
+      coords: row.c.map(([lon, lat]) => ({ lon, lat })),
+      closed: row.k === 'l' && row.c.length > 3,
+      gvrCode: gvr?.gvrCode ?? null,
+    };
+  });
   rememberLinesInCells(lines);
 }
 
@@ -1415,7 +1438,10 @@ function waterNameFromTags(tags: string[]): string | null {
     else if (t === 'waterway=fairway') kinds.add('фарватер');
     else if (t.startsWith('waterway=')) kinds.add(t.slice('waterway='.length));
   }
-  if (names.length) return uniqueWaterName(...names);
+  if (names.length) {
+    const uniq = uniqueWaterName(...names);
+    return resolveWaterName(uniq) ?? uniq;
+  }
   return kinds.size ? [...kinds].join(', ') : null;
 }
 
@@ -1439,13 +1465,24 @@ function isMoscowCanalName(name: string): boolean {
   return /имени\s+москвы|им\.?\s*москвы|канал\s+им/.test(k) || k === 'канал имени москвы';
 }
 
-/** Stable display name for itinerary (merge OSM aliases). */
+/** Stable display name for itinerary (merge OSM aliases; prefer GVR spelling). */
 function canonicalWaterwayName(name: string): string {
   const raw = name.trim();
   if (isMoscowCanalName(raw)) return 'Канал имени Москвы';
   const k = raw.toLocaleLowerCase('ru');
   if (k.includes('сходненск') && k.includes('деривац')) return 'Сходня';
+  const gvr = officialGvrName(raw);
+  if (gvr) return gvr.name;
   return raw;
+}
+
+function namedSegment(name: string, km: number): ItinerarySegment {
+  const canon = canonicalWaterwayName(name);
+  const gvr = officialGvrName(canon);
+  if (gvr) {
+    return { name: gvr.name, km, gvrCode: gvr.gvrCode, fromGvr: true };
+  }
+  return { name: canon, km };
 }
 
 /**
@@ -1499,6 +1536,8 @@ function nearestLocalWaterwayName(
           if (c.distKm > bestD + 0.12) continue;
           const nameKey = canon.toLocaleLowerCase('ru');
           const preferBoost = preferKey && nameKey === preferKey ? 0.14 : 0;
+          // Official GVR-linked geometries beat anonymous OSM names.
+          const gvrBoost = line.gvrCode ? 0.08 : 0;
           let alignPenalty = 0;
           if (opts.trackBearing != null && Number.isFinite(opts.trackBearing)) {
             const segBear = bearingDeg(a, b);
@@ -1508,7 +1547,7 @@ function nearestLocalWaterwayName(
             else if (diff >= 40) alignPenalty = 0.1;
             else if (diff <= 25) alignPenalty = -0.04; // aligned with track
           }
-          const score = c.distKm - preferBoost + alignPenalty;
+          const score = c.distKm - preferBoost - gvrBoost + alignPenalty;
           // Near-tie: keep river over trunk/canal so Горетовка/Сходня win beside КиМ.
           const tiePenalty =
             ((trunk || canal) && bestName && !bestIsTrunk && !bestIsCanal && Math.abs(score - bestScore) < 0.14
@@ -1633,14 +1672,18 @@ async function enrichNamedWaterwaysForItinerary(path: LngLat[]): Promise<void> {
   const sampleCount = Math.min(24, Math.max(4, Math.ceil(span / 14) + 1));
   const samples = sampleAlongPath(path, sampleCount);
   const chunkSize = 12;
-  const jobs: Promise<void>[] = [];
+    const jobs: Promise<void>[] = [];
   for (let i = 0; i < samples.length; i += chunkSize) {
     const chunk = samples.slice(i, i + chunkSize);
     const blocks = chunk
       .map((p) => {
         const r = span > 250 ? 1600 : 2000;
+        // Prefer geometries that carry an official GVR code.
         return `
-  way(around:${r},${p.lat},${p.lon})["waterway"~"^(river|stream|canal|fairway|ship_canal|link)$"]["name"];`;
+  way(around:${r},${p.lat},${p.lon})["waterway"~"^(river|stream|canal|fairway|ship_canal|link)$"]["name"]["gvr:code"];
+  way(around:${r},${p.lat},${p.lon})["waterway"~"^(river|stream|canal|fairway|ship_canal|link)$"]["name"];
+  relation(around:${r},${p.lat},${p.lon})["waterway"~"^(river|stream|canal)$"]["name"]["gvr:code"];
+  way(around:${r},${p.lat},${p.lon})["natural"="water"]["name"]["gvr:code"];`;
       })
       .join('\n');
     const query = `
@@ -1873,7 +1916,7 @@ function pickCatalogName(
     }
   }
 
-  return { name: best.n, kind: best.k === 'l' ? 'lake' : 'river' };
+  return { name: resolveWaterName(best.n) ?? best.n, kind: best.k === 'l' ? 'lake' : 'river' };
 }
 
 function catalogBodyByName(name: string): CatalogBody | undefined {
@@ -2457,8 +2500,8 @@ function mergeShortSegments(segments: ItinerarySegment[], minKm = 1.2): Itinerar
 function collapseMoscowCanalFlicker(segments: ItinerarySegment[]): ItinerarySegment[] {
   if (segments.length < 2) return segments;
   const out = segments.map((s) => ({
+    ...s,
     name: canonicalWaterwayName(s.name),
-    km: s.km,
   }));
   const isCanal = (s: ItinerarySegment) => isMoscowCanalName(s.name);
   const isKhimki = (s: ItinerarySegment) =>
@@ -2532,6 +2575,10 @@ function collapseAdjacentSegments(segments: ItinerarySegment[]): ItinerarySegmen
     const prev = collapsed[collapsed.length - 1];
     if (prev && prev.name.toLocaleLowerCase('ru') === s.name.toLocaleLowerCase('ru')) {
       prev.km += s.km;
+      if (!prev.gvrCode && s.gvrCode) {
+        prev.gvrCode = s.gvrCode;
+        prev.fromGvr = s.fromGvr;
+      }
     } else {
       collapsed.push({ ...s });
     }
@@ -2548,7 +2595,7 @@ function scaleSegmentsToTotal(segments: ItinerarySegment[], totalKm: number): It
   // Same geometry → tiny drift only. Large drift means a bug — do not distort.
   if (drift > 0.04) return segments;
   const k = totalKm / sum;
-  return segments.map((s) => ({ name: s.name, km: s.km * k }));
+  return segments.map((s) => ({ ...s, km: s.km * k }));
 }
 
 /**
@@ -2708,7 +2755,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     if (prev && prev.name.toLocaleLowerCase('ru') === currentName.toLocaleLowerCase('ru')) {
       prev.km += add;
     } else {
-      segments.push({ name: currentName, km: add });
+      segments.push(namedSegment(currentName, add));
     }
   };
 
@@ -2795,7 +2842,7 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
     if (segments.length) {
       segments[segments.length - 1]!.km += pendingKm;
     } else if (currentName) {
-      segments.push({ name: currentName, km: pendingKm });
+      segments.push(namedSegment(currentName, pendingKm));
     }
   }
   return mergeShortSegments(
@@ -2903,9 +2950,20 @@ export function formatItinerary(segments: ItinerarySegment[]): string {
         minimumFractionDigits: 1,
         maximumFractionDigits: 1,
       });
-      return `${s.name} (${kmText} км)`;
+      const gvr = s.fromGvr && s.gvrCode ? ` · ГВР ${s.gvrCode}` : '';
+      return `${s.name} (${kmText} км${gvr})`;
     })
     .join(' — ');
+}
+
+/** Human-readable credit for the naming source. */
+export function itinerarySourceNote(segments: ItinerarySegment[]): string {
+  const gvrCount = segments.filter((s) => s.fromGvr).length;
+  const stats = gvrIndexStats();
+  if (gvrCount > 0) {
+    return `${gvrSourceLabel()}: ${gvrCount} из ${segments.length} участков по коду водного объекта (индекс ${stats.codes.toLocaleString('ru-RU')} записей).`;
+  }
+  return `Названия сопоставляются с ${gvrSourceLabel()} при наличии кода объекта.`;
 }
 
 export async function routeAlongWater(origin: LngLat, destination: LngLat): Promise<WaterPath> {

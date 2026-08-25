@@ -577,11 +577,32 @@ body {
   color: var(--foam);
 }
 
+.itin-gvr {
+  display: inline-block;
+  margin-left: 0.45rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 6px;
+  background: rgba(46, 196, 182, 0.12);
+  border: 1px solid rgba(46, 196, 182, 0.28);
+  color: rgba(232, 244, 242, 0.72);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+}
+
 .itin-km {
   flex: 0 0 auto;
   color: rgba(232, 244, 242, 0.62);
   font-variant-numeric: tabular-nums;
   font-size: 0.82rem;
+}
+
+.route-desc-source {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: rgba(232, 244, 242, 0.55);
 }
 
 .controls {

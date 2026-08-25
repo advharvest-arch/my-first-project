@@ -17,6 +17,7 @@ import { getPresetRoute, type PresetRouteId } from './presets';
 import {
   describeWaterItinerary,
   formatItinerary,
+  itinerarySourceNote,
   polishWaterPath,
   prefetchWaterBbox,
   prefetchWaterNear,
@@ -154,6 +155,7 @@ const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')
 const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
 const routeDescBody = document.querySelector<HTMLTextAreaElement>('#route-desc-body')!;
 const routeDescList = document.querySelector<HTMLOListElement>('#route-desc-list')!;
+const routeDescSource = document.querySelector<HTMLParagraphElement>('#route-desc-source')!;
 const routeDescCopy = document.querySelector<HTMLButtonElement>('#route-desc-copy')!;
 const shareRouteBtn = document.querySelector<HTMLButtonElement>('#share-route-btn')!;
 const gpxExportBtn = document.querySelector<HTMLButtonElement>('#gpx-export-btn')!;
@@ -322,6 +324,8 @@ function hideRouteDesc(): void {
   routeDescBody.value = '';
   routeDescList.innerHTML = '';
   routeDescList.hidden = true;
+  routeDescSource.textContent = '';
+  routeDescSource.hidden = true;
   routeDescCopy.textContent = 'Копировать';
 }
 
@@ -347,7 +351,11 @@ function renderItineraryList(segments: ItinerarySegment[]): void {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     });
-    li.innerHTML = `<span class="itin-name">${escapeHtml(s.name)}</span><span class="itin-km">${escapeHtml(kmText)} км</span>`;
+    const gvr =
+      s.fromGvr && s.gvrCode
+        ? `<span class="itin-gvr" title="Код Государственного водного реестра">ГВР ${escapeHtml(s.gvrCode)}</span>`
+        : '';
+    li.innerHTML = `<span class="itin-name">${escapeHtml(s.name)}${gvr}</span><span class="itin-km">${escapeHtml(kmText)} км</span>`;
     routeDescList.appendChild(li);
   }
 }
@@ -359,7 +367,11 @@ function showRouteDesc(text: string, segments?: ItinerarySegment[]): void {
     return;
   }
   routeDescBody.value = trimmed;
-  renderItineraryList(segments ?? lastItinerary);
+  const segs = segments ?? lastItinerary;
+  renderItineraryList(segs);
+  const note = itinerarySourceNote(segs);
+  routeDescSource.textContent = note;
+  routeDescSource.hidden = !note;
   routeDescEl.hidden = false;
   routeDescCopy.textContent = 'Копировать';
 }
