@@ -80,6 +80,10 @@ const map = L.map(mapEl, {
   // Prefer DOM tiles (crisper labels); canvas is only for vectors if needed.
   preferCanvas: false,
   fadeAnimation: false,
+  zoomAnimation: true,
+  markerZoomAnimation: false,
+  // Load tiles while the user is still panning (feels much snappier).
+  // Basemap layers also set updateWhenIdle: false.
   tapTolerance: 20,
   bounceAtZoomLimits: false,
 }).setView([55.75, 37.62], 5);
