@@ -23,6 +23,7 @@ import {
   snapClickToWater,
   type ItinerarySegment,
 } from './waterways';
+import { maxWaterSnapKm } from './water-snap';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -1082,8 +1083,8 @@ function attachWaypointMarker(wp: Waypoint, index: number): void {
       markerClickGuardUntil = Date.now() + 450;
       if (mode === 'water') {
         const snapped = snapClickToWater({ lon: wp.lon, lat: wp.lat });
-        // Only pull when clearly off the centerline but still near water.
-        if (snapped && snapped.distKm >= 0.04 && snapped.distKm <= 1.25) {
+        // Only pull when clearly off the centerline but still within MAX snap.
+        if (snapped && snapped.distKm >= 0.04 && snapped.distKm <= maxWaterSnapKm()) {
           wp.lon = snapped.point.lon;
           wp.lat = snapped.point.lat;
           if (snapped.name && isAutoWaypointName(wp.name)) {
@@ -1527,7 +1528,7 @@ map.on('click', (e: L.LeafletMouseEvent) => {
   if (mode === 'water') {
     prefetchWaterNear({ lon: lng, lat });
     const snapped = snapClickToWater({ lon: lng, lat });
-    if (snapped && snapped.distKm <= 1.25) {
+    if (snapped && snapped.distKm <= maxWaterSnapKm()) {
       // Already on water (<40 m) — keep the click; otherwise pull to centerline.
       if (snapped.distKm >= 0.04) {
         lon = snapped.point.lon;

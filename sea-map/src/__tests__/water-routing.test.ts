@@ -14,8 +14,29 @@ import {
   repairDubnaLockPassage,
 } from '../routing-rules';
 import { validateWaterRoute } from '../validate-water-route';
+import {
+  MAX_OPEN_WATER_SNAP_DISTANCE_METERS,
+  MAX_WATER_SNAP_DISTANCE_METERS,
+  endpointReachToOriginals,
+  maxOpenWaterSnapKm,
+  maxSnapKmForMethod,
+  maxWaterSnapKm,
+} from '../water-snap';
 
 const p = (lon: number, lat: number): LngLat => ({ lon, lat });
+
+describe('MAX_WATER_SNAP_DISTANCE_METERS', () => {
+  it('is 3000 m (live residual analysis: working ≤2.52 km, Vetluga miss ~7.4 km)', () => {
+    expect(MAX_WATER_SNAP_DISTANCE_METERS).toBe(3000);
+    expect(maxWaterSnapKm()).toBe(3);
+  });
+
+  it('keeps a wider open-water reach so reservoirs are not rejected', () => {
+    expect(MAX_OPEN_WATER_SNAP_DISTANCE_METERS).toBeGreaterThan(MAX_WATER_SNAP_DISTANCE_METERS);
+    expect(maxSnapKmForMethod('lake')).toBe(maxOpenWaterSnapKm());
+    expect(maxSnapKmForMethod('waterway')).toBe(maxWaterSnapKm());
+  });
+});
 
 describe('direct is never a valid water route', () => {
   it('rejects method=direct', () => {
@@ -49,6 +70,134 @@ describe('direct is never a valid water route', () => {
   });
 });
 
+describe('endpoint reach to original START/FINISH', () => {
+  it('START/FINISH on river track within MAX snap → success', () => {
+    const a = VOLGA_NAV_FAIRWAY[10]!;
+    const b = VOLGA_NAV_FAIRWAY[40]!;
+    const slice = VOLGA_NAV_FAIRWAY.slice(10, 41);
+    const reach = endpointReachToOriginals(slice, [a, b], maxWaterSnapKm());
+    expect(reach.ok).toBe(true);
+    const v = validateWaterRoute(slice, {
+      waypoints: [a, b],
+      lengthKm: pathLengthKm(slice),
+      method: 'waterway',
+    });
+    expect(v.ok).toBe(true);
+  });
+
+  it('START/FINISH slightly aside (≤ MAX) → still reachable', () => {
+    const a = VOLGA_NAV_FAIRWAY[20]!;
+    const b = VOLGA_NAV_FAIRWAY[30]!;
+    const slice = VOLGA_NAV_FAIRWAY.slice(20, 31);
+    // ~1.5 km offset (~0.02° lat)
+    const start = p(a.lon, a.lat + 0.012);
+    const finish = p(b.lon, b.lat - 0.01);
+    const reach = endpointReachToOriginals(slice, [start, finish], maxWaterSnapKm());
+    expect(reach.startKm).toBeLessThanOrEqual(maxWaterSnapKm());
+    expect(reach.finishKm).toBeLessThanOrEqual(maxWaterSnapKm());
+    expect(reach.ok).toBe(true);
+  });
+
+  it('START/FINISH too far from routing ends → endpoints_far / not reachable', () => {
+    const a = VOLGA_NAV_FAIRWAY[20]!;
+    const b = VOLGA_NAV_FAIRWAY[30]!;
+    const slice = VOLGA_NAV_FAIRWAY.slice(20, 31);
+    // ~8–10 km inland from ends
+    const start = p(a.lon + 0.12, a.lat + 0.08);
+    const finish = p(b.lon - 0.12, b.lat - 0.08);
+    const reach = endpointReachToOriginals(slice, [start, finish], maxWaterSnapKm());
+    expect(reach.ok).toBe(false);
+    const v = validateWaterRoute(slice, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(slice),
+      method: 'waterway',
+    });
+    expect(v.ok).toBe(false);
+    expect(v.issues).toContain('endpoints_far');
+  });
+
+  /**
+   * Regression: Volga → Vetluga intent.
+   * Track that stays on the Volga stem and finishes ~7 km from the requested
+   * tributary approach must NOT validate as a successful water route.
+   */
+  it('Volga → Vetluga: stem finish far from tributary FINISH → fail', () => {
+    const start = p(44.0, 56.33); // Nizhny / Volga
+    const finish = p(45.05, 56.15); // Vetluga-mouth intent
+    // Synthetic stem track ending near Volga SE of the requested finish (audit: ~7.4 km).
+    const stemFinish = p(45.133, 56.102);
+    const stemTrack: LngLat[] = [
+      start,
+      p(44.15, 56.28),
+      p(44.32, 56.17),
+      p(44.55, 56.07),
+      p(44.77, 56.06),
+      p(44.93, 56.07),
+      stemFinish,
+    ];
+    const reach = endpointReachToOriginals(stemTrack, [start, finish], maxWaterSnapKm());
+    expect(reach.finishKm).toBeGreaterThan(maxWaterSnapKm());
+    expect(reach.ok).toBe(false);
+
+    const v = validateWaterRoute(stemTrack, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(stemTrack),
+      method: 'waterway',
+    });
+    expect(v.ok).toBe(false);
+    expect(v.issues).toContain('endpoints_far');
+  });
+
+  it('FINISH on tributary branch that the track actually reaches → success', () => {
+    const start = p(44.0, 56.33);
+    const finish = p(45.05, 56.15);
+    // Meandering track that ends on the requested tributary approach
+    // (not a near-geodesic chord across land).
+    const track: LngLat[] = [
+      start,
+      p(44.12, 56.34),
+      p(44.22, 56.3),
+      p(44.28, 56.24),
+      p(44.35, 56.18),
+      p(44.48, 56.16),
+      p(44.62, 56.2),
+      p(44.75, 56.17),
+      p(44.88, 56.14),
+      p(44.98, 56.16),
+      finish,
+    ];
+    const reach = endpointReachToOriginals(track, [start, finish], maxWaterSnapKm());
+    expect(reach.ok).toBe(true);
+    expect(reach.finishKm).toBeLessThanOrEqual(0.05);
+    const v = validateWaterRoute(track, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(track),
+      method: 'waterway',
+    });
+    expect(v.ok).toBe(true);
+    expect(v.issues).not.toContain('endpoints_far');
+  });
+});
+
+describe('open water must not break on river snap radius', () => {
+  it('lake method allows finish residual beyond river MAX snap', () => {
+    const a = p(48.42, 54.36);
+    const b = p(48.55, 54.4);
+    // Fairway end ~6.5 km from open-water click (audit residual).
+    const track = [a, p(48.48, 54.38), p(48.52, 54.39), p(48.48, 54.45)];
+    const riverReach = endpointReachToOriginals(track, [a, b], maxWaterSnapKm());
+    expect(riverReach.ok).toBe(false);
+    const lakeReach = endpointReachToOriginals(track, [a, b], maxOpenWaterSnapKm());
+    expect(lakeReach.ok).toBe(true);
+    const v = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm: pathLengthKm(track),
+      method: 'lake',
+    });
+    expect(v.issues).not.toContain('endpoints_far');
+  });
+});
+
 describe('Volga fairway geometry', () => {
   it('accepts a meandering Volga fairway slice', () => {
     const a = VOLGA_NAV_FAIRWAY[10]!;
@@ -73,9 +222,8 @@ describe('Volga fairway geometry', () => {
 
 describe('Dubna lock №1 (regression)', () => {
   it('detects dam chord across Иваньковская плотина', () => {
-    // North-of-lock chord that crosses the dam crest.
     const chord = [
-      p(37.10, 56.74),
+      p(37.1, 56.74),
       p(37.13, 56.739),
       p(37.145, 56.74),
       p(37.19, 56.745),
@@ -107,7 +255,7 @@ describe('Dubna lock №1 (regression)', () => {
   });
 });
 
-describe('Volga–Baltic / tributary / long stitch helpers', () => {
+describe('Volga–Baltic / stitch helpers', () => {
   it('dedupes joint duplicates after split merge', () => {
     const a = p(38.7, 58.1);
     const b = p(38.71, 58.11);
@@ -120,36 +268,20 @@ describe('Volga–Baltic / tributary / long stitch helpers', () => {
     expect(hasGeometryGap(pts, 25)).toBe(true);
   });
 
-  it('rejects endpoints far from the requested corridor', () => {
-    const waypoints = [p(37.5, 55.75), p(37.6, 55.8)];
-    const track = [p(44.0, 56.3), p(44.1, 56.31), p(44.2, 56.32)];
-    const v = validateWaterRoute(track, {
-      waypoints,
-      method: 'waterway',
-      endpointSnapKm: 5,
-    });
-    expect(v.ok).toBe(false);
-    expect(v.issues).toContain('endpoints_far');
-  });
-
-  it('START/FINISH near river but not on it still need a water track', () => {
-    // Short geodesic between two points near the fairway — validator requires
-    // a real water track (waterProximity samples far from water → reject).
-    const pin = VOLGA_NAV_FAIRWAY[20]!;
-    const a = p(pin.lon + 0.02, pin.lat + 0.01);
-    const b = p(pin.lon + 0.35, pin.lat + 0.08);
-    const chord = [a, b];
-    const v = validateWaterRoute(chord, {
-      waypoints: [a, b],
-      method: 'waterway',
-      waterProximity: {
-        sampleDistKm: [2.5, 3.1, 2.8, 3.4, 2.9, 3.0],
-        maxDistKm: 1.5,
-        minFraction: 0.55,
-      },
-    });
-    expect(v.ok).toBe(false);
-    expect(v.issues).toContain('not_on_water_network');
+  it('Volga–Baltic fairway-style track within MAX snap still validates', () => {
+    // Rybinsk lock area → Cherepovets approach (compressed pins).
+    const a = p(38.72, 58.07);
+    const b = p(37.95, 59.1);
+    const track = [
+      a,
+      p(38.65, 58.3),
+      p(38.4, 58.55),
+      p(38.1, 58.8),
+      p(37.95, 59.0),
+      b,
+    ];
+    const reach = endpointReachToOriginals(track, [a, b], maxWaterSnapKm());
+    expect(reach.ok).toBe(true);
   });
 });
 

@@ -25,7 +25,7 @@ const routes: Array<{ name: string; a: LngLat; b: LngLat }> = [
     b: { lon: 37.95, lat: 59.1 },
   },
   {
-    name: 'Приток/развилка (Волга→устье Ветлуги)',
+    name: 'Приток/развилка (Волга→устье Ветлуги) → ожидаем fail',
     a: { lon: 44.0, lat: 56.33 },
     b: { lon: 45.05, lat: 56.15 },
   },

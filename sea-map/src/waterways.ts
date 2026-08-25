@@ -4,6 +4,11 @@ import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans } fro
 import { dualGeometry } from './route-geometry';
 import { validateWaterRoute } from './validate-water-route';
 import {
+  endpointReachToOriginals,
+  maxSnapKmForMethod,
+  maxWaterSnapKm,
+} from './water-snap';
+import {
   ensureGvrIndex,
   officialGvrName,
   rememberGvrPair,
@@ -1193,8 +1198,12 @@ export type WaterSnap = {
 /**
  * Pull a map click onto the nearest river/canal/lake centerline.
  * Cache-only (instant): never awaits Overpass. Background prefetch warms cells.
+ * Default radius follows MAX_WATER_SNAP_DISTANCE_METERS.
  */
-export function snapClickToWater(click: LngLat, maxKm = 1.25): WaterSnap | null {
+export function snapClickToWater(
+  click: LngLat,
+  maxKm: number = maxWaterSnapKm(),
+): WaterSnap | null {
   const { cx, cy } = pointCell(click);
   // Warm neighbours in the background — do not block the click / route.
   for (let dx = -1; dx <= 1; dx++) {
@@ -3004,13 +3013,16 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   await ensureCoreWaterways();
 
+  /** Original user coordinates — endpoint reach is always measured against these. */
+  const originalWaypoints = waypoints.map((w) => ({ lon: w.lon, lat: w.lat }));
+
   /** Water mode must never present a geodesic START→FINISH chord as success. */
   const routeNotFound = (): WaterPath => ({
     points: [],
     lengthKm: 0,
     waterName: null,
     method: 'route_not_found',
-    waypointCumKm: waypoints.map(() => 0),
+    waypointCumKm: originalWaypoints.map(() => 0),
     routingGeometry: [],
     displayGeometry: [],
   });
@@ -3021,29 +3033,74 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     trackLengthKm: number,
     extras: { waterName: string | null; method: 'waterway' | 'lake'; enrich?: boolean },
   ): Promise<WaterPath | null> => {
+    const snapKm = maxSnapKmForMethod(extras.method);
+    // Hard gate: routing ends must reach the *original* START/FINISH.
+    const reach = endpointReachToOriginals(routing, originalWaypoints, snapKm);
+    if (!reach.ok) return null;
+
     const validation = validateWaterRoute(routing, {
-      waypoints,
+      waypoints: originalWaypoints,
       lengthKm: trackLengthKm > 0 ? trackLengthKm : pathLength(routing),
       method: extras.method,
+      endpointSnapKm: snapKm,
     });
     if (!validation.ok) return null;
-    return finalizeMeasuredRoute(display, trackLengthKm, waypoints, {
+    return finalizeMeasuredRoute(display, trackLengthKm, originalWaypoints, {
       ...extras,
       routingGeometry: routing,
     });
+  };
+
+  /** Snap each original waypoint onto nearby water (within MAX snap) for a retry. */
+  const snapWaypointsForRetry = (): LngLat[] | null => {
+    const maxKm = maxWaterSnapKm();
+    const snapped: LngLat[] = [];
+    let changed = false;
+    for (const wp of originalWaypoints) {
+      const hit = snapClickToWater(wp, maxKm);
+      if (!hit || hit.distKm > maxKm) return null;
+      if (hit.distKm >= 0.02) changed = true;
+      snapped.push(hit.point);
+    }
+    return changed ? snapped : null;
+  };
+
+  const tryBrouterChain = async (
+    routeWaypoints: LngLat[],
+    method: 'waterway' | 'lake' = 'waterway',
+  ): Promise<{ path: WaterPath | null; hadGeometry: boolean }> => {
+    const brouted = await routeWithBrouterAdaptive(routeWaypoints);
+    if (!brouted || brouted.points.length < 2 || brouted.lengthKm <= 0) {
+      return { path: null, hadGeometry: false };
+    }
+    if (routeWaypoints.length === 2) {
+      const geo = haversineKm(routeWaypoints[0]!, routeWaypoints[1]!);
+      if (geo > 40 && brouted.lengthKm > geo * 3.5) {
+        return { path: null, hadGeometry: true };
+      }
+    }
+    const routing = brouted.points;
+    const straightened = await straightenOpenWaterSpans(routing, { cachedOnly: true });
+    const display = refineRouteGeometryFast(straightened);
+    const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(routing);
+    const path = await acceptPath(routing, display, brouted.lengthKm, {
+      waterName: named,
+      method,
+      enrich: false,
+    });
+    return { path, hadGeometry: true };
   };
 
   const routeOnCachedLines = async (lines: WaterLine[]): Promise<WaterPath | null> => {
     if (!lines.length) return null;
     const allPoints: LngLat[] = [];
     let lengthKm = 0;
-    const waypointCumKm = [0];
     let method: 'waterway' | 'lake' = 'waterway';
     let anyRouted = false;
     const nameBits: Array<string | null> = [];
 
-    for (let i = 1; i < waypoints.length; i++) {
-      const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
+    for (let i = 1; i < originalWaypoints.length; i++) {
+      const leg = routeOnLines(originalWaypoints[i - 1]!, originalWaypoints[i]!, lines);
       if (leg.method === 'direct') continue;
       anyRouted = true;
       if (leg.method === 'lake') method = 'lake';
@@ -3051,7 +3108,6 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       const chunk = allPoints.length === 0 ? leg.points : leg.points.slice(1);
       allPoints.push(...chunk);
       lengthKm += leg.lengthKm;
-      waypointCumKm.push(lengthKm);
     }
     if (!anyRouted || allPoints.length < 2) return null;
     return acceptPath(allPoints, allPoints, pathLength(allPoints), {
@@ -3062,9 +3118,12 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   // 1) Pure open-water legs (lake or reservoir): straight chords that only
   // bend around islands / peninsulas. BRouter river fairways hug the shore
-  // and must not win here.
-  if (findSharedOpenLake(waypoints)) {
-    const open = await routeAcrossOpenLake(waypoints);
+  // and must not win here — but if the lake mask is unavailable, short
+  // same-lake hops may still use the wider open-water snap (not long stem runs
+  // that merely sit inside a giant reservoir catalog bbox).
+  const sharedLake = findSharedOpenLake(originalWaypoints);
+  if (sharedLake) {
+    const open = await routeAcrossOpenLake(originalWaypoints);
     if (open && open.points.length >= 2 && open.lengthKm > 0) {
       const accepted = await acceptPath(open.points, open.points, open.lengthKm, {
         waterName: open.waterName,
@@ -3074,40 +3133,39 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     }
   }
 
-  // 2) BRouter — short legs OK as-is; long corridors are split before the request.
-  const brouted = await routeWithBrouterAdaptive(waypoints);
+  const shortOpenWaterHop =
+    !!sharedLake &&
+    originalWaypoints.length === 2 &&
+    haversineKm(originalWaypoints[0]!, originalWaypoints[1]!) <= 25;
 
-  if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
-    // Guard: only drop obvious basin-hopping loops (align with brouter soft cap).
-    let rejectBrouter = false;
-    if (waypoints.length === 2) {
-      const geo = haversineKm(waypoints[0]!, waypoints[1]!);
-      if (geo > 40 && brouted.lengthKm > geo * 3.5) rejectBrouter = true;
+  // 2) BRouter on original clicks, then retry with water snaps if ends miss FINISH/START.
+  {
+    const brouterMethod = shortOpenWaterHop ? 'lake' : 'waterway';
+    const first = await tryBrouterChain(originalWaypoints, brouterMethod);
+    if (first.path) return first.path;
+
+    const snapped = snapWaypointsForRetry();
+    if (snapped) {
+      const second = await tryBrouterChain(snapped, brouterMethod);
+      if (second.path) return second.path;
     }
-    if (!rejectBrouter) {
-      // routingGeometry = BRouter track; display may be lake-straightened / meander-refined.
-      const routing = brouted.points;
-      const straightened = await straightenOpenWaterSpans(routing, { cachedOnly: true });
-      const display = refineRouteGeometryFast(straightened);
-      const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(routing);
-      const accepted = await acceptPath(routing, display, brouted.lengthKm, {
-        waterName: named,
-        method: 'waterway',
-        enrich: false,
-      });
-      if (accepted) return accepted;
+
+    // BRouter produced a water track that does not reach the original START/FINISH
+    // (e.g. stem instead of tributary). Do not burn minutes on Overpass for that miss.
+    if (first.hadGeometry && routeSpanKm(originalWaypoints) > 40) {
+      return routeNotFound();
     }
   }
 
   // Long inland trips only work via BRouter. Overpass cell crawl cannot connect
   // Seliger→Vokhma and only hangs the UI for minutes before returning empty.
-  if (routeSpanKm(waypoints) > 120) {
+  if (routeSpanKm(originalWaypoints) > 120) {
     return routeNotFound();
   }
 
   // 3) Instant local fallback from water-core already in memory (no network).
   const cachedLines = mergeLines(
-    cellsAlong(waypoints)
+    cellsAlong(originalWaypoints)
       .map((c) => cellCache.get(cellKey(c.cx, c.cy)) ?? [])
       .filter((g) => g.length > 0),
   );
@@ -3116,7 +3174,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   // 4) Fetch more OSM geometry, then route (may be slower).
   const run = async (forceRefresh: boolean): Promise<WaterPath | null> => {
-    const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
+    const lines = await fetchWaterNetwork(originalWaypoints, { forceRefresh });
     return routeOnCachedLines(lines);
   };
 
@@ -3154,6 +3212,7 @@ export async function polishWaterPath(
       waypoints,
       lengthKm: polished.lengthKm,
       method: polished.method,
+      endpointSnapKm: maxSnapKmForMethod(polished.method),
     });
     if (!validation.ok) return null;
     const geomChanged =

@@ -5,6 +5,7 @@ import {
   hasGeometryGap,
 } from './route-geometry';
 import { hasIllegalBarrierCrossing } from './routing-rules';
+import { maxSnapKmForMethod } from './water-snap';
 
 export type WaterRouteValidationIssue =
   | 'empty'
@@ -27,8 +28,8 @@ export type ValidateWaterRouteOptions = {
   lengthKm?: number;
   method?: string;
   /**
-   * Max distance from route ends to requested waypoints (km).
-   * Scales gently with span so long corridors stay tolerant.
+   * Max distance from route ends to *original* user waypoints (km).
+   * Defaults to MAX_WATER_SNAP (river) / MAX_OPEN_WATER_SNAP (lake).
    */
   endpointSnapKm?: number;
   /** Max jump between consecutive vertices (km). */
@@ -36,6 +37,7 @@ export type ValidateWaterRouteOptions = {
   /**
    * Optional water-network proximity samples (km).
    * When provided and fractionNear is low → not_on_water_network.
+   * Not required for open water / reservoirs.
    */
   waterProximity?: {
     /** Distance from each sample to nearest waterway/lake (km). */
@@ -83,9 +85,8 @@ export function validateWaterRoute(
   const maxGap = opts.maxGapKm ?? Math.max(25, Math.min(80, geo * 0.15 + 20));
   if (hasGeometryGap(points, maxGap)) issues.push('geometry_gap');
 
-  const snap =
-    opts.endpointSnapKm ??
-    Math.max(8, Math.min(40, 6 + geo * 0.05));
+  // Reach original user START/FINISH — not an intermediate snapped pin.
+  const snap = opts.endpointSnapKm ?? maxSnapKmForMethod(opts.method ?? 'waterway');
   if (!endpointsNearWaypoints(points, opts.waypoints, snap)) {
     issues.push('endpoints_far');
   }
