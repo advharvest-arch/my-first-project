@@ -698,8 +698,13 @@ function replaceSpansOnMask(points: LngLat[], lake: LakeMask, catalogBBox: BBox)
 
 /**
  * After river routing, straighten every lake/reservoir span the track crosses.
+ * `cachedOnly` skips Nominatim — use on the critical path so the track paints
+ * as soon as BRouter answers; call again without it in background polish.
  */
-export async function straightenOpenWaterSpans(points: LngLat[]): Promise<LngLat[]> {
+export async function straightenOpenWaterSpans(
+  points: LngLat[],
+  opts: { cachedOnly?: boolean } = {},
+): Promise<LngLat[]> {
   if (points.length < 4) return points;
 
   let pathBBox: BBox = [180, 90, -180, -90];
@@ -728,7 +733,13 @@ export async function straightenOpenWaterSpans(points: LngLat[]): Promise<LngLat
     }
     if (hits < 4) continue;
 
-    const lake = await fetchLakeMask(body.name, body.osmId);
+    let lake: LakeMask | null = null;
+    if (opts.cachedOnly) {
+      if (!lakeCache.has(body.osmId)) continue;
+      lake = lakeCache.get(body.osmId) ?? null;
+    } else {
+      lake = await fetchLakeMask(body.name, body.osmId);
+    }
     if (!lake) continue;
     result = replaceSpansOnMask(result, lake, body.catalog.b);
   }

@@ -613,15 +613,26 @@ function refineTrackToRiverCenterlines(points: LngLat[]): LngLat[] {
   return out.length >= 2 ? out : points;
 }
 
-async function refineRouteGeometry(points: LngLat[]): Promise<LngLat[]> {
+/** Meander polish from whatever is already in cell cache (no Overpass wait). */
+function refineRouteGeometryFast(points: LngLat[]): LngLat[] {
+  if (points.length < 3) return points;
+  return refineTrackToRiverCenterlines(points);
+}
+
+/**
+ * Background polish: fetch OSM around the track, then re-apply centerline bends.
+ * Used after the BRouter path is already on screen.
+ */
+async function refineRouteGeometryDeep(points: LngLat[]): Promise<LngLat[]> {
   if (points.length < 3) return points;
   try {
-    await fetchWaterNetwork(sampleAlongPath(points, Math.min(28, Math.max(4, Math.ceil(pathLength(points) / 6)))), {
-      forceRefresh: false,
-    });
+    await fetchWaterNetwork(
+      sampleAlongPath(points, Math.min(16, Math.max(4, Math.ceil(pathLength(points) / 10)))),
+      { forceRefresh: false },
+    );
     await enrichNamedWaterwaysForItinerary(points);
   } catch {
-    // Use water-core / whatever is already cached.
+    // Keep cache-only refine.
   }
   return refineTrackToRiverCenterlines(points);
 }
@@ -1139,20 +1150,16 @@ export type WaterSnap = {
 
 /**
  * Pull a map click onto the nearest river/canal/lake centerline.
- * MapMagic only warns «move point to the river»; we snap automatically.
+ * Cache-only (instant): never awaits Overpass. Background prefetch warms cells.
  */
-export async function snapClickToWater(
-  click: LngLat,
-  maxKm = 1.25,
-): Promise<WaterSnap | null> {
+export function snapClickToWater(click: LngLat, maxKm = 1.25): WaterSnap | null {
   const { cx, cy } = pointCell(click);
-  const loads: Promise<WaterLine[]>[] = [];
+  // Warm neighbours in the background — do not block the click / route.
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
-      loads.push(loadCell(cx + dx, cy + dy));
+      void loadCell(cx + dx, cy + dy);
     }
   }
-  await Promise.all(loads);
 
   let bestWay: WaterSnap | null = null;
   let bestLake: WaterSnap | null = null;
@@ -1551,31 +1558,41 @@ function retireLakeName(usedNames: Set<string>, name: string): void {
 async function enrichNamedWaterwaysForItinerary(path: LngLat[]): Promise<void> {
   if (path.length < 2) return;
   const span = pathLength(path);
-  const sampleCount = Math.min(48, Math.max(4, Math.ceil(span / 10) + 1));
+  // Keep samples modest — this runs in background polish, not on the critical path.
+  const sampleCount = Math.min(24, Math.max(4, Math.ceil(span / 14) + 1));
   const samples = sampleAlongPath(path, sampleCount);
-  const chunkSize = 10;
+  const chunkSize = 12;
+  const jobs: Promise<void>[] = [];
   for (let i = 0; i < samples.length; i += chunkSize) {
     const chunk = samples.slice(i, i + chunkSize);
     const blocks = chunk
       .map((p) => {
-        const r = span > 250 ? 1800 : 2200;
+        const r = span > 250 ? 1600 : 2000;
         return `
   way(around:${r},${p.lat},${p.lon})["waterway"~"^(river|stream|canal|fairway|ship_canal|link)$"]["name"];`;
       })
       .join('\n');
     const query = `
-[out:json][timeout:14];
+[out:json][timeout:10];
 (
 ${blocks}
 );
 out geom;
 `;
-    try {
-      const lines = linesFromElements(await overpassQuery(query));
-      if (lines.length) rememberLinesInCells(lines);
-    } catch {
-      // Naming still falls back to water-core + catalog.
-    }
+    jobs.push(
+      (async () => {
+        try {
+          const lines = linesFromElements(await overpassQuery(query));
+          if (lines.length) rememberLinesInCells(lines);
+        } catch {
+          // Naming still falls back to water-core + catalog.
+        }
+      })(),
+    );
+  }
+  // Cap concurrency: two Overpass batches at a time.
+  for (let i = 0; i < jobs.length; i += 2) {
+    await Promise.all(jobs.slice(i, i + 2));
   }
 }
 
@@ -2440,6 +2457,8 @@ async function finalizeMeasuredRoute(
   extras: {
     waterName: string | null;
     method: WaterPath['method'];
+    /** When true, Overpass-enrich names (slow). Default: cache/catalog only. */
+    enrich?: boolean;
   },
 ): Promise<WaterPath> {
   // Keep meanders: only drop sub-12 m duplicates.
@@ -2461,6 +2480,7 @@ async function finalizeMeasuredRoute(
     totalKm: lengthKm,
     origin: waypoints[0],
     destination: waypoints[waypoints.length - 1],
+    enrich: extras.enrich === true,
   });
 
   const points =
@@ -2643,6 +2663,11 @@ export type ItineraryOptions = {
   /** Route endpoints — used to reject impossible cascade/Москва mixes. */
   origin?: LngLat;
   destination?: LngLat;
+  /**
+   * Fetch named OSM waterways along the path before labeling.
+   * Default false for instant routes; enable in background polish.
+   */
+  enrich?: boolean;
 };
 
 /**
@@ -2654,11 +2679,12 @@ export async function describeWaterItinerary(
   opts: ItineraryOptions = {},
 ): Promise<ItinerarySegment[]> {
   if (path.length < 2) return [];
-  // Load named rivers along the full track (water-core is sparse outside a few basins).
-  try {
-    await enrichNamedWaterwaysForItinerary(path);
-  } catch {
-    // Continue with catalog + whatever is already cached.
+  if (opts.enrich) {
+    try {
+      await enrichNamedWaterwaysForItinerary(path);
+    } catch {
+      // Continue with catalog + whatever is already cached.
+    }
   }
   let chain = itineraryFromPath(path);
 
@@ -2814,15 +2840,15 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         return directFallback();
       }
     }
-    // Straighten lake/reservoir spans (Белое, Рыбинское, …) that BRouter
-    // followed along the shore or fairway instead of open water.
-    const straightened = await straightenOpenWaterSpans(brouted.points);
-    // Snap river legs onto OSM centerlines so meanders are drawn, not cut.
-    const waterRef = await refineRouteGeometry(straightened);
+    // Fast path: BRouter only (+ cached lake masks / water-core). No Overpass /
+    // Nominatim wait — MapMagic paints as soon as the router answers.
+    const straightened = await straightenOpenWaterSpans(brouted.points, { cachedOnly: true });
+    const waterRef = refineRouteGeometryFast(straightened);
     const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(waterRef);
     return finalizeMeasuredRoute(waterRef, pathLength(waterRef), waypoints, {
       waterName: named,
       method: 'waterway',
+      enrich: false,
     });
   }
 
@@ -2850,4 +2876,38 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   let path = await run(false);
   if (path.method === 'direct') path = await run(true);
   return path;
+}
+
+/**
+ * Background polish after the fast BRouter path is on screen:
+ * lake straighten (Nominatim), meander refine (Overpass), richer itinerary names.
+ * Returns null if nothing meaningful changed.
+ */
+export async function polishWaterPath(
+  path: WaterPath,
+  waypoints: LngLat[],
+): Promise<WaterPath | null> {
+  if (path.method === 'direct' || path.points.length < 3) return null;
+  try {
+    const straightened = await straightenOpenWaterSpans(path.points, { cachedOnly: false });
+    const refined = await refineRouteGeometryDeep(straightened);
+    const polished = await finalizeMeasuredRoute(refined, pathLength(refined), waypoints, {
+      waterName: path.waterName,
+      method: path.method,
+      enrich: true,
+    });
+    const geomChanged =
+      polished.points.length !== path.points.length ||
+      (polished.points.length > 0 &&
+        (Math.abs(polished.points[0]!.lat - path.points[0]!.lat) > 1e-6 ||
+          Math.abs(polished.points[Math.floor(polished.points.length / 2)]!.lon -
+            path.points[Math.floor(path.points.length / 2)]!.lon) > 1e-5));
+    const itinChanged =
+      formatItinerary(polished.itinerary ?? []) !== formatItinerary(path.itinerary ?? []);
+    const lenChanged = Math.abs(polished.lengthKm - path.lengthKm) > 0.15;
+    if (!geomChanged && !itinChanged && !lenChanged) return null;
+    return polished;
+  } catch {
+    return null;
+  }
 }

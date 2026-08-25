@@ -1059,9 +1059,9 @@ export async function routeWithBrouter(waypoints: LngLat[]): Promise<BrouterResu
   if (waypoints.length < 2) return null;
   const span = routeSpanKm(waypoints);
   // Corridor oneshots (A+vias+B) often succeed on retry after a watchdog kill.
-  const attempts = waypoints.length >= 3 ? 2 : span >= LONG_SPAN_KM ? 1 : 3;
+  const attempts = waypoints.length >= 3 ? 2 : span >= LONG_SPAN_KM ? 1 : 2;
   for (let i = 0; i < attempts; i++) {
-    if (i > 0) await sleep(400 * i);
+    if (i > 0) await sleep(120 * i);
     const hit = await brouterOnce(waypoints);
     if (hit && hit.points.length >= 2 && hit.lengthKm > 0) return hit;
   }

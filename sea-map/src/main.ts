@@ -17,6 +17,7 @@ import { getPresetRoute, type PresetRouteId } from './presets';
 import {
   describeWaterItinerary,
   formatItinerary,
+  polishWaterPath,
   prefetchWaterBbox,
   prefetchWaterNear,
   snapClickToWater,
@@ -179,6 +180,8 @@ let pinnedWaterRoute: {
 } | null = null;
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
+/** Bumps on each successful water route so background polish can cancel. */
+let routeGeneration = 0;
 
 /**
  * Multi-leg parallel lanes: prefer a constant on-screen gap, but never let the
@@ -1176,27 +1179,23 @@ function attachWaypointMarker(wp: Waypoint, index: number): void {
       }, 250);
       markerClickGuardUntil = Date.now() + 450;
       if (mode === 'water') {
-        void (async () => {
-          const snapped = await snapClickToWater({ lon: wp.lon, lat: wp.lat });
-          // Only pull when clearly off the centerline but still near water.
-          if (snapped && snapped.distKm >= 0.04 && snapped.distKm <= 1.25) {
-            wp.lon = snapped.point.lon;
-            wp.lat = snapped.point.lat;
-            if (snapped.name && isAutoWaypointName(wp.name)) {
-              wp.name = snapped.name;
-            }
-            redrawWaypoints(lastRoutePath ?? undefined);
-            renderWaypointList();
-            const meters = Math.round(snapped.distKm * 1000);
-            setStatus(
-              snapped.name
-                ? `Притянули к «${snapped.name}» (${meters} м).`
-                : `Притянули к воде (${meters} м).`,
-            );
+        const snapped = snapClickToWater({ lon: wp.lon, lat: wp.lat });
+        // Only pull when clearly off the centerline but still near water.
+        if (snapped && snapped.distKm >= 0.04 && snapped.distKm <= 1.25) {
+          wp.lon = snapped.point.lon;
+          wp.lat = snapped.point.lat;
+          if (snapped.name && isAutoWaypointName(wp.name)) {
+            wp.name = snapped.name;
           }
-          scheduleRebuildAfterDrag();
-        })();
-        return;
+          redrawWaypoints(lastRoutePath ?? undefined);
+          renderWaypointList();
+          const meters = Math.round(snapped.distKm * 1000);
+          setStatus(
+            snapped.name
+              ? `Притянули к «${snapped.name}» (${meters} м).`
+              : `Притянули к воде (${meters} м).`,
+          );
+        }
       }
       scheduleRebuildAfterDrag();
     })
@@ -1389,6 +1388,27 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     if (fit && path.points.length >= 2) {
       fitRouteBounds(path.points);
     }
+
+    // Polish lakes / meanders / names in the background — do not block first paint.
+    if (!isAir && path.method !== 'direct') {
+      const gen = ++routeGeneration;
+      const wps = waypoints.map((w) => ({ lon: w.lon, lat: w.lat }));
+      void polishWaterPath(path, wps).then((polished) => {
+        if (!polished || gen !== routeGeneration) return;
+        if (busy) return;
+        lastRoutePath = polished.points;
+        lastCumKm = polished.waypointCumKm ?? lastCumKm;
+        lastItinerary = polished.itinerary ?? lastItinerary;
+        lastDistanceKm = polished.lengthKm;
+        showStats(polished.lengthKm);
+        if (lastItinerary.length) {
+          showRouteDesc(formatItinerary(lastItinerary), lastItinerary);
+        }
+        redrawWaypoints(polished.points);
+        renderWaypointList();
+        void updateElevationProfile(polished.points);
+      });
+    }
   } catch (err) {
     console.error(err);
     // Keep the previous successful route visible instead of wiping it.
@@ -1577,47 +1597,45 @@ map.on('click', (e: L.LeafletMouseEvent) => {
   if (Date.now() < markerClickGuardUntil) return;
   const { lat, lng } = e.latlng;
 
-  void (async () => {
-    let lon = lng;
-    let pointLat = lat;
-    let label = nearestPortName(lng, lat) ?? undefined;
-    let snapNote = '';
+  let lon = lng;
+  let pointLat = lat;
+  let label = nearestPortName(lng, lat) ?? undefined;
+  let snapNote = '';
 
-    if (mode === 'water') {
-      prefetchWaterNear({ lon: lng, lat });
-      const snapped = await snapClickToWater({ lon: lng, lat });
-      if (snapped && snapped.distKm <= 1.25) {
-        // Already on water (<40 m) — keep the click; otherwise pull to centerline.
-        if (snapped.distKm >= 0.04) {
-          lon = snapped.point.lon;
-          pointLat = snapped.point.lat;
-          const meters = Math.round(snapped.distKm * 1000);
-          snapNote = snapped.name
-            ? ` Притянули к «${snapped.name}» (${meters} м).`
-            : ` Притянули к воде (${meters} м).`;
-        }
-        if (!label && snapped.name) label = snapped.name;
+  if (mode === 'water') {
+    prefetchWaterNear({ lon: lng, lat });
+    const snapped = snapClickToWater({ lon: lng, lat });
+    if (snapped && snapped.distKm <= 1.25) {
+      // Already on water (<40 m) — keep the click; otherwise pull to centerline.
+      if (snapped.distKm >= 0.04) {
+        lon = snapped.point.lon;
+        pointLat = snapped.point.lat;
+        const meters = Math.round(snapped.distKm * 1000);
+        snapNote = snapped.name
+          ? ` Притянули к «${snapped.name}» (${meters} м).`
+          : ` Притянули к воде (${meters} м).`;
       }
+      if (!label && snapped.name) label = snapped.name;
     }
+  }
 
-    const wp = makeWaypoint(lon, pointLat, label);
-    waypoints.push(wp);
-    redrawWaypoints(lastRoutePath ?? undefined);
-    syncControls();
-    if (mode === 'water') prefetchWaterNear({ lon, lat: pointLat });
+  const wp = makeWaypoint(lon, pointLat, label);
+  waypoints.push(wp);
+  redrawWaypoints(lastRoutePath ?? undefined);
+  syncControls();
+  if (mode === 'water') prefetchWaterNear({ lon, lat: pointLat });
 
-    if (mode === 'water') {
-      if (waypoints.length === 1) {
-        setStatus(`Старт отмечен.${snapNote} Кликните следующую точку на реке или море.`);
-      } else {
-        if (snapNote) setStatus(snapNote.trim());
-        void computeWaterRoute({ fit: waypoints.length === 2 });
-      }
+  if (mode === 'water') {
+    if (waypoints.length === 1) {
+      setStatus(`Старт отмечен.${snapNote} Кликните следующую точку на реке или море.`);
     } else {
-      if (waypoints.length >= 2) computeRuler({ fit: waypoints.length === 2 });
-      else setStatus(`Точка ${waypoints.length}. Продолжайте кликать.`);
+      if (snapNote) setStatus(snapNote.trim());
+      void computeWaterRoute({ fit: waypoints.length === 2 });
     }
-  })();
+  } else {
+    if (waypoints.length >= 2) computeRuler({ fit: waypoints.length === 2 });
+    else setStatus(`Точка ${waypoints.length}. Продолжайте кликать.`);
+  }
 });
 
 routeBtn.addEventListener('click', () => {
