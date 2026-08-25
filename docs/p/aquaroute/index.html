@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
   <head>
-    <script type="module" crossorigin src="./assets/polyfills-CeAjiVfR.js"></script>
+    <script type="module" crossorigin src="./assets/polyfills-AmvZ2z5t.js"></script>
 
     <meta charset="UTF-8" />
     <meta
@@ -16,14 +16,26 @@
     <meta name="format-detection" content="telephone=no" />
     <title>AquaRoute — карта и измерения по воде</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <!-- Optional fonts; UI works with system stacks if Google is blocked/slow. -->
+    <!-- Warm tile CDN before JS finishes parsing. -->
+    <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
+    <link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com" />
+    <link rel="dns-prefetch" href="https://tile.openstreetmap.org" />
+    <!-- Optional fonts; non-blocking so they never delay the map. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       id="aquaroute-fonts"
       href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <style>
       /* Inline boot styles so the shell paints before the bundle loads. */
       html,
@@ -66,7 +78,8 @@
         pointer-events: none;
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-DcV5ddx-.js"></script>
+    <script type="module" crossorigin src="./assets/index-to9jJaAd.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/rolldown-runtime-Bh1tDfsg.js">
     <link rel="stylesheet" crossorigin href="./assets/index-Dh5NzIT7.css">
     <script type="module">import'data:text/javascript,if(!import.meta.resolve)throw Error("import.meta.resolve not supported")';import.meta.url;import("_").catch(()=>1);(async function*(){})().next();window.__vite_is_modern_browser=true</script>
     <script type="module">!function(){if(window.__vite_is_modern_browser)return;console.warn("vite: loading legacy chunks, syntax error above and the same error below should be ignored");var e=document.getElementById("vite-legacy-polyfill"),n=document.createElement("script");n.src=e.src,n.onload=function(){System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))},document.body.appendChild(n)}();</script>
@@ -96,7 +109,7 @@
         <label class="field">
           <span>Подложка карты</span>
           <select id="basemap-select">
-            <option value="osm" selected>Карта — русские названия</option>
+            <option value="osm" selected>Карта</option>
             <option value="topo">Топокарта</option>
             <option value="satellite">Спутник</option>
             <option value="offline">Офлайн-контур</option>
@@ -273,7 +286,7 @@
       })();
     </script>
     <script nomodule>!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventListener("beforeload",(function(e){if(e.target===t)n=!0;else if(!e.target.hasAttribute("nomodule")||!n)return;e.preventDefault()}),!0),t.type="module",t.src=".",e.head.appendChild(t),t.remove()}}();</script>
-    <script nomodule crossorigin id="vite-legacy-polyfill" src="./assets/polyfills-legacy-CTKu8899.js"></script>
-    <script nomodule crossorigin id="vite-legacy-entry" data-src="./assets/index-legacy-aFofvd-t.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
+    <script nomodule crossorigin id="vite-legacy-polyfill" src="./assets/polyfills-legacy-D4wMu6yY.js"></script>
+    <script nomodule crossorigin id="vite-legacy-entry" data-src="./assets/index-legacy-Cn5iwex2.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
   </body>
 </html>
