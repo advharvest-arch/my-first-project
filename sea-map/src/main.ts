@@ -1,7 +1,6 @@
 import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import type { Passage } from 'searoute-ts';
-import { attachBasemapControl, createBasemaps, type BasemapId } from './basemap';
+import type { BasemapId } from './basemap';
 import {
   etaHours,
   formatDuration,
@@ -12,6 +11,7 @@ import {
   type LngLat,
 } from './geo';
 import { measureHybridChain, type RoutePrefer } from './hybrid';
+import { requireBasemapControl, requireMap } from './map-context';
 import { PORTS, nearestPortName } from './ports';
 import { getPresetRoute, type PresetRouteId } from './presets';
 import {
@@ -23,7 +23,6 @@ import {
   snapClickToWater,
   type ItinerarySegment,
 } from './waterways';
-import './style.css';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -68,62 +67,28 @@ const INLAND_PRESETS: Array<{
   },
 ];
 
-const mapEl = document.getElementById('map');
-if (!mapEl) throw new Error('Map container #map not found');
-
-const map = L.map(mapEl, {
-  worldCopyJump: true,
-  minZoom: 2,
-  maxZoom: 19,
-  zoomControl: false,
-  attributionControl: true,
-  // Prefer DOM tiles (crisper labels); canvas is only for vectors if needed.
-  preferCanvas: false,
-  fadeAnimation: false,
-  zoomAnimation: true,
-  markerZoomAnimation: false,
-  // Load tiles while the user is still panning (feels much snappier).
-  // Basemap layers also set updateWhenIdle: false.
-  tapTolerance: 20,
-  bounceAtZoomLimits: false,
-}).setView([55.75, 37.62], 5);
-
-map.getContainer().style.cursor = 'default';
-map.doubleClickZoom.disable();
-L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-const basemaps = createBasemaps();
-const basemapControl = attachBasemapControl(map, basemaps, 'osm');
+/** Map + basemap already mounted by map-boot.ts for first paint. */
+const map = requireMap();
+const basemapControl = requireBasemapControl();
 
 const refreshSize = () => map.invalidateSize({ animate: false });
 const scheduleRefresh = () => {
   requestAnimationFrame(refreshSize);
   setTimeout(refreshSize, 100);
   setTimeout(refreshSize, 400);
-  setTimeout(refreshSize, 1000);
 };
 scheduleRefresh();
 window.addEventListener('resize', refreshSize);
 window.addEventListener('orientationchange', scheduleRefresh);
-// bfcache / tab restore on iOS Safari
 window.addEventListener('pageshow', scheduleRefresh);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') scheduleRefresh();
 });
-// Mobile browser chrome show/hide changes the visual viewport without a window resize.
 const vv = window.visualViewport;
 if (vv) {
   vv.addEventListener('resize', refreshSize);
   vv.addEventListener('scroll', refreshSize);
 }
-// Mark boot complete for the inline loader UI.
-const appRoot = document.getElementById('app');
-if (appRoot) {
-  appRoot.removeAttribute('data-booting');
-  appRoot.style.display = '';
-}
-const bootFallback = document.getElementById('boot-fallback');
-if (bootFallback) bootFallback.removeAttribute('data-show');
 
 const drawLayer = L.layerGroup().addTo(map);
 

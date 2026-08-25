@@ -1,11 +1,9 @@
-import gvrIndex from './gvr-index.json';
-
 /**
  * Государственный водный реестр (ГВР) — официальные названия водных объектов РФ.
  *
  * Публичного bulk-API геометрии у Росводресурсов нет; в OpenStreetMap на объекты
- * проставлены коды ГВР (`gvr:code`). Индекс code→имя собран по этим привязкам
- * и используется как источник официальных названий в AquaRoute.
+ * проставлены коды ГВР (`gvr:code`). Индекс code→имя подгружается отдельным JSON
+ * (не блокирует первый кадр карты).
  */
 
 type GvrIndexFile = {
@@ -15,11 +13,39 @@ type GvrIndexFile = {
   byName: Record<string, string>;
 };
 
-const index = gvrIndex as GvrIndexFile;
+const emptyIndex = (): GvrIndexFile => ({
+  source: '',
+  note: '',
+  byCode: {},
+  byName: {},
+});
+
+let index: GvrIndexFile = emptyIndex();
+let loadPromise: Promise<void> | null = null;
 
 /** Runtime extras learned from live Overpass along a route. */
 const runtimeByCode = new Map<string, string>();
 const runtimeByName = new Map<string, string>();
+
+export function ensureGvrIndex(): Promise<void> {
+  if (loadPromise) return loadPromise;
+  loadPromise = fetch(new URL('./gvr-index.json', import.meta.url))
+    .then((r) => {
+      if (!r.ok) throw new Error(`GVR index HTTP ${r.status}`);
+      return r.json() as Promise<GvrIndexFile>;
+    })
+    .then((data) => {
+      index = data;
+    })
+    .catch(() => {
+      // Keep empty index; OSM/catalog names still work.
+      index = emptyIndex();
+    });
+  return loadPromise;
+}
+
+// Warm in background as soon as this module is imported.
+void ensureGvrIndex();
 
 export function gvrSourceLabel(): string {
   return 'Государственный водный реестр (ГВР)';

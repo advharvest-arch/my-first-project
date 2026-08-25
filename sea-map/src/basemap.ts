@@ -16,8 +16,8 @@ type TileSource = {
   options?: L.TileLayerOptions;
 };
 
-/** If a tile hasn't loaded by then, try the next URL (hangs never fire tileerror). */
-const TILE_FAIL_MS = 3500;
+/** Hung tiles never fire tileerror — fail over quickly so the map stays snappy. */
+const TILE_FAIL_MS = 900;
 
 function offlineLandLayer(pane?: string): L.GeoJSON {
   const topology = landTopology as unknown as Topology<{ land: GeometryCollection }>;
@@ -42,7 +42,7 @@ function tileUrl(template: string, coords: L.Coords, subdomains = 'abcd'): strin
 
 /**
  * Raster tiles with ordered failover.
- * OSM.org often rate-limits apps; Carto/Esri CDNs are faster and more reliable.
+ * Prefer a fast CDN first; OSM.org has better local Cyrillic labels as backup.
  * Also recovers from hung requests (no tileerror) via a per-tile timeout.
  */
 function rasterLayer(sources: TileSource[], shared: L.TileLayerOptions = {}): L.TileLayer {
@@ -51,7 +51,7 @@ function rasterLayer(sources: TileSource[], shared: L.TileLayerOptions = {}): L.
   const layer = L.tileLayer(primary.url, {
     updateWhenIdle: false,
     updateWhenZooming: true,
-    keepBuffer: 4,
+    keepBuffer: 2,
     crossOrigin: true,
     ...shared,
     ...primary.options,
@@ -130,26 +130,27 @@ function rasterLayer(sources: TileSource[], shared: L.TileLayerOptions = {}): L.
 }
 
 export function createBasemaps(): Record<BasemapId, BasemapDef> {
-  // OSM standard first: local `name` tags → Cyrillic labels across Russia.
-  // OsmAnd HD also renders Russian place names well; Carto/Esri as last resort.
+  // Carto CDN first — almost always paints in tens of ms.
+  // OSM.org next for Cyrillic place names when Carto is blocked/slow.
+  // Skip OsmAnd HD: tiles are huge (~100–200 KB) and feel sluggish.
   const osm = rasterLayer(
     [
+      {
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        options: { subdomains: 'abcd', maxZoom: 20 },
+      },
       {
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         options: { maxZoom: 19 },
       },
       {
-        url: 'https://tile.osmand.net/hd/{z}/{x}/{y}.png',
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
         options: { maxZoom: 19 },
-      },
-      {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
       },
     ],
     {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       maxZoom: 19,
     },
   );
@@ -162,8 +163,8 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
         options: { maxZoom: 19 },
       },
       {
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        options: { maxZoom: 19 },
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        options: { subdomains: 'abcd', maxZoom: 20 },
       },
       {
         url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
@@ -184,8 +185,8 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
         options: { maxZoom: 19 },
       },
       {
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        options: { maxZoom: 19 },
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        options: { subdomains: 'abcd', maxZoom: 20 },
       },
     ],
     {
@@ -197,7 +198,7 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
   const offline = L.layerGroup([offlineLandLayer()]);
 
   return {
-    osm: { id: 'osm', label: 'Карта (русские названия)', layer: osm },
+    osm: { id: 'osm', label: 'Карта', layer: osm },
     topo: { id: 'topo', label: 'Топокарта', layer: topo },
     satellite: { id: 'satellite', label: 'Спутник', layer: satellite },
     offline: { id: 'offline', label: 'Офлайн-контур', layer: offline },

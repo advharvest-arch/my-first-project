@@ -2,12 +2,12 @@ import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
 import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans } from './open-lake';
 import {
+  ensureGvrIndex,
   officialGvrName,
   rememberGvrPair,
   resolveWaterName,
 } from './gvr';
 import waterBodies from './water-bodies.json';
-import waterCore from './water-core.json';
 
 export type ItinerarySegment = {
   name: string;
@@ -922,20 +922,32 @@ const cellInflight = new Map<string, Promise<WaterLine[]>>();
 
 type CoreLine = { id: string; n: string | null; k: 'w' | 'l'; c: Array<[number, number]> };
 
-function seedCoreWaterways(): void {
-  const raw = waterCore as CoreLine[];
-  const lines: WaterLine[] = raw.map((row) => {
-    const gvr = officialGvrName(row.n);
-    return {
-      id: row.id,
-      name: gvr?.name ?? row.n,
-      kind: row.k === 'l' ? 'lake' : 'waterway',
-      coords: row.c.map(([lon, lat]) => ({ lon, lat })),
-      closed: row.k === 'l' && row.c.length > 3,
-      gvrCode: gvr?.gvrCode ?? null,
-    };
+let coreSeedPromise: Promise<void> | null = null;
+
+/** Load water-core as a separate asset so the map boot chunk stays small. */
+export function ensureCoreWaterways(): Promise<void> {
+  if (coreSeedPromise) return coreSeedPromise;
+  coreSeedPromise = (async () => {
+    await ensureGvrIndex();
+    const res = await fetch(new URL('./water-core.json', import.meta.url));
+    if (!res.ok) return;
+    const raw = (await res.json()) as CoreLine[];
+    const lines: WaterLine[] = raw.map((row) => {
+      const gvr = officialGvrName(row.n);
+      return {
+        id: row.id,
+        name: gvr?.name ?? row.n,
+        kind: row.k === 'l' ? 'lake' : 'waterway',
+        coords: row.c.map(([lon, lat]) => ({ lon, lat })),
+        closed: row.k === 'l' && row.c.length > 3,
+        gvrCode: gvr?.gvrCode ?? null,
+      };
+    });
+    rememberLinesInCells(lines);
+  })().catch(() => {
+    /* Overpass/BRouter still work without the seed. */
   });
-  rememberLinesInCells(lines);
+  return coreSeedPromise;
 }
 
 function cellKey(cx: number, cy: number): string {
@@ -1049,7 +1061,7 @@ function rememberLinesInCells(lines: WaterLine[]): void {
   }
 }
 
-seedCoreWaterways();
+void ensureCoreWaterways();
 
 function mergeLines(groups: WaterLine[][]): WaterLine[] {
   const seen = new Set<string>();
@@ -1147,12 +1159,14 @@ async function fetchWaterNetwork(
 
 /** Warm waterway cache around a point (call after inland click / demo). */
 export function prefetchWaterNear(point: LngLat): void {
+  void ensureCoreWaterways();
   const { cx, cy } = pointCell(point);
   void loadCell(cx, cy);
 }
 
 /** Warm cache for the visible map (call on inland moveend). */
 export function prefetchWaterBbox(south: number, west: number, north: number, east: number): void {
+  void ensureCoreWaterways();
   const cx0 = Math.floor(west / CELL_DEG);
   const cx1 = Math.floor(east / CELL_DEG);
   const cy0 = Math.floor(south / CELL_DEG);
@@ -2874,6 +2888,8 @@ export async function describeWaterItinerary(
   opts: ItineraryOptions = {},
 ): Promise<ItinerarySegment[]> {
   if (path.length < 2) return [];
+  await ensureGvrIndex();
+  await ensureCoreWaterways();
   if (opts.enrich) {
     try {
       await enrichNamedWaterwaysForItinerary(path);
@@ -2967,6 +2983,8 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       waypointCumKm: waypoints.map(() => 0),
     };
   }
+
+  await ensureCoreWaterways();
 
   const directFallback = (): WaterPath => {
     const cum = [0];
