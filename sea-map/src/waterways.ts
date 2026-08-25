@@ -1,6 +1,8 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
 import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans } from './open-lake';
+import { dualGeometry } from './route-geometry';
+import { validateWaterRoute } from './validate-water-route';
 import {
   ensureGvrIndex,
   officialGvrName,
@@ -20,10 +22,11 @@ export type ItinerarySegment = {
 };
 
 export type WaterPath = {
+  /** Display geometry for the map (may match routingGeometry). */
   points: LngLat[];
   lengthKm: number;
   waterName: string | null;
-  method: 'waterway' | 'lake' | 'direct';
+  method: 'waterway' | 'lake' | 'direct' | 'route_not_found';
   /** Cumulative distance at each input waypoint (km), length = waypoints.length */
   waypointCumKm?: number[];
   /**
@@ -31,6 +34,10 @@ export type WaterPath = {
    * Segment km sum to lengthKm.
    */
   itinerary?: ItinerarySegment[];
+  /** Navigable track — GPX and length source when present. */
+  routingGeometry?: LngLat[];
+  /** Visual line for the map (defaults to points). */
+  displayGeometry?: LngLat[];
 };
 
 type OverpassElement = {
@@ -2623,11 +2630,16 @@ async function finalizeMeasuredRoute(
     method: WaterPath['method'];
     /** When true, Overpass-enrich names (slow). Default: cache/catalog only. */
     enrich?: boolean;
+    /** Authoritative navigable track when display geometry was polished. */
+    routingGeometry?: LngLat[];
   },
 ): Promise<WaterPath> {
   // Keep meanders: only drop sub-12 m duplicates.
   const measurePath = simplifyPath(waterRef, 0.012);
-  const geomKm = pathLength(waterRef);
+  const routingSrc = extras.routingGeometry?.length
+    ? simplifyPath(extras.routingGeometry, 0.012)
+    : measurePath;
+  const geomKm = pathLength(routingSrc);
   const measureKm = pathLength(measurePath);
   // Prefer BRouter track length when it matches the polyline (graph length).
   let lengthKm = geomKm;
@@ -2640,25 +2652,29 @@ async function finalizeMeasuredRoute(
     lengthKm = measureKm;
   }
 
-  const itinerary = await describeWaterItinerary(measurePath, {
+  const itinerary = await describeWaterItinerary(routingSrc, {
     totalKm: lengthKm,
     origin: waypoints[0],
     destination: waypoints[waypoints.length - 1],
     enrich: extras.enrich === true,
   });
 
-  const points =
+  const displayPoints =
     measurePath.length > 10000
       ? downsampleOnWater(measurePath, 10000, 0.1)
       : measurePath;
 
+  const dual = dualGeometry(routingSrc, displayPoints);
+
   return {
-    points,
-    lengthKm,
+    points: dual.displayGeometry,
+    lengthKm: dual.lengthKm || lengthKm,
     waterName: extras.waterName,
     method: extras.method,
-    waypointCumKm: cumKmAlongPath(measurePath, waypoints),
+    waypointCumKm: cumKmAlongPath(routingSrc, waypoints),
     itinerary: itinerary.length ? itinerary : undefined,
+    routingGeometry: dual.routingGeometry,
+    displayGeometry: dual.displayGeometry,
   };
 }
 
@@ -2979,27 +2995,42 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       points: waypoints.slice(),
       lengthKm: 0,
       waterName: null,
-      method: 'direct',
+      method: 'route_not_found',
       waypointCumKm: waypoints.map(() => 0),
+      routingGeometry: [],
+      displayGeometry: [],
     };
   }
 
   await ensureCoreWaterways();
 
-  const directFallback = (): WaterPath => {
-    const cum = [0];
-    let sum = 0;
-    for (let i = 1; i < waypoints.length; i++) {
-      sum += haversineKm(waypoints[i - 1]!, waypoints[i]!);
-      cum.push(sum);
-    }
-    return {
-      points: waypoints.slice(),
-      lengthKm: sum,
-      waterName: null,
-      method: 'direct',
-      waypointCumKm: cum,
-    };
+  /** Water mode must never present a geodesic START→FINISH chord as success. */
+  const routeNotFound = (): WaterPath => ({
+    points: [],
+    lengthKm: 0,
+    waterName: null,
+    method: 'route_not_found',
+    waypointCumKm: waypoints.map(() => 0),
+    routingGeometry: [],
+    displayGeometry: [],
+  });
+
+  const acceptPath = async (
+    routing: LngLat[],
+    display: LngLat[],
+    trackLengthKm: number,
+    extras: { waterName: string | null; method: 'waterway' | 'lake'; enrich?: boolean },
+  ): Promise<WaterPath | null> => {
+    const validation = validateWaterRoute(routing, {
+      waypoints,
+      lengthKm: trackLengthKm > 0 ? trackLengthKm : pathLength(routing),
+      method: extras.method,
+    });
+    if (!validation.ok) return null;
+    return finalizeMeasuredRoute(display, trackLengthKm, waypoints, {
+      ...extras,
+      routingGeometry: routing,
+    });
   };
 
   const routeOnCachedLines = async (lines: WaterLine[]): Promise<WaterPath | null> => {
@@ -3007,24 +3038,24 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     const allPoints: LngLat[] = [];
     let lengthKm = 0;
     const waypointCumKm = [0];
-    let method: WaterPath['method'] = 'waterway';
+    let method: 'waterway' | 'lake' = 'waterway';
     let anyRouted = false;
     const nameBits: Array<string | null> = [];
 
     for (let i = 1; i < waypoints.length; i++) {
       const leg = routeOnLines(waypoints[i - 1]!, waypoints[i]!, lines);
-      if (leg.method !== 'direct') anyRouted = true;
-      if (leg.method === 'lake' && method === 'waterway') method = 'lake';
+      if (leg.method === 'direct') continue;
+      anyRouted = true;
+      if (leg.method === 'lake') method = 'lake';
       if (leg.waterName) nameBits.push(leg.waterName);
-      const chunk = i === 1 ? leg.points : leg.points.slice(1);
+      const chunk = allPoints.length === 0 ? leg.points : leg.points.slice(1);
       allPoints.push(...chunk);
       lengthKm += leg.lengthKm;
       waypointCumKm.push(lengthKm);
     }
-    if (!anyRouted) return null;
-    const raw = allPoints;
-    return finalizeMeasuredRoute(raw, pathLength(raw), waypoints, {
-      waterName: uniqueWaterName(...nameBits) ?? namesNearEndpoints(raw),
+    if (!anyRouted || allPoints.length < 2) return null;
+    return acceptPath(allPoints, allPoints, pathLength(allPoints), {
+      waterName: uniqueWaterName(...nameBits) ?? namesNearEndpoints(allPoints),
       method,
     });
   };
@@ -3035,10 +3066,11 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   if (findSharedOpenLake(waypoints)) {
     const open = await routeAcrossOpenLake(waypoints);
     if (open && open.points.length >= 2 && open.lengthKm > 0) {
-      return finalizeMeasuredRoute(open.points, open.lengthKm, waypoints, {
+      const accepted = await acceptPath(open.points, open.points, open.lengthKm, {
         waterName: open.waterName,
         method: 'lake',
       });
+      if (accepted) return accepted;
     }
   }
 
@@ -3047,28 +3079,30 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   if (brouted && brouted.points.length >= 2 && brouted.lengthKm > 0) {
     // Guard: only drop obvious basin-hopping loops (align with brouter soft cap).
+    let rejectBrouter = false;
     if (waypoints.length === 2) {
       const geo = haversineKm(waypoints[0]!, waypoints[1]!);
-      if (geo > 40 && brouted.lengthKm > geo * 3.5) {
-        return directFallback();
-      }
+      if (geo > 40 && brouted.lengthKm > geo * 3.5) rejectBrouter = true;
     }
-    // Fast path: BRouter only (+ cached lake masks / water-core). No Overpass /
-    // Nominatim wait — MapMagic paints as soon as the router answers.
-    const straightened = await straightenOpenWaterSpans(brouted.points, { cachedOnly: true });
-    const waterRef = refineRouteGeometryFast(straightened);
-    const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(waterRef);
-    return finalizeMeasuredRoute(waterRef, pathLength(waterRef), waypoints, {
-      waterName: named,
-      method: 'waterway',
-      enrich: false,
-    });
+    if (!rejectBrouter) {
+      // routingGeometry = BRouter track; display may be lake-straightened / meander-refined.
+      const routing = brouted.points;
+      const straightened = await straightenOpenWaterSpans(routing, { cachedOnly: true });
+      const display = refineRouteGeometryFast(straightened);
+      const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(routing);
+      const accepted = await acceptPath(routing, display, brouted.lengthKm, {
+        waterName: named,
+        method: 'waterway',
+        enrich: false,
+      });
+      if (accepted) return accepted;
+    }
   }
 
   // Long inland trips only work via BRouter. Overpass cell crawl cannot connect
-  // Seliger→Vokhma and only hangs the UI for minutes before returning "direct".
+  // Seliger→Vokhma and only hangs the UI for minutes before returning empty.
   if (routeSpanKm(waypoints) > 120) {
-    return directFallback();
+    return routeNotFound();
   }
 
   // 3) Instant local fallback from water-core already in memory (no network).
@@ -3081,14 +3115,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   if (fromCache) return fromCache;
 
   // 4) Fetch more OSM geometry, then route (may be slower).
-  const run = async (forceRefresh: boolean): Promise<WaterPath> => {
+  const run = async (forceRefresh: boolean): Promise<WaterPath | null> => {
     const lines = await fetchWaterNetwork(waypoints, { forceRefresh });
-    return (await routeOnCachedLines(lines)) ?? directFallback();
+    return routeOnCachedLines(lines);
   };
 
-  let path = await run(false);
-  if (path.method === 'direct') path = await run(true);
-  return path;
+  const path = (await run(false)) ?? (await run(true));
+  return path ?? routeNotFound();
 }
 
 /**
@@ -3100,21 +3133,37 @@ export async function polishWaterPath(
   path: WaterPath,
   waypoints: LngLat[],
 ): Promise<WaterPath | null> {
-  if (path.method === 'direct' || path.points.length < 3) return null;
+  if (
+    path.method === 'direct' ||
+    path.method === 'route_not_found' ||
+    path.points.length < 3
+  ) {
+    return null;
+  }
   try {
-    const straightened = await straightenOpenWaterSpans(path.points, { cachedOnly: false });
+    const routing = path.routingGeometry?.length ? path.routingGeometry : path.points;
+    const straightened = await straightenOpenWaterSpans(routing, { cachedOnly: false });
     const refined = await refineRouteGeometryDeep(straightened);
-    const polished = await finalizeMeasuredRoute(refined, pathLength(refined), waypoints, {
+    const polished = await finalizeMeasuredRoute(refined, pathLength(routing), waypoints, {
       waterName: path.waterName,
-      method: path.method,
+      method: path.method === 'lake' ? 'lake' : 'waterway',
       enrich: true,
+      routingGeometry: routing,
     });
+    const validation = validateWaterRoute(polished.routingGeometry ?? polished.points, {
+      waypoints,
+      lengthKm: polished.lengthKm,
+      method: polished.method,
+    });
+    if (!validation.ok) return null;
     const geomChanged =
       polished.points.length !== path.points.length ||
       (polished.points.length > 0 &&
         (Math.abs(polished.points[0]!.lat - path.points[0]!.lat) > 1e-6 ||
-          Math.abs(polished.points[Math.floor(polished.points.length / 2)]!.lon -
-            path.points[Math.floor(path.points.length / 2)]!.lon) > 1e-5));
+          Math.abs(
+            polished.points[Math.floor(polished.points.length / 2)]!.lon -
+              path.points[Math.floor(path.points.length / 2)]!.lon,
+          ) > 1e-5));
     const itinChanged =
       formatItinerary(polished.itinerary ?? []) !== formatItinerary(path.itinerary ?? []);
     const lenChanged = Math.abs(polished.lengthKm - path.lengthKm) > 0.15;

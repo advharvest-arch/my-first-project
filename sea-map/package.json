@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -23,8 +24,10 @@
     "@types/topojson-specification": "^1.0.5",
     "@vitejs/plugin-legacy": "^8.2.3",
     "terser": "^5.49.2",
+    "tsx": "^4.23.12",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

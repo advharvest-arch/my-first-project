@@ -133,7 +133,10 @@ let pendingRebuild = false;
 let suppressMapClick = false;
 /** Last computed route distance — used for live ETA when speed changes */
 let lastDistanceKm: number | null = null;
+/** Display geometry on the map. */
 let lastRoutePath: LngLat[] | null = null;
+/** Navigable track for GPX / length (falls back to lastRoutePath). */
+let lastRoutingPath: LngLat[] | null = null;
 let lastCumKm: number[] = [];
 /** Named stretches for map ticks (start/end + km). */
 let lastItinerary: ItinerarySegment[] = [];
@@ -270,6 +273,7 @@ function clearStats(): void {
   etaEl.textContent = '—';
   lastDistanceKm = null;
   lastRoutePath = null;
+  lastRoutingPath = null;
   lastCumKm = [];
   lastItinerary = [];
   hideRouteDesc();
@@ -480,6 +484,7 @@ function deleteWaypointById(id: string): void {
   waypoints.splice(idx, 1);
   renormalizeWaypointNames();
   lastRoutePath = null;
+  lastRoutingPath = null;
   lastCumKm = [];
   lastItinerary = [];
   lastMarkerTap = null;
@@ -878,11 +883,12 @@ ${trkpts}
 }
 
 function downloadGpx(): void {
-  if (!lastRoutePath || lastRoutePath.length < 2) {
-    setStatus('Сначала постройте маршрут.', true);
+  const track = lastRoutingPath?.length ? lastRoutingPath : lastRoutePath;
+  if (!track || track.length < 2) {
+    setStatus('Нет водного маршрута для GPX.', true);
     return;
   }
-  const gpx = buildGpx(lastRoutePath, waypoints, lastItinerary);
+  const gpx = buildGpx(track, waypoints, lastItinerary);
   const blob = new Blob([gpx], { type: 'application/gpx+xml' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1224,17 +1230,33 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       speedKnots: speedKmh() / KM_PER_KNOT,
       prefer,
     });
-    lastRoutePath = path.points;
+
+    if (path.method === 'route_not_found' || path.points.length < 2) {
+      lastRoutePath = null;
+  lastRoutingPath = null;
+      lastRoutingPath = null;
+      lastCumKm = [];
+      lastItinerary = [];
+      clearStats();
+      hideRouteDesc();
+      redrawWaypoints();
+      renderWaypointList();
+      setStatus('Водный маршрут не найден', true);
+      return;
+    }
+
+    lastRoutingPath = path.routingGeometry?.length ? path.routingGeometry : path.points;
+    lastRoutePath = path.displayGeometry?.length ? path.displayGeometry : path.points;
     lastCumKm = path.waypointCumKm ?? [];
     lastItinerary = path.itinerary ?? [];
 
-    redrawWaypoints(path.points);
+    redrawWaypoints(lastRoutePath);
     renderWaypointList();
 
     const netParts = [...new Set(path.networks.filter((n) => n !== 'direct'))];
     const netLabel =
       netParts.length === 0
-        ? 'прямо'
+        ? 'водный путь'
         : netParts
             .map((n) => (n === 'sea' ? 'море' : 'река/канал'))
             .join(' + ');
@@ -1258,7 +1280,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       (geo >= 15 && ratio <= 1.04) ||
       (geo >= 40 && ratio <= 1.08 && path.points.length < Math.max(5, geo / 25));
     void updateRouteItinerary(
-      path.points,
+      lastRoutingPath,
       path.lengthKm,
       path.method === 'direct' ? null : waterLabel,
       { allowDescribe: !isAir, itinerary: path.itinerary },
@@ -1274,15 +1296,10 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
         true,
       );
     } else {
-      setStatus(
-        path.method === 'direct' && !netParts.length
-          ? 'Не удалось найти водный путь. Кликните ближе к фарватеру или берегу.'
-          : `Готово: ${waypoints.length} точ.${parallelNote}`,
-        path.method === 'direct' && !netParts.length,
-      );
+      setStatus(`Готово: ${waypoints.length} точ.${parallelNote}`);
     }
-    if (fit && path.points.length >= 2) {
-      fitRouteBounds(path.points);
+    if (fit && lastRoutePath.length >= 2) {
+      fitRouteBounds(lastRoutePath);
     }
 
     // Polish lakes / meanders / names in the background — do not block first paint.
@@ -1292,7 +1309,12 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       void polishWaterPath(path, wps).then((polished) => {
         if (!polished || gen !== routeGeneration) return;
         if (busy) return;
-        lastRoutePath = polished.points;
+        lastRoutingPath = polished.routingGeometry?.length
+          ? polished.routingGeometry
+          : polished.points;
+        lastRoutePath = polished.displayGeometry?.length
+          ? polished.displayGeometry
+          : polished.points;
         lastCumKm = polished.waypointCumKm ?? lastCumKm;
         lastItinerary = polished.itinerary ?? lastItinerary;
         lastDistanceKm = polished.lengthKm;
@@ -1300,9 +1322,9 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
         if (lastItinerary.length) {
           showRouteDesc(formatItinerary(lastItinerary), lastItinerary);
         }
-        redrawWaypoints(polished.points);
+        redrawWaypoints(lastRoutePath);
         renderWaypointList();
-        void updateElevationProfile(polished.points);
+        void updateElevationProfile(lastRoutingPath ?? lastRoutePath);
       });
     }
   } catch (err) {
@@ -1313,6 +1335,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       setStatus('Не удалось пересчитать маршрут — показан предыдущий. Попробуйте снова.', true);
     } else {
       lastRoutePath = null;
+  lastRoutingPath = null;
       lastCumKm = [];
       redrawWaypoints();
       const km = pathLengthKm(waypoints);
@@ -1334,6 +1357,7 @@ function computeRuler(opts: { fit?: boolean } = {}): void {
   const fit = opts.fit ?? true;
   if (waypoints.length < 2) return;
   lastRoutePath = waypoints.map((w) => ({ lon: w.lon, lat: w.lat }));
+  lastRoutingPath = lastRoutePath;
   const cum = [0];
   let sum = 0;
   for (let i = 1; i < waypoints.length; i++) {
@@ -1378,6 +1402,7 @@ function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
     makeWaypoint(canned.b.lon, canned.b.lat, 'Финиш'),
   ];
   lastRoutePath = canned.points;
+  lastRoutingPath = canned.points;
   lastCumKm = [0, canned.lengthKm];
   redrawWaypoints(canned.points);
   renderWaypointList();
@@ -1420,6 +1445,7 @@ function setMode(next: AppMode): void {
 
   waypoints = [];
   lastRoutePath = null;
+  lastRoutingPath = null;
   lastCumKm = [];
   lastItinerary = [];
   drawLayer.clearLayers();
@@ -1542,6 +1568,7 @@ routeBtn.addEventListener('click', () => {
 undoBtn.addEventListener('click', () => {
   waypoints.pop();
   lastRoutePath = null;
+  lastRoutingPath = null;
   lastCumKm = [];
   lastItinerary = [];
   if (waypoints.length >= 2) {
@@ -1559,6 +1586,7 @@ reverseBtn.addEventListener('click', () => {
   waypoints.reverse();
   renormalizeWaypointNames();
   lastRoutePath = lastRoutePath ? [...lastRoutePath].reverse() : null;
+  lastRoutingPath = lastRoutingPath ? [...lastRoutingPath].reverse() : null;
   lastCumKm = [];
   lastItinerary = [];
   redrawWaypoints(lastRoutePath ?? undefined);
@@ -1571,6 +1599,7 @@ reverseBtn.addEventListener('click', () => {
 clearBtn.addEventListener('click', () => {
   waypoints = [];
   lastRoutePath = null;
+  lastRoutingPath = null;
   lastCumKm = [];
   lastItinerary = [];
   pinnedWaterRoute = null;

@@ -76,7 +76,26 @@ async function seaLeg(
 }
 
 function inlandOk(inland: WaterPath): boolean {
-  return inland.method !== 'direct' && inland.points.length >= 2 && inland.lengthKm > 0;
+  return (
+    inland.method !== 'direct' &&
+    inland.method !== 'route_not_found' &&
+    inland.points.length >= 2 &&
+    inland.lengthKm > 0
+  );
+}
+
+function notFoundHybrid(waypoints: LngLat[], nLegs: number): HybridPath {
+  return {
+    points: [],
+    lengthKm: 0,
+    waterName: null,
+    method: 'route_not_found',
+    waypointCumKm: waypoints.map(() => 0),
+    routingGeometry: [],
+    displayGeometry: [],
+    networks: Array.from({ length: Math.max(0, nLegs) }, () => 'direct' as const),
+    passages: [],
+  };
 }
 
 function wrapInland(
@@ -85,10 +104,14 @@ function wrapInland(
   extra?: Partial<HybridPath>,
 ): HybridPath {
   const networks = Array.from({ length: Math.max(0, nLegs) }, () =>
-    inland.method === 'direct' ? ('direct' as const) : ('river' as const),
+    inland.method === 'route_not_found' || inland.method === 'direct'
+      ? ('direct' as const)
+      : ('river' as const),
   );
   return {
     ...inland,
+    routingGeometry: inland.routingGeometry ?? inland.points,
+    displayGeometry: inland.displayGeometry ?? inland.points,
     networks,
     passages: [],
     ...extra,
@@ -110,8 +133,6 @@ async function resolveLeg(
   opts: HybridOptions,
   prefer: RoutePrefer,
 ): Promise<LegResult> {
-  const directKm = haversineKm(a, b);
-
   if (prefer === 'sea') {
     const sea = await seaLeg(a, b, opts, SEA_SNAP_OK_KM);
     if (sea) {
@@ -137,11 +158,11 @@ async function resolveLeg(
     }
     return {
       network: 'direct',
-      points: [a, b],
-      lengthKm: directKm,
+      points: [],
+      lengthKm: 0,
       passages: [],
       waterName: null,
-      method: 'direct',
+      method: 'route_not_found',
     };
   }
 
@@ -190,11 +211,11 @@ async function resolveLeg(
 
   return {
     network: 'direct',
-    points: [a, b],
-    lengthKm: directKm,
+    points: [],
+    lengthKm: 0,
     passages: [],
     waterName: null,
-    method: 'direct',
+    method: 'route_not_found',
   };
 }
 
@@ -208,9 +229,15 @@ function stitchLegs(legs: LegResult[]): HybridPath {
   let anyWater = false;
   let anyLake = false;
   let anySea = false;
+  let anyMissing = false;
 
   for (const leg of legs) {
     networks.push(leg.network);
+    if (leg.method === 'route_not_found' || leg.points.length < 2) {
+      anyMissing = true;
+      waypointCumKm.push(lengthKm);
+      continue;
+    }
     if (leg.network === 'sea') anySea = true;
     if (leg.method !== 'direct') anyWater = true;
     if (leg.method === 'lake') anyLake = true;
@@ -223,12 +250,28 @@ function stitchLegs(legs: LegResult[]): HybridPath {
     waypointCumKm.push(lengthKm);
   }
 
+  if (anyMissing || !anyWater || allPoints.length < 2) {
+    return {
+      points: [],
+      lengthKm: 0,
+      waterName: null,
+      method: 'route_not_found',
+      waypointCumKm: waypointCumKm.map(() => 0),
+      routingGeometry: [],
+      displayGeometry: [],
+      networks,
+      passages: [],
+    };
+  }
+
   return {
-    points: allPoints.length >= 2 ? allPoints : legs.flatMap((l) => l.points),
+    points: allPoints,
     lengthKm,
     waterName: [...new Set(nameBits.filter(Boolean))].join(' · ') || null,
-    method: !anyWater ? 'direct' : anyLake && !anySea ? 'lake' : 'waterway',
+    method: anyLake && !anySea ? 'lake' : 'waterway',
     waypointCumKm,
+    routingGeometry: allPoints,
+    displayGeometry: allPoints,
     networks,
     passages: [...passageSet],
   };
@@ -249,7 +292,11 @@ async function routeRiverPreferred(
   for (let i = 1; i < waypoints.length; i++) {
     legs.push(await resolveLeg(waypoints[i - 1]!, waypoints[i]!, opts, 'river'));
   }
-  return stitchLegs(legs);
+  const stitched = stitchLegs(legs);
+  if (stitched.method === 'route_not_found') {
+    return notFoundHybrid(waypoints, waypoints.length - 1);
+  }
+  return stitched;
 }
 
 async function routeSeaPreferred(
@@ -405,8 +452,10 @@ export async function measureHybridChain(
       points: waypoints.slice(),
       lengthKm: 0,
       waterName: null,
-      method: 'direct',
+      method: 'route_not_found',
       waypointCumKm: waypoints.map(() => 0),
+      routingGeometry: [],
+      displayGeometry: [],
       networks: [],
       passages: [],
     };
