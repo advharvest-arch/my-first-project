@@ -77,6 +77,9 @@
       <aside class="panel" id="panel">
         <header class="brand">
           <p class="brand-mark">AquaRoute</p>
+          <p class="brand-sub">
+            Водный маршрут с именами рек и озёр — без подписки, с GPX и шарингом
+          </p>
         </header>
 
         <div class="mode-switch" role="tablist" aria-label="Режим">
@@ -120,8 +123,16 @@
             <span>Километраж у точек</span>
           </label>
           <label class="check-row">
+            <input type="checkbox" id="show-distance-marks" checked />
+            <span>Метки км вдоль пути</span>
+          </label>
+          <label class="check-row">
             <input type="checkbox" id="show-segment-labels" checked />
             <span>Подписи отрезков и засечки</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="show-elevation" checked />
+            <span>Профиль высот</span>
           </label>
           <label class="check-row">
             <input type="checkbox" id="show-return" checked />
@@ -150,12 +161,28 @@
           </div>
         </section>
 
+        <section class="elev-panel" id="elev-panel" hidden>
+          <header class="elev-head">
+            <h2 class="elev-title">Профиль высот</h2>
+            <span class="elev-range" id="elev-range">—</span>
+          </header>
+          <canvas id="elev-canvas" class="elev-canvas" width="320" height="72" aria-label="Профиль высот"></canvas>
+        </section>
+
         <section class="route-desc" id="route-desc" hidden>
           <header class="route-desc-head">
             <h2 class="route-desc-title">Описание маршрута</h2>
-            <button type="button" class="btn ghost route-desc-copy" id="route-desc-copy">
-              Копировать
-            </button>
+            <div class="route-desc-actions">
+              <button type="button" class="btn ghost route-desc-copy" id="route-desc-copy">
+                Копировать
+              </button>
+              <button type="button" class="btn ghost" id="share-route-btn" title="Ссылка на маршрут">
+                Ссылка
+              </button>
+              <button type="button" class="btn ghost" id="gpx-export-btn" title="Скачать GPX">
+                GPX
+              </button>
+            </div>
           </header>
           <textarea
             id="route-desc-body"

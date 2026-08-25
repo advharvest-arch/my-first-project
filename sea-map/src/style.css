@@ -645,6 +645,13 @@ body {
   margin-bottom: 0.55rem;
 }
 
+.route-desc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+
 .route-desc-title {
   margin: 0;
   font-family: var(--font-display);
@@ -654,11 +661,69 @@ body {
   color: var(--foam);
 }
 
-.route-desc-copy {
+.route-desc-copy,
+.route-desc-actions .btn {
   flex: 0 0 auto;
   width: auto;
   padding: 0.35rem 0.7rem;
   font-size: 0.78rem;
+  min-height: 36px;
+}
+
+.elev-panel {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(7, 24, 33, 0.55);
+  animation: rise 0.4s ease both;
+}
+
+.elev-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.elev-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 400;
+  color: var(--foam);
+}
+
+.elev-range {
+  font-size: 0.78rem;
+  color: rgba(232, 244, 242, 0.65);
+}
+
+.elev-canvas {
+  display: block;
+  width: 100%;
+  height: 72px;
+  border-radius: 8px;
+  background: rgba(4, 16, 22, 0.65);
+}
+
+.dist-mark-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.dist-mark {
+  transform: translate(-50%, -120%);
+  padding: 0.12rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(7, 24, 33, 0.88);
+  border: 1px solid rgba(46, 196, 182, 0.45);
+  color: #e8f4f2;
+  font: 600 0.68rem/1 var(--font-body);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .route-desc-body {

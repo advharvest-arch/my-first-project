@@ -66,8 +66,8 @@
         pointer-events: none;
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-DaPGDwfR.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-_xfXlxFK.css">
+    <script type="module" crossorigin src="./assets/index-DMelc5fq.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-B4QEBL5i.css">
     <script type="module">import'data:text/javascript,if(!import.meta.resolve)throw Error("import.meta.resolve not supported")';import.meta.url;import("_").catch(()=>1);(async function*(){})().next();window.__vite_is_modern_browser=true</script>
     <script type="module">!function(){if(window.__vite_is_modern_browser)return;console.warn("vite: loading legacy chunks, syntax error above and the same error below should be ignored");var e=document.getElementById("vite-legacy-polyfill"),n=document.createElement("script");n.src=e.src,n.onload=function(){System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))},document.body.appendChild(n)}();</script>
   </head>
@@ -83,6 +83,9 @@
       <aside class="panel" id="panel">
         <header class="brand">
           <p class="brand-mark">AquaRoute</p>
+          <p class="brand-sub">
+            Водный маршрут с именами рек и озёр — без подписки, с GPX и шарингом
+          </p>
         </header>
 
         <div class="mode-switch" role="tablist" aria-label="Режим">
@@ -126,8 +129,16 @@
             <span>Километраж у точек</span>
           </label>
           <label class="check-row">
+            <input type="checkbox" id="show-distance-marks" checked />
+            <span>Метки км вдоль пути</span>
+          </label>
+          <label class="check-row">
             <input type="checkbox" id="show-segment-labels" checked />
             <span>Подписи отрезков и засечки</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="show-elevation" checked />
+            <span>Профиль высот</span>
           </label>
           <label class="check-row">
             <input type="checkbox" id="show-return" checked />
@@ -156,12 +167,28 @@
           </div>
         </section>
 
+        <section class="elev-panel" id="elev-panel" hidden>
+          <header class="elev-head">
+            <h2 class="elev-title">Профиль высот</h2>
+            <span class="elev-range" id="elev-range">—</span>
+          </header>
+          <canvas id="elev-canvas" class="elev-canvas" width="320" height="72" aria-label="Профиль высот"></canvas>
+        </section>
+
         <section class="route-desc" id="route-desc" hidden>
           <header class="route-desc-head">
             <h2 class="route-desc-title">Описание маршрута</h2>
-            <button type="button" class="btn ghost route-desc-copy" id="route-desc-copy">
-              Копировать
-            </button>
+            <div class="route-desc-actions">
+              <button type="button" class="btn ghost route-desc-copy" id="route-desc-copy">
+                Копировать
+              </button>
+              <button type="button" class="btn ghost" id="share-route-btn" title="Ссылка на маршрут">
+                Ссылка
+              </button>
+              <button type="button" class="btn ghost" id="gpx-export-btn" title="Скачать GPX">
+                GPX
+              </button>
+            </div>
           </header>
           <textarea
             id="route-desc-body"
@@ -239,6 +266,6 @@
     </script>
     <script nomodule>!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventListener("beforeload",(function(e){if(e.target===t)n=!0;else if(!e.target.hasAttribute("nomodule")||!n)return;e.preventDefault()}),!0),t.type="module",t.src=".",e.head.appendChild(t),t.remove()}}();</script>
     <script nomodule crossorigin id="vite-legacy-polyfill" src="./assets/polyfills-legacy-CTKu8899.js"></script>
-    <script nomodule crossorigin id="vite-legacy-entry" data-src="./assets/index-legacy-Clv-3_12.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
+    <script nomodule crossorigin id="vite-legacy-entry" data-src="./assets/index-legacy-Gd8QaZZ6.js">System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
   </body>
 </html>

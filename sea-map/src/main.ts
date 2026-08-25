@@ -138,12 +138,19 @@ const waypointListEl = document.querySelector<HTMLElement>('#waypoint-list')!;
 const lineColorInput = document.querySelector<HTMLInputElement>('#line-color')!;
 const lineWeightInput = document.querySelector<HTMLInputElement>('#line-weight')!;
 const showKmLabelsInput = document.querySelector<HTMLInputElement>('#show-km-labels')!;
+const showDistanceMarksInput = document.querySelector<HTMLInputElement>('#show-distance-marks')!;
+const showElevationInput = document.querySelector<HTMLInputElement>('#show-elevation')!;
 const showSegmentLabelsInput = document.querySelector<HTMLInputElement>('#show-segment-labels')!;
 const showReturnInput = document.querySelector<HTMLInputElement>('#show-return')!;
 const showArrowsInput = document.querySelector<HTMLInputElement>('#show-arrows')!;
 const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
 const routeDescBody = document.querySelector<HTMLTextAreaElement>('#route-desc-body')!;
 const routeDescCopy = document.querySelector<HTMLButtonElement>('#route-desc-copy')!;
+const shareRouteBtn = document.querySelector<HTMLButtonElement>('#share-route-btn')!;
+const gpxExportBtn = document.querySelector<HTMLButtonElement>('#gpx-export-btn')!;
+const elevPanel = document.querySelector<HTMLElement>('#elev-panel')!;
+const elevRangeEl = document.querySelector<HTMLElement>('#elev-range')!;
+const elevCanvas = document.querySelector<HTMLCanvasElement>('#elev-canvas')!;
 
 let mode: AppMode = 'water';
 let waypoints: Waypoint[] = [];
@@ -290,6 +297,7 @@ function clearStats(): void {
   lastCumKm = [];
   lastItinerary = [];
   hideRouteDesc();
+  hideElevation();
 }
 
 function showStats(distanceKm: number): void {
@@ -302,6 +310,13 @@ function hideRouteDesc(): void {
   routeDescEl.hidden = true;
   routeDescBody.value = '';
   routeDescCopy.textContent = 'Копировать';
+}
+
+function hideElevation(): void {
+  elevPanel.hidden = true;
+  elevRangeEl.textContent = '—';
+  const ctx = elevCanvas.getContext('2d');
+  if (ctx) ctx.clearRect(0, 0, elevCanvas.width, elevCanvas.height);
 }
 
 function showRouteDesc(text: string): void {
@@ -781,6 +796,219 @@ function drawSegmentTicks(path: LngLat[], segments: ItinerarySegment[]): void {
   }
 }
 
+/** Kilometre marks along the track (MapMagic-style distance markers, free). */
+function drawDistanceMarks(path: LngLat[]): void {
+  if (!showDistanceMarksInput.checked) return;
+  if (path.length < 2) return;
+  const total = pathLengthKm(path);
+  if (!(total > 1)) return;
+  const step = total > 120 ? 10 : total > 40 ? 5 : 2;
+  for (let km = step; km < total - 0.4; km += step) {
+    const { point } = pointAlongPath(path, km);
+    L.marker([point.lat, point.lon], {
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 420,
+      icon: L.divIcon({
+        className: 'dist-mark-wrap',
+        html: `<div class="dist-mark">${Math.round(km)} км</div>`,
+        iconSize: [1, 1],
+        iconAnchor: [0, 0],
+      }),
+    }).addTo(drawLayer);
+  }
+}
+
+function samplePathForElevation(path: LngLat[], maxSamples = 80): LngLat[] {
+  if (path.length <= maxSamples) return path;
+  const out: LngLat[] = [];
+  const step = (path.length - 1) / (maxSamples - 1);
+  for (let i = 0; i < maxSamples; i++) out.push(path[Math.round(i * step)]!);
+  return out;
+}
+
+async function fetchElevations(points: LngLat[]): Promise<number[] | null> {
+  if (points.length < 2) return null;
+  const lats = points.map((p) => p.lat.toFixed(5)).join(',');
+  const lons = points.map((p) => p.lon.toFixed(5)).join(',');
+  const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(12000),
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { elevation?: number[] };
+    if (!data.elevation || data.elevation.length !== points.length) return null;
+    return data.elevation;
+  } catch {
+    return null;
+  }
+}
+
+function paintElevationProfile(elevations: number[]): void {
+  const ctx = elevCanvas.getContext('2d');
+  if (!ctx || elevations.length < 2) {
+    hideElevation();
+    return;
+  }
+  const w = elevCanvas.width;
+  const h = elevCanvas.height;
+  ctx.clearRect(0, 0, w, h);
+  let min = Infinity;
+  let max = -Infinity;
+  for (const z of elevations) {
+    if (z < min) min = z;
+    if (z > max) max = z;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    hideElevation();
+    return;
+  }
+  const span = Math.max(8, max - min);
+  elevRangeEl.textContent = `${Math.round(min)}…${Math.round(max)} м`;
+  elevPanel.hidden = false;
+
+  ctx.fillStyle = 'rgba(46, 196, 182, 0.18)';
+  ctx.strokeStyle = 'rgba(46, 196, 182, 0.95)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < elevations.length; i++) {
+    const x = (i / (elevations.length - 1)) * (w - 4) + 2;
+    const y = h - 4 - ((elevations[i]! - min) / span) * (h - 10);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.lineTo(w - 2, h - 2);
+  ctx.lineTo(2, h - 2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+let elevRequestId = 0;
+async function updateElevationProfile(path: LngLat[]): Promise<void> {
+  if (!showElevationInput.checked || path.length < 2) {
+    hideElevation();
+    return;
+  }
+  const id = ++elevRequestId;
+  const samples = samplePathForElevation(path, 72);
+  const elev = await fetchElevations(samples);
+  if (id !== elevRequestId) return;
+  if (!elev) {
+    hideElevation();
+    return;
+  }
+  paintElevationProfile(elev);
+}
+
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildGpx(path: LngLat[], wps: Waypoint[], itinerary: ItinerarySegment[]): string {
+  const name = itinerary.length
+    ? itinerary.map((s) => s.name).join(' — ')
+    : 'AquaRoute';
+  const desc = itinerary.length
+    ? formatItinerary(itinerary)
+    : `Маршрут AquaRoute, ${formatKm(pathLengthKm(path))}`;
+  const wptXml = wps
+    .map(
+      (wp, i) => `  <wpt lat="${wp.lat.toFixed(6)}" lon="${wp.lon.toFixed(6)}">
+    <name>${xmlEscape(wp.name || `Точка ${i + 1}`)}</name>
+  </wpt>`,
+    )
+    .join('\n');
+  // Keep GPX responsive: densify not needed; thin only if huge.
+  const track =
+    path.length > 5000
+      ? path.filter((_, i) => i === 0 || i === path.length - 1 || i % 2 === 0)
+      : path;
+  const trkpts = track
+    .map((p) => `      <trkpt lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"></trkpt>`)
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="AquaRoute" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>${xmlEscape(name)}</name>
+    <desc>${xmlEscape(desc)}</desc>
+  </metadata>
+${wptXml}
+  <trk>
+    <name>${xmlEscape(name)}</name>
+    <trkseg>
+${trkpts}
+    </trkseg>
+  </trk>
+</gpx>
+`;
+}
+
+function downloadGpx(): void {
+  if (!lastRoutePath || lastRoutePath.length < 2) {
+    setStatus('Сначала постройте маршрут.', true);
+    return;
+  }
+  const gpx = buildGpx(lastRoutePath, waypoints, lastItinerary);
+  const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aquaroute-${Date.now()}.gpx`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus('GPX сохранён — без подписки.');
+}
+
+function encodeRouteQuery(wps: Waypoint[]): string {
+  return wps.map((w) => `${w.lon.toFixed(5)},${w.lat.toFixed(5)}`).join('|');
+}
+
+function parseRouteQuery(raw: string): LngLat[] {
+  const out: LngLat[] = [];
+  for (const part of raw.split('|')) {
+    const [lonS, latS] = part.split(',');
+    const lon = Number(lonS);
+    const lat = Number(latS);
+    if (Number.isFinite(lon) && Number.isFinite(lat)) out.push({ lon, lat });
+  }
+  return out;
+}
+
+function buildShareUrl(): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set('mode', mode);
+  if (waypoints.length >= 2) url.searchParams.set('route', encodeRouteQuery(waypoints));
+  else url.searchParams.delete('route');
+  url.searchParams.delete('demo');
+  url.searchParams.delete('from');
+  url.searchParams.delete('to');
+  return url.toString();
+}
+
+async function shareRouteLink(): Promise<void> {
+  if (waypoints.length < 2) {
+    setStatus('Нужны минимум две точки.', true);
+    return;
+  }
+  const link = buildShareUrl();
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(link);
+    else if (!copyTextFallback(link)) throw new Error('clipboard');
+    // Keep URL bar in sync without reload.
+    window.history.replaceState({}, '', link);
+    setStatus('Ссылка на маршрут скопирована.');
+  } catch {
+    setStatus('Не удалось скопировать ссылку.', true);
+  }
+}
+
 function drawDirectionArrows(path: LngLat[], color: string): void {
   if (!showArrowsInput.checked) return;
   if (path.length < 2) return;
@@ -860,6 +1088,8 @@ function drawRouteGeometry(
     }
     // Segment ticks on the geographic route (not offset lanes).
     if (itinerary.length) drawSegmentTicks(path, itinerary);
+    drawDistanceMarks(path);
+    if (!opts.muted) void updateElevationProfile(path);
     return;
   }
   L.polyline(
@@ -868,6 +1098,8 @@ function drawRouteGeometry(
   ).addTo(drawLayer);
   if (!opts.muted) drawDirectionArrows(path, color);
   if (itinerary.length) drawSegmentTicks(path, itinerary);
+  drawDistanceMarks(path);
+  if (!opts.muted) void updateElevationProfile(path);
 }
 
 function attachWaypointMarker(wp: Waypoint, index: number): void {
@@ -1363,6 +1595,16 @@ showKmLabelsInput.addEventListener('change', () => {
   redrawCurrent();
   renderWaypointList();
 });
+showDistanceMarksInput.addEventListener('change', () => {
+  if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
+});
+showElevationInput.addEventListener('change', () => {
+  if (showElevationInput.checked && lastRoutePath && lastRoutePath.length >= 2) {
+    void updateElevationProfile(lastRoutePath);
+  } else {
+    hideElevation();
+  }
+});
 showReturnInput.addEventListener('change', () => {
   if (lastRoutePath && lastRoutePath.length >= 2) redrawWaypoints(lastRoutePath);
   else restyleRouteLine();
@@ -1392,11 +1634,39 @@ collapseBtn.addEventListener('click', () => panel.classList.add('collapsed'));
 routeDescCopy.addEventListener('click', () => {
   void copyRouteDesc();
 });
+shareRouteBtn.addEventListener('click', () => {
+  void shareRouteLink();
+});
+gpxExportBtn.addEventListener('click', () => {
+  downloadGpx();
+});
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
   const qMode = params.get('mode');
   if (qMode === 'ruler') setMode('ruler');
   else if (qMode === 'water' || qMode === 'sea' || qMode === 'inland') setMode('water');
+
+  const routeRaw = params.get('route');
+  if (routeRaw) {
+    const pts = parseRouteQuery(routeRaw);
+    if (pts.length >= 2) {
+      setMode('water');
+      waypoints = pts.map((p, i) =>
+        makeWaypoint(
+          p.lon,
+          p.lat,
+          i === 0 ? 'Старт' : i === pts.length - 1 ? 'Финиш' : `Точка ${i + 1}`,
+        ),
+      );
+      const midLat = pts.reduce((s, p) => s + p.lat, 0) / pts.length;
+      const midLon = pts.reduce((s, p) => s + p.lon, 0) / pts.length;
+      map.setView([midLat, midLon], 9);
+      redrawWaypoints();
+      syncControls();
+      void computeWaterRoute({ fit: true });
+      return;
+    }
+  }
 
   const demo = params.get('demo');
   if (demo && mode === 'water') {
