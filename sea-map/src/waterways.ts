@@ -433,7 +433,7 @@ function snapToNetwork(
   return { nodeId, point: best.point, distKm: best.distKm, line: best.line };
 }
 
-function pathAlongLine(line: WaterLine, from: LngLat, to: LngLat): LngLat[] {
+function pathAlongLine(line: WaterLine, from: LngLat, to: LngLat, minKm = 0.02): LngLat[] {
   const coords = line.coords;
   if (coords.length < 2) return [from, to];
   let i0 = 0;
@@ -454,7 +454,176 @@ function pathAlongLine(line: WaterLine, from: LngLat, to: LngLat): LngLat[] {
   }
   const slice =
     i0 <= i1 ? coords.slice(i0, i1 + 1) : coords.slice(i1, i0 + 1).reverse();
-  return simplifyPath([from, ...slice, to]);
+  return simplifyPath([from, ...slice, to], minKm);
+}
+
+/**
+ * Closest waterway centerline hit (rivers/canals only — lakes stay open-water routed).
+ * Also returns the vertex index on the line for ordered meander inserts.
+ */
+function nearestWaterwayHit(
+  p: LngLat,
+  lines: WaterLine[],
+  maxKm: number,
+): { line: WaterLine; point: LngLat; distKm: number; idx: number } | null {
+  let best: { line: WaterLine; point: LngLat; distKm: number; idx: number } | null = null;
+  for (const line of lines) {
+    if (line.kind !== 'waterway' || line.coords.length < 2) continue;
+    const stride = Math.max(1, Math.floor(line.coords.length / 120));
+    for (let j = stride; j < line.coords.length; j += stride) {
+      const c = closestOnSegment(p, line.coords[j - stride]!, line.coords[j]!);
+      if (c.distKm > maxKm) continue;
+      if (!best || c.distKm < best.distKm) {
+        const idx = c.t < 0.5 ? j - stride : j;
+        best = { line, point: c.point, distKm: c.distKm, idx };
+      }
+    }
+  }
+  return best;
+}
+
+function linesNearPath(points: LngLat[], padDeg = 0.03): WaterLine[] {
+  const cells = new Set<string>();
+  for (const p of densifyPoints(points, 4)) {
+    const { cx, cy } = pointCell(p);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        cells.add(cellKey(cx + dx, cy + dy));
+      }
+    }
+  }
+  if (padDeg > CELL_DEG) {
+    let w = 180,
+      s = 90,
+      e = -180,
+      n = -90;
+    for (const p of points) {
+      w = Math.min(w, p.lon);
+      s = Math.min(s, p.lat);
+      e = Math.max(e, p.lon);
+      n = Math.max(n, p.lat);
+    }
+    const cx0 = Math.floor((w - padDeg) / CELL_DEG);
+    const cx1 = Math.floor((e + padDeg) / CELL_DEG);
+    const cy0 = Math.floor((s - padDeg) / CELL_DEG);
+    const cy1 = Math.floor((n + padDeg) / CELL_DEG);
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cy = cy0; cy <= cy1; cy++) cells.add(cellKey(cx, cy));
+    }
+  }
+  return mergeLines([...cells].map((id) => cellCache.get(id) ?? []).filter((g) => g.length > 0));
+}
+
+function isOpenWaterCatalogPoint(p: LngLat): boolean {
+  return CATALOG.some((b) => b.k === 'l' && pointInCatalog(p, b));
+}
+
+/**
+ * Keep every BRouter vertex (already on water) and insert extra OSM centerline
+ * vertices wherever the track skips river bends between two samples.
+ */
+function refineTrackToRiverCenterlines(points: LngLat[]): LngLat[] {
+  if (points.length < 3) return points;
+  const allLines = linesNearPath(points, 0.04).filter((l) => l.kind === 'waterway');
+  if (allLines.length < 1) return points;
+
+  const out: LngLat[] = [{ ...points[0]! }];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
+
+    if (!isOpenWaterCatalogPoint(prev) && !isOpenWaterCatalogPoint(cur)) {
+      const a = nearestWaterwayHit(prev, allLines, 0.55);
+      const b = nearestWaterwayHit(cur, allLines, 0.55);
+      if (a && b && a.distKm <= 0.4 && b.distKm <= 0.4) {
+        if (a.line.id === b.line.id && a.idx !== b.idx) {
+          const coords = a.line.coords;
+          const lo = Math.min(a.idx, b.idx);
+          const hi = Math.max(a.idx, b.idx);
+          if (hi - lo >= 2) {
+            let alongKm = 0;
+            for (let k = lo + 1; k <= hi; k++) {
+              alongKm += haversineKm(coords[k - 1]!, coords[k]!);
+            }
+            const chord = haversineKm(prev, cur);
+            // Reject wrong-direction wraps on a long OSM way.
+            if (alongKm <= Math.max(chord * 2.2, chord + 1.2) && alongKm >= chord * 0.9) {
+              const forward = a.idx <= b.idx;
+              if (forward) {
+                for (let k = lo + 1; k < hi; k++) {
+                  const p = coords[k]!;
+                  const last = out[out.length - 1]!;
+                  if (haversineKm(last, p) > 0.006 && haversineKm(p, cur) > 0.006) {
+                    out.push({ ...p });
+                  }
+                }
+              } else {
+                for (let k = hi - 1; k > lo; k--) {
+                  const p = coords[k]!;
+                  const last = out[out.length - 1]!;
+                  if (haversineKm(last, p) > 0.006 && haversineKm(p, cur) > 0.006) {
+                    out.push({ ...p });
+                  }
+                }
+              }
+            }
+          }
+        } else if (
+          haversineKm(prev, cur) >= 0.15 &&
+          a.line.name &&
+          b.line.name &&
+          a.line.name.toLocaleLowerCase('ru') === b.line.name.toLocaleLowerCase('ru')
+        ) {
+          const corridor = linesNearPath([prev, cur], 0.03).filter((l) => l.kind === 'waterway');
+          const nameKey = a.line.name.toLocaleLowerCase('ru');
+          const named = corridor.filter(
+            (l) =>
+              l.id === a.line.id ||
+              l.id === b.line.id ||
+              (l.name != null && l.name.toLocaleLowerCase('ru') === nameKey),
+          );
+          const pool = (named.length ? named : corridor).slice(0, 60);
+          if (pool.length) {
+            const leg = routeOnLines(a.point, b.point, pool);
+            const chord = haversineKm(prev, cur);
+            if (
+              leg.method === 'waterway' &&
+              leg.points.length >= 4 &&
+              leg.lengthKm >= chord * 1.05 &&
+              leg.lengthKm <= Math.min(chord * 1.85, chord + 1.8)
+            ) {
+              for (let k = 1; k < leg.points.length - 1; k++) {
+                const p = leg.points[k]!;
+                const last = out[out.length - 1]!;
+                if (haversineKm(last, p) > 0.006 && haversineKm(p, cur) > 0.006) {
+                  out.push({ ...p });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Always keep the original track vertex.
+    const last = out[out.length - 1]!;
+    if (haversineKm(last, cur) > 0.003) out.push({ ...cur });
+  }
+
+  return out.length >= 2 ? out : points;
+}
+
+async function refineRouteGeometry(points: LngLat[]): Promise<LngLat[]> {
+  if (points.length < 3) return points;
+  try {
+    await fetchWaterNetwork(sampleAlongPath(points, Math.min(28, Math.max(4, Math.ceil(pathLength(points) / 6)))), {
+      forceRefresh: false,
+    });
+    await enrichNamedWaterwaysForItinerary(points);
+  } catch {
+    // Use water-core / whatever is already cached.
+  }
+  return refineTrackToRiverCenterlines(points);
 }
 
 function dijkstra(start: number, goal: number, nodeCount: number, edges: GraphEdge[]): number[] | null {
@@ -1049,7 +1218,7 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
           }
           points.push(destination);
           return {
-            points: simplifyPath(points),
+            points: simplifyPath(points, 0.02),
             lengthKm: pathLength(points),
             waterName,
             method: 'waterway',
@@ -1092,7 +1261,7 @@ function routeOnLines(origin: LngLat, destination: LngLat, lines: WaterLine[]): 
   points.push(destination);
 
   return {
-    points: simplifyPath(points),
+    points: simplifyPath(points, 0.02),
     lengthKm: pathLength(points),
     waterName,
     method: 'waterway',
@@ -2214,8 +2383,8 @@ async function finalizeMeasuredRoute(
     method: WaterPath['method'];
   },
 ): Promise<WaterPath> {
-  // Light simplify only — same fidelity for short and long routes.
-  const measurePath = simplifyPath(waterRef, 0.08);
+  // Keep meanders: only drop sub-12 m duplicates.
+  const measurePath = simplifyPath(waterRef, 0.012);
   const geomKm = pathLength(waterRef);
   const measureKm = pathLength(measurePath);
   // Prefer BRouter track length when it matches the polyline (graph length).
@@ -2236,8 +2405,8 @@ async function finalizeMeasuredRoute(
   });
 
   const points =
-    measurePath.length > 3600
-      ? downsampleOnWater(measurePath, 3600, 0.3)
+    measurePath.length > 10000
+      ? downsampleOnWater(measurePath, 10000, 0.1)
       : measurePath;
 
   return {
@@ -2588,7 +2757,9 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     }
     // Straighten lake/reservoir spans (Белое, Рыбинское, …) that BRouter
     // followed along the shore or fairway instead of open water.
-    const waterRef = await straightenOpenWaterSpans(brouted.points);
+    const straightened = await straightenOpenWaterSpans(brouted.points);
+    // Snap river legs onto OSM centerlines so meanders are drawn, not cut.
+    const waterRef = await refineRouteGeometry(straightened);
     const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(waterRef);
     return finalizeMeasuredRoute(waterRef, pathLength(waterRef), waypoints, {
       waterName: named,

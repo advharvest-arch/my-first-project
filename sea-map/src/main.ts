@@ -854,7 +854,7 @@ function drawRouteGeometry(
       if (leg.length < 2) continue;
       L.polyline(
         leg.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-        { ...style, interactive: false },
+        { ...style, interactive: false, smoothFactor: 0 },
       ).addTo(drawLayer);
       drawDirectionArrows(leg, color);
     }
@@ -864,7 +864,7 @@ function drawRouteGeometry(
   }
   L.polyline(
     path.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-    { ...style, interactive: false },
+    { ...style, interactive: false, smoothFactor: 0 },
   ).addTo(drawLayer);
   if (!opts.muted) drawDirectionArrows(path, color);
   if (itinerary.length) drawSegmentTicks(path, itinerary);
@@ -965,7 +965,7 @@ function redrawWaypoints(path?: LngLat[]): void {
   } else if (waypoints.length >= 2) {
     L.polyline(
       waypoints.map((p) => [p.lat, p.lon] as L.LatLngTuple),
-      { ...lineStyle(), opacity: 0.55, interactive: false },
+      { ...lineStyle(), opacity: 0.55, interactive: false, smoothFactor: 0 },
     ).addTo(drawLayer);
   }
 }
