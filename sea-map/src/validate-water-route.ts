@@ -1,4 +1,5 @@
 import { haversineKm, pathLengthKm, type LngLat } from './geo';
+import { hydroHighConfidenceRejects } from './hydro-gate';
 import {
   dualGeometry,
   endpointsNearWaypoints,
@@ -113,6 +114,11 @@ export function validateWaterRoute(
   }
 
   if (hasIllegalBarrierCrossing(points)) {
+    // KNOWN_BARRIERS fallback (Dubna / Rybinsk) — unchanged.
+    issues.push('illegal_barrier');
+  } else if (hydroHighConfidenceRejects(points)) {
+    // High-confidence hydro-index only. med/low never reject.
+    // Existing applyKnownBarrierRepairs / lock vias run earlier in BRouter finalize.
     issues.push('illegal_barrier');
   }
 
