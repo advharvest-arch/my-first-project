@@ -643,6 +643,23 @@ body {
   animation: rise 0.45s ease both;
 }
 
+.route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  animation: rise 0.4s ease both;
+}
+
+.route-actions .btn {
+  flex: 1 1 auto;
+  min-width: 5.5rem;
+  width: auto;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  min-height: 38px;
+}
+
 .stat {
   padding: 0.65rem 0.5rem;
   border-top: 1px solid rgba(46, 196, 182, 0.35);

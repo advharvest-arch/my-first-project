@@ -122,6 +122,7 @@ const routeDescEl = document.querySelector<HTMLElement>('#route-desc')!;
 const routeDescBody = document.querySelector<HTMLTextAreaElement>('#route-desc-body')!;
 const routeDescList = document.querySelector<HTMLOListElement>('#route-desc-list')!;
 const routeDescCopy = document.querySelector<HTMLButtonElement>('#route-desc-copy')!;
+const routeActionsEl = document.querySelector<HTMLElement>('#route-actions')!;
 const shareRouteBtn = document.querySelector<HTMLButtonElement>('#share-route-btn')!;
 const gpxExportBtn = document.querySelector<HTMLButtonElement>('#gpx-export-btn')!;
 const elevPanel = document.querySelector<HTMLElement>('#elev-panel')!;
@@ -280,12 +281,14 @@ function clearStats(): void {
   lastItinerary = [];
   hideRouteDesc();
   hideElevation();
+  syncRouteExportActions();
 }
 
 function showStats(distanceKm: number): void {
   lastDistanceKm = distanceKm;
   statsEl.hidden = false;
   refreshEtaFromSpeed();
+  syncRouteExportActions();
 }
 
 function hideRouteDesc(): void {
@@ -427,12 +430,27 @@ async function updateRouteItinerary(
   }
 }
 
+/** True when map/GPX have a computed track (not merely START/FINISH pins). */
+function hasExportableRoute(): boolean {
+  const track = lastRoutingPath?.length ? lastRoutingPath : lastRoutePath;
+  return !!track && track.length >= 2;
+}
+
+/** GPX / Share live outside itinerary — sync to path presence only. */
+function syncRouteExportActions(): void {
+  const ok = hasExportableRoute();
+  routeActionsEl.hidden = !ok;
+  shareRouteBtn.disabled = !ok;
+  gpxExportBtn.disabled = !ok;
+}
+
 function syncControls(): void {
   routeBtn.disabled = waypoints.length < 2 || busy;
   undoBtn.hidden = false;
   reverseBtn.hidden = waypoints.length < 2;
   waypointCountEl.textContent = `Точек: ${waypoints.length}`;
   renderWaypointList();
+  syncRouteExportActions();
 }
 
 function renderWaypointList(): void {
@@ -928,7 +946,7 @@ function buildShareUrl(): string {
 }
 
 async function shareRouteLink(): Promise<void> {
-  if (waypoints.length < 2) {
+  if (!hasExportableRoute() || waypoints.length < 2) {
     setStatus('Нужны минимум две точки.', true);
     return;
   }
