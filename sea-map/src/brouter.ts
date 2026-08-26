@@ -473,17 +473,54 @@ function firstIndexInBox(
 }
 
 /**
+ * Moscow Canal shipping channel south of Иваньковское (Химки → Икша → Дмитров).
+ * Must NOT include Дубна / шлюз №1 (~56.73–56.74): legitimate upper-Volga →
+ * cascade routes pass the lock and are not canal cutoffs.
+ */
+const MOSCOW_CANAL_CHANNEL_BOX = {
+  lonMin: 37.05,
+  lonMax: 37.7,
+  latMin: 55.82,
+  /** Below Ivankovo / Dubna lock heads; was 56.75 and false-positived Дубна. */
+  latMax: 56.55,
+};
+
+/** Minimum water distance inside the canal channel box (stray pins are not enough). */
+const MOSCOW_CANAL_CHANNEL_MIN_KM = 20;
+
+function pathKmInBox(
+  points: LngLat[],
+  box: { lonMin: number; lonMax: number; latMin: number; latMax: number },
+): number {
+  let km = 0;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i]!;
+    if (
+      p.lon >= box.lonMin &&
+      p.lon <= box.lonMax &&
+      p.lat >= box.latMin &&
+      p.lat <= box.latMax
+    ) {
+      km += haversineKm(points[i - 1]!, p);
+    }
+  }
+  return km;
+}
+
+/**
  * Куйбышев→west must not touch Moscow Canal before Горьковское
  * (sign of Oka/Москва cutoff or reversed canal vias).
+ *
+ * Evidence = ordered visit of the canal *channel* (south of Dubna) before
+ * Горьковское, with a real path length in that box — not merely a Dubna lock pin.
  */
-function looksLikeCanalBeforeCascade(points: LngLat[], a: LngLat, b: LngLat): boolean {
+export function looksLikeCanalBeforeCascade(
+  points: LngLat[],
+  a: LngLat,
+  b: LngLat,
+): boolean {
   if (nearMoscow(a) || nearMoscow(b)) return false;
-  const canal = firstIndexInBox(points, {
-    lonMin: 37.05,
-    lonMax: 37.7,
-    latMin: 55.82,
-    latMax: 56.75,
-  });
+  const canal = firstIndexInBox(points, MOSCOW_CANAL_CHANNEL_BOX);
   const gorky = firstIndexInBox(points, {
     lonMin: 42.2,
     lonMax: 43.7,
@@ -491,6 +528,9 @@ function looksLikeCanalBeforeCascade(points: LngLat[], a: LngLat, b: LngLat): bo
     latMax: 57.55,
   });
   if (canal < 0 || gorky < 0 || canal >= gorky) return false;
+  if (pathKmInBox(points, MOSCOW_CANAL_CHANNEL_BOX) < MOSCOW_CANAL_CHANNEL_MIN_KM) {
+    return false;
+  }
   const east = Math.max(a.lon, b.lon);
   const west = Math.min(a.lon, b.lon);
   return east >= 45 && west <= 40;

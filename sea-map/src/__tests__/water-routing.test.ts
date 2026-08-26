@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { looksLikeCanalBeforeCascade } from '../brouter';
 import { pathLengthKm, type LngLat } from '../geo';
 import { dedupeRoutePoints, hasGeometryGap } from '../route-geometry';
 import {
   DUBNA_LOCK_CORRIDOR,
   DUBNA_LOCK_LOWER,
   DUBNA_LOCK_UPPER,
+  MOSCOW_CANAL_VIAS,
   VOLGA_NAV_FAIRWAY,
   VOLGA_STEM_CHAIN,
   crossesDubnaBarrier,
@@ -22,6 +24,26 @@ import {
   maxSnapKmForMethod,
   maxWaterSnapKm,
 } from '../water-snap';
+
+/** Densify a polyline so path-km-in-box heuristics see a continuous channel. */
+function densify(points: LngLat[], stepKm = 8): LngLat[] {
+  if (points.length < 2) return points.slice();
+  const out: LngLat[] = [points[0]!];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const dlon = (b.lon - a.lon) * 111 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+    const dlat = (b.lat - a.lat) * 111;
+    const d = Math.hypot(dlon, dlat);
+    const n = Math.max(0, Math.floor(d / stepKm) - 1);
+    for (let k = 1; k <= n; k++) {
+      const t = k / (n + 1);
+      out.push({ lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t });
+    }
+    out.push(b);
+  }
+  return out;
+}
 
 const p = (lon: number, lat: number): LngLat => ({ lon, lat });
 
@@ -252,6 +274,86 @@ describe('Dubna lock №1 (regression)', () => {
     expect(fixed.length).toBeGreaterThan(bad.length);
     expect(passesDubnaLockProperly(fixed)).toBe(true);
     expect(hasIllegalBarrierCrossing(fixed)).toBe(false);
+  });
+});
+
+describe('looksLikeCanalBeforeCascade (Dubna ≠ Moscow Canal)', () => {
+  const seliger = p(33.080173, 57.438374);
+  const kazan = p(49.1221, 55.7887);
+
+  it('upper Volga → Kazan via Dubna lock is NOT a Moscow Canal cutoff', () => {
+    // Stem-style stitch: Селижарово → Тверь → шлюз №1 → Углич → … → Казань.
+    // Touches Dubna (~56.73) but never the Khimki–Dmitrov canal channel.
+    const track = densify(
+      [
+        seliger,
+        VOLGA_STEM_CHAIN[0]!, // Селижарово
+        VOLGA_STEM_CHAIN[1]!, // Тверь
+        ...DUBNA_LOCK_CORRIDOR,
+        VOLGA_STEM_CHAIN[3]!, // Углич
+        VOLGA_STEM_CHAIN[4]!, // Рыбинск
+        VOLGA_STEM_CHAIN[5]!, // Ярославль
+        VOLGA_STEM_CHAIN[8]!, // Городец
+        VOLGA_STEM_CHAIN[9]!, // НН
+        VOLGA_STEM_CHAIN[11]!, // Чебоксары
+        VOLGA_STEM_CHAIN[12]!, // Казань pin
+        kazan,
+      ],
+      12,
+    );
+    expect(looksLikeCanalBeforeCascade(track, seliger, kazan)).toBe(false);
+    const reach = endpointReachToOriginals(track, [seliger, kazan], maxWaterSnapKm());
+    expect(reach.ok).toBe(true);
+    const v = validateWaterRoute(track, {
+      waypoints: [seliger, kazan],
+      lengthKm: pathLengthKm(track),
+      method: 'waterway',
+    });
+    expect(v.ok).toBe(true);
+  });
+
+  it('Dubna lock corridor alone is not classified as Moscow Canal', () => {
+    const a = p(37.08, 56.74);
+    const b = p(37.22, 56.76);
+    expect(looksLikeCanalBeforeCascade(DUBNA_LOCK_CORRIDOR, a, b)).toBe(false);
+    expect(looksLikeCanalBeforeCascade(densify(DUBNA_LOCK_CORRIDOR, 0.3), a, b)).toBe(false);
+  });
+
+  it('real Moscow Canal channel before Горьковское stays suspicious', () => {
+    // West≤40 / east≥45 hop that rides Химки→Икша→Дмитров then jumps to НН/Казань.
+    const west = p(38.5, 57.0);
+    const east = p(49.05, 55.5);
+    const canalThenCascade = densify(
+      [
+        west,
+        MOSCOW_CANAL_VIAS[0]!, // Химки
+        MOSCOW_CANAL_VIAS[1]!, // Икша
+        MOSCOW_CANAL_VIAS[2]!, // Дмитров
+        p(42.5, 56.5), // Горьковское
+        p(44.0, 56.33),
+        p(47.25, 56.15),
+        east,
+      ],
+      8,
+    );
+    expect(looksLikeCanalBeforeCascade(canalThenCascade, west, east)).toBe(true);
+  });
+
+  it('stray single pin in the old Dubna-overlapping box is not enough', () => {
+    // Would have false-positived with latMax=56.75 + firstIndexInBox alone.
+    const west = p(33.5, 57.0);
+    const east = p(49.0, 55.6);
+    const track = densify(
+      [
+        west,
+        p(37.14, 56.73), // Dubna lock head only
+        p(38.7, 58.1),
+        p(44.0, 56.33),
+        east,
+      ],
+      10,
+    );
+    expect(looksLikeCanalBeforeCascade(track, west, east)).toBe(false);
   });
 });
 
