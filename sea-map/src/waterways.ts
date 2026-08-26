@@ -2614,6 +2614,50 @@ function collapseAdjacentSegments(segments: ItinerarySegment[]): ItinerarySegmen
   return collapsed;
 }
 
+/**
+ * Fold A → short secondary B → A into a single A.
+ *
+ * Absorbs B only when it is a short non-trunk, non-lake, non-corridor blip
+ * between identical neighbours. Does not apply a global “drop all short”
+ * rule and does not touch A → B → C (different outer names).
+ *
+ * `shortMaxKm` defaults to the same 1.2 km used by mergeShortSegments.
+ */
+export function foldSandwichedShortSegments(
+  segments: ItinerarySegment[],
+  shortMaxKm = 1.2,
+): ItinerarySegment[] {
+  if (segments.length < 3) {
+    return segments.map((s) => ({ ...s }));
+  }
+  const out = segments.map((s) => ({ ...s }));
+  let i = 0;
+  while (i + 2 < out.length) {
+    const left = out[i]!;
+    const mid = out[i + 1]!;
+    const right = out[i + 2]!;
+    const sameOuter =
+      left.name.toLocaleLowerCase('ru') === right.name.toLocaleLowerCase('ru');
+    const absorbMid =
+      sameOuter &&
+      mid.km <= shortMaxKm &&
+      !isTrunkRiver(mid.name) &&
+      !isLakeCatalogName(mid.name) &&
+      !isCorridorTributary(mid.name);
+    if (!absorbMid) {
+      i += 1;
+      continue;
+    }
+    left.km += mid.km + right.km;
+    if (!left.gvrCode && right.gvrCode) {
+      left.gvrCode = right.gvrCode;
+      left.fromGvr = right.fromGvr;
+    }
+    out.splice(i + 1, 2);
+  }
+  return collapseAdjacentSegments(out);
+}
+
 /** Scale stretch lengths so they sum to the reported route distance. */
 function scaleSegmentsToTotal(segments: ItinerarySegment[], totalKm: number): ItinerarySegment[] {
   if (!(totalKm > 0) || segments.length === 0) return segments;
@@ -2882,9 +2926,11 @@ function itineraryFromPath(path: LngLat[]): ItinerarySegment[] {
       segments.push(namedSegment(currentName, pendingKm));
     }
   }
-  return mergeShortSegments(
-    collapseMoscowCanalFlicker(collapseVetlugaMouthFlicker(segments)),
-    1.2,
+  return foldSandwichedShortSegments(
+    mergeShortSegments(
+      collapseMoscowCanalFlicker(collapseVetlugaMouthFlicker(segments)),
+      1.2,
+    ),
   );
 }
 
@@ -2967,6 +3013,7 @@ export async function describeWaterItinerary(
   chain = collapseAdjacentSegments(chain);
   chain = collapseVetlugaMouthFlicker(chain);
   chain = collapseMoscowCanalFlicker(chain);
+  chain = foldSandwichedShortSegments(chain);
 
   const geo = haversineKm(origin, destination);
   if (opts.totalKm && geo > 40 && opts.totalKm > geo * 3.5) {
