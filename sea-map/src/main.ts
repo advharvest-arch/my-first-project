@@ -24,6 +24,7 @@ import {
   type ItinerarySegment,
 } from './waterways';
 import { maxWaterSnapKm } from './water-snap';
+import { RouteAsyncGeneration } from './route-async-generation';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -153,8 +154,8 @@ let pinnedWaterRoute: {
 } | null = null;
 let dragRebuildTimer: number | null = null;
 let nextWaypointId = 1;
-/** Bumps on each successful water route so background polish can cancel. */
-let routeGeneration = 0;
+/** Monotonic stamp so a late polish cannot overwrite a newer route / not_found clear. */
+const routeAsyncGeneration = new RouteAsyncGeneration();
 
 /**
  * Multi-leg parallel lanes: prefer a constant on-screen gap, but never let the
@@ -1233,8 +1234,10 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     });
 
     if (path.method === 'route_not_found' || path.points.length < 2) {
+      // Invalidate in-flight polish from a prior success so it cannot restore
+      // cleared geometry after this definitive not_found (same stamp as polish).
+      routeAsyncGeneration.invalidate();
       lastRoutePath = null;
-  lastRoutingPath = null;
       lastRoutingPath = null;
       lastCumKm = [];
       lastItinerary = [];
@@ -1305,10 +1308,10 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
 
     // Polish lakes / meanders / names in the background — do not block first paint.
     if (!isAir && path.method !== 'direct') {
-      const gen = ++routeGeneration;
+      const gen = routeAsyncGeneration.begin();
       const wps = waypoints.map((w) => ({ lon: w.lon, lat: w.lat }));
       void polishWaterPath(path, wps).then((polished) => {
-        if (!polished || gen !== routeGeneration) return;
+        if (!polished || !routeAsyncGeneration.isCurrent(gen)) return;
         if (busy) return;
         lastRoutingPath = polished.routingGeometry?.length
           ? polished.routingGeometry
