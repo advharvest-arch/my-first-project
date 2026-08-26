@@ -19,6 +19,7 @@ import {
   isVolgaBalticLongCorridor,
   isVolgaStemCorridor,
   looksLikeSkippingDubnaLock,
+  looksLikeSkippingRybinskLock,
   nearKamaBelaya,
   nearMoscow,
   nearNorthwestWaterway,
@@ -27,6 +28,7 @@ import {
   nearVolgaCascade,
   nearestStemIndex,
   repairMoscowCanalEastSpur,
+  rybinskLockViasIfNeeded,
 } from './routing-rules';
 
 export type BrouterResult = {
@@ -233,37 +235,55 @@ function volgaBalticCorridorVias(a: LngLat, b: LngLat): LngLat[] {
   return nwIsB ? vias : vias.slice().reverse();
 }
 
+function mergeVias(base: LngLat[], extra: LngLat[]): LngLat[] {
+  if (!extra.length) return base;
+  if (!base.length) return extra.slice();
+  const out = base.slice();
+  for (const v of extra) {
+    if (!out.some((m) => haversineKm(m, v) < 1.5)) out.push(v);
+  }
+  return out;
+}
+
 function corridorViasBetween(a: LngLat, b: LngLat): LngLat[] {
   const span = haversineKm(a, b);
+  const lockVias = rybinskLockViasIfNeeded(a, b);
 
   if (isMoscowSpbCorridor(a, b)) {
-    if (span < 250) return [];
+    if (span < 250) return lockVias;
     const forward = nearMoscow(a) && nearSpb(b);
     const vias = pickViasAlong(a, b, VOLGA_BALTIC_VIAS, { preserveOrder: true });
-    return forward ? vias : vias.slice().reverse();
+    const ordered = forward ? vias : vias.slice().reverse();
+    return mergeVias(ordered, lockVias);
   }
 
   if (isVolgaBalticLongCorridor(a, b)) {
-    if (span < 250) return [];
-    return volgaBalticCorridorVias(a, b);
+    // Short Baltic hops still need Rybinsk lock pins when straddling the hydro
+    // (direct BRouter otherwise crosses the HPP crest).
+    if (span < 250) return lockVias;
+    return mergeVias(volgaBalticCorridorVias(a, b), lockVias);
   }
 
   if (isVolgaStemCorridor(a, b)) {
-    return volgaStemCorridorVias(a, b);
+    return mergeVias(volgaStemCorridorVias(a, b), lockVias);
   }
 
   // NW waterway involved but not classified above — never fall through to
   // Volga stem (that snaps СПб→Селижарово/Дубна). Prefer Baltic chain.
   if (nearNorthwestWaterway(a) || nearNorthwestWaterway(b)) {
-    if (span < 250) return [];
-    return volgaBalticCorridorVias(a, b);
+    if (span < 250) return lockVias;
+    return mergeVias(volgaBalticCorridorVias(a, b), lockVias);
   }
+
+  if (lockVias.length) return lockVias;
 
   const minLon = Math.min(a.lon, b.lon);
   const maxLon = Math.max(a.lon, b.lon);
   if (span < 250 || maxLon - minLon < 4) return [];
   if (maxLon < 39 || minLon > 50) return [];
-  if (maxLon < 32 || Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) return [];
+  if (maxLon < 32 || Math.max(a.lat, b.lat) < 54 || Math.min(a.lat, b.lat) > 61) {
+    return [];
+  }
 
   return volgaStemCorridorVias(a, b);
 }
@@ -715,7 +735,8 @@ function isHardBadVolgaPath(points: LngLat[], a: LngLat, b: LngLat): boolean {
     looksLikeMoskvaDetour(points, a, b) ||
     looksLikeCheremukhaDetour(points, a, b) ||
     looksLikeDubnaTrapOnBaltic(points, a, b) ||
-    looksLikeSkippingDubnaLock(points)
+    looksLikeSkippingDubnaLock(points) ||
+    looksLikeSkippingRybinskLock(points)
   );
 }
 

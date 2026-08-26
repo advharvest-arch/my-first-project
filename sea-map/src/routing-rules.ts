@@ -161,7 +161,30 @@ export const MOSCOW_CANAL_VIAS: LngLat[] = [
 export const DUBNA_LOCK_UPPER: LngLat = { lon: 37.1374, lat: 56.7343 };
 export const DUBNA_LOCK_LOWER: LngLat = { lon: 37.1417, lat: 56.7361 };
 export const DUBNA_LOCK: LngLat = DUBNA_LOCK_UPPER;
+/** OSM шлюзы №11–12 (Рыбинский гидроузел / Переборы) — chamber midpoint. */
 export const RYBINSK_LOCK: LngLat = { lon: 38.7086, lat: 58.0999 };
+/** OSM way 117122422 «Шлюз №11». */
+export const RYBINSK_LOCK_11: LngLat = { lon: 38.7083, lat: 58.0998 };
+/** OSM way 117122424 «Шлюз №12». */
+export const RYBINSK_LOCK_12: LngLat = { lon: 38.7088, lat: 58.1004 };
+
+/**
+ * Existing VOLGA_NAV_FAIRWAY pins around the hydro — used as BRouter vias only.
+ * Not a dense splice corridor (see Dubna DUBNA_LOCK_CORRIDOR); lock-head-only
+ * geometry repair would still risk land chords across the dam island.
+ */
+const RYBINSK_LOCK_VIA_PINS: LngLat[] = [
+  { lon: 38.72, lat: 58.07 }, // нижний бьеф / подход
+  RYBINSK_LOCK,
+  { lon: 38.65, lat: 58.13 }, // водохранилище, подход к шлюзам
+];
+
+/** OSM lower approach canal (way 713010877) — passage check pin. */
+const RYBINSK_APPROACH_PINS: LngLat[] = [
+  { lon: 38.7283, lat: 58.095 }, // нижний подходной канал
+  { lon: 38.72, lat: 58.07 },
+  { lon: 38.65, lat: 58.13 },
+];
 
 /**
  * Forced Dubna fairway on water only (OSM):
@@ -483,6 +506,95 @@ export function looksLikeSkippingDubnaLock(points: LngLat[]): boolean {
   return !passesDubnaLockProperly(points);
 }
 
+/**
+ * False BRouter river track across the Rybinsk HPP / dam body
+ * (east of locks №11–12, ~Шекснинское шоссе / Гэсовская промзона).
+ * Lock canal at ~38.71 must NOT match this band.
+ */
+export function onRybinskDamChord(p: LngLat): boolean {
+  return p.lon >= 38.78 && p.lon <= 38.86 && p.lat >= 58.085 && p.lat <= 58.108;
+}
+
+function rybinskDamChordKm(points: LngLat[]): number {
+  let km = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    if (onRybinskDamChord(a) || onRybinskDamChord(b)) km += haversineKm(a, b);
+  }
+  return km;
+}
+
+function nearRybinskLockChamber(p: LngLat): boolean {
+  return (
+    haversineKm(p, RYBINSK_LOCK) <= 0.2 ||
+    haversineKm(p, RYBINSK_LOCK_11) <= 0.2 ||
+    haversineKm(p, RYBINSK_LOCK_12) <= 0.2
+  );
+}
+
+function nearRybinskApproachCanal(points: LngLat[]): boolean {
+  return RYBINSK_APPROACH_PINS.some((pin) =>
+    points.some((p) => haversineKm(p, pin) <= 0.35),
+  );
+}
+
+/**
+ * Track straddles Рыбинский гидроузел (lower Volga pool ↔ reservoir / Шексна).
+ * Dam-chord alone is enough — BRouter often only samples the crest.
+ */
+export function crossesRybinskBarrier(points: LngLat[]): boolean {
+  if (rybinskDamChordKm(points) > 0.05) return true;
+  let south = false;
+  let north = false;
+  for (const p of points) {
+    if (p.lon < 38.55 || p.lon > 38.95) continue;
+    if (p.lat >= 57.98 && p.lat <= 58.088) south = true;
+    if (p.lat >= 58.105 && p.lat <= 58.35) north = true;
+  }
+  return south && north;
+}
+
+/** True when the track uses locks №11/12 via water (not the HPP crest). */
+export function passesRybinskLockProperly(points: LngLat[]): boolean {
+  if (!points.some(nearRybinskLockChamber)) return false;
+  if (!nearRybinskApproachCanal(points)) return false;
+  if (rybinskDamChordKm(points) > 0.15) return false;
+  return true;
+}
+
+/**
+ * Path crosses Рыбинская ГЭС / плотина without a proper lock №11/12 passage.
+ */
+export function looksLikeSkippingRybinskLock(points: LngLat[]): boolean {
+  if (!crossesRybinskBarrier(points)) return false;
+  return !passesRybinskLockProperly(points);
+}
+
+/**
+ * One end in the lower pool at Rybinsk, the other on the reservoir / Шексна /
+ * Череповец side — must pin locks №11–12 (not city-pair specific).
+ */
+export function endpointsStraddleRybinskBarrier(a: LngLat, b: LngLat): boolean {
+  const lowerPool = (p: LngLat) =>
+    p.lat >= 57.95 && p.lat <= 58.088 && p.lon >= 38.55 && p.lon <= 39.1;
+  const upperSide = (p: LngLat) =>
+    p.lat >= 58.105 && p.lat <= 59.5 && p.lon >= 37.4 && p.lon <= 38.95;
+  return (lowerPool(a) && upperSide(b)) || (lowerPool(b) && upperSide(a));
+}
+
+/**
+ * BRouter vias through existing fairway lock pins when endpoints straddle the hydro.
+ * Prefer via over geometry splice — no dense hardcoded corridor.
+ */
+export function rybinskLockViasIfNeeded(a: LngLat, b: LngLat): LngLat[] {
+  if (!endpointsStraddleRybinskBarrier(a, b)) return [];
+  const southToNorth = a.lat <= b.lat;
+  return southToNorth
+    ? RYBINSK_LOCK_VIA_PINS.slice()
+    : RYBINSK_LOCK_VIA_PINS.slice().reverse();
+}
+
 /** Кама / Белая (Н. Челны → Уфа → Белорецк) — east of the Volga stem end. */
 export const KAMA_BELAYA_VIAS: LngLat[] = [
   { lon: 49.05, lat: 55.5 }, // Казань / устье Камы
@@ -729,6 +841,15 @@ export const KNOWN_BARRIERS: KnownBarrier[] = [
     crosses: crossesDubnaBarrier,
     hasValidPassage: passesDubnaLockProperly,
     repair: repairDubnaLockPassage,
+  },
+  {
+    // Detect + reject crest crossings; passage via BRouter lock vias
+    // (rybinskLockViasIfNeeded). Dense OSM splice corridor not added —
+    // same class of hardcode as DUBNA_LOCK_CORRIDOR; prefer via.
+    id: 'rybinsk-locks-11-12',
+    label: 'Шлюзы №11–12 (Рыбинский гидроузел)',
+    crosses: crossesRybinskBarrier,
+    hasValidPassage: passesRybinskLockProperly,
   },
 ];
 

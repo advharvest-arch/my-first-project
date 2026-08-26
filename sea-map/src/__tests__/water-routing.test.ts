@@ -7,13 +7,23 @@ import {
   DUBNA_LOCK_LOWER,
   DUBNA_LOCK_UPPER,
   MOSCOW_CANAL_VIAS,
+  RYBINSK_LOCK,
+  RYBINSK_LOCK_11,
+  RYBINSK_LOCK_12,
   VOLGA_NAV_FAIRWAY,
   VOLGA_STEM_CHAIN,
+  applyKnownBarrierRepairs,
   crossesDubnaBarrier,
+  crossesRybinskBarrier,
+  endpointsStraddleRybinskBarrier,
   hasIllegalBarrierCrossing,
   looksLikeSkippingDubnaLock,
+  looksLikeSkippingRybinskLock,
+  onRybinskDamChord,
   passesDubnaLockProperly,
+  passesRybinskLockProperly,
   repairDubnaLockPassage,
+  rybinskLockViasIfNeeded,
 } from '../routing-rules';
 import { validateWaterRoute } from '../validate-water-route';
 import {
@@ -274,6 +284,104 @@ describe('Dubna lock №1 (regression)', () => {
     expect(fixed.length).toBeGreaterThan(bad.length);
     expect(passesDubnaLockProperly(fixed)).toBe(true);
     expect(hasIllegalBarrierCrossing(fixed)).toBe(false);
+  });
+});
+
+/**
+ * Live dam samples from BRouter Рыбинск→Череповец (HPP crest east of locks).
+ * Lock corridor uses OSM №11/12 + existing fairway approach pins.
+ */
+const RYBINSK_DAM_CHORD: LngLat[] = [
+  p(38.8559, 58.049), // lower pool / city
+  p(38.821867, 58.088214),
+  p(38.823371, 58.095732), // Гэсовская промзона / crest
+  p(38.821867, 58.104336),
+  p(38.7, 58.2), // reservoir north
+];
+
+const RYBINSK_LOCK_CORRIDOR: LngLat[] = [
+  p(38.85, 58.05),
+  p(38.72, 58.07), // lower approach (fairway)
+  p(38.7283, 58.095), // OSM lower approach canal
+  RYBINSK_LOCK_11,
+  RYBINSK_LOCK,
+  RYBINSK_LOCK_12,
+  p(38.65, 58.13), // upper approach (fairway)
+  p(38.5, 58.25),
+];
+
+describe('Rybinsk locks №11–12 (regression)', () => {
+  it('A: synthetic geometry through HPP body is illegal (not repaired by splice)', () => {
+    expect(onRybinskDamChord(p(38.823371, 58.095732))).toBe(true);
+    expect(crossesRybinskBarrier(RYBINSK_DAM_CHORD)).toBe(true);
+    expect(passesRybinskLockProperly(RYBINSK_DAM_CHORD)).toBe(false);
+    expect(looksLikeSkippingRybinskLock(RYBINSK_DAM_CHORD)).toBe(true);
+    expect(hasIllegalBarrierCrossing(RYBINSK_DAM_CHORD)).toBe(true);
+    // No dense corridor splice — applyKnownBarrierRepairs leaves dam track.
+    const after = applyKnownBarrierRepairs(RYBINSK_DAM_CHORD);
+    expect(hasIllegalBarrierCrossing(after)).toBe(true);
+  });
+
+  it('B: geometry through lock corridor №11/12 is proper/legal', () => {
+    expect(passesRybinskLockProperly(RYBINSK_LOCK_CORRIDOR)).toBe(true);
+    expect(looksLikeSkippingRybinskLock(RYBINSK_LOCK_CORRIDOR)).toBe(false);
+    expect(hasIllegalBarrierCrossing(RYBINSK_LOCK_CORRIDOR)).toBe(false);
+    expect(haversineNear(RYBINSK_LOCK, RYBINSK_LOCK_CORRIDOR, 0.2)).toBe(true);
+  });
+
+  it('D: Rybinsk→Cherepovets dam-crossing is rejected by validator', () => {
+    const start = p(38.8558908, 58.0489536);
+    const finish = p(37.9025005, 59.1221553);
+    expect(endpointsStraddleRybinskBarrier(start, finish)).toBe(true);
+    const vias = rybinskLockViasIfNeeded(start, finish);
+    expect(vias.some((v) => haversineNear(RYBINSK_LOCK, [v], 0.05))).toBe(true);
+
+    const damTrack = densify(
+      [
+        start,
+        p(38.821867, 58.088214),
+        p(38.823371, 58.095732),
+        p(38.821867, 58.104336),
+        p(38.4, 58.55),
+        p(38.1, 58.8),
+        finish,
+      ],
+      12,
+    );
+    expect(hasIllegalBarrierCrossing(damTrack)).toBe(true);
+    const v = validateWaterRoute(damTrack, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(damTrack),
+      method: 'waterway',
+    });
+    expect(v.ok).toBe(false);
+    expect(v.issues).toContain('illegal_barrier');
+  });
+
+  it('E: ordinary waterway along lower Volga does not trip Rybinsk barrier', () => {
+    // Мышкин → Рыбинск stays south of the crest.
+    const track = densify(
+      [p(38.4516, 57.7847), p(38.65, 57.92), p(38.8559, 58.049)],
+      10,
+    );
+    expect(crossesRybinskBarrier(track)).toBe(false);
+    expect(looksLikeSkippingRybinskLock(track)).toBe(false);
+    expect(hasIllegalBarrierCrossing(track)).toBe(false);
+    const v = validateWaterRoute(track, {
+      waypoints: [p(38.4516, 57.7847), p(38.8559, 58.049)],
+      lengthKm: pathLengthKm(track),
+      method: 'waterway',
+    });
+    expect(v.issues).not.toContain('illegal_barrier');
+  });
+
+  it('lock vias are not injected for same-side hops', () => {
+    expect(
+      rybinskLockViasIfNeeded(p(38.85, 58.05), p(38.95, 58.06)).length,
+    ).toBe(0);
+    expect(
+      endpointsStraddleRybinskBarrier(p(38.7, 58.2), p(37.95, 59.12)),
+    ).toBe(false);
   });
 });
 
