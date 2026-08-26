@@ -1,6 +1,6 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
-import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans } from './open-lake';
+import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath } from './open-lake';
 import { dualGeometry } from './route-geometry';
 import { validateWaterRoute } from './validate-water-route';
 import {
@@ -3128,7 +3128,12 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     }
     const routing = brouted.points;
     const straightened = await straightenOpenWaterSpans(routing, { cachedOnly: true });
-    const display = refineRouteGeometryFast(straightened);
+    const safeDisplay = chooseSafeDisplayGeometry(
+      routing,
+      straightened,
+      cachedLakeMaskAlongPath(routing),
+    );
+    const display = refineRouteGeometryFast(safeDisplay);
     const named = waterNameFromTags(brouted.wayTags) ?? namesNearEndpoints(routing);
     const path = await acceptPath(routing, display, brouted.lengthKm, {
       waterName: named,
@@ -3248,8 +3253,11 @@ export async function polishWaterPath(
   try {
     const routing = path.routingGeometry?.length ? path.routingGeometry : path.points;
     const straightened = await straightenOpenWaterSpans(routing, { cachedOnly: false });
-    const refined = await refineRouteGeometryDeep(straightened);
-    const polished = await finalizeMeasuredRoute(refined, pathLength(routing), waypoints, {
+    const lake = cachedLakeMaskAlongPath(routing);
+    const safeStraight = chooseSafeDisplayGeometry(routing, straightened, lake);
+    const refined = await refineRouteGeometryDeep(safeStraight);
+    const safeDisplay = chooseSafeDisplayGeometry(routing, refined, lake);
+    const polished = await finalizeMeasuredRoute(safeDisplay, pathLength(routing), waypoints, {
       waterName: path.waterName,
       method: path.method === 'lake' ? 'lake' : 'waterway',
       enrich: true,

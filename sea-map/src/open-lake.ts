@@ -457,6 +457,121 @@ function pathWaterSafe(points: LngLat[], lake: LakeMask): boolean {
   return true;
 }
 
+function densifyForSafety(points: LngLat[], stepKm: number): LngLat[] {
+  if (points.length < 2) return points.slice();
+  const out: LngLat[] = [points[0]!];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const d = haversineKm(a, b);
+    const n = Math.max(0, Math.ceil(d / stepKm) - 1);
+    for (let k = 1; k <= n; k++) {
+      const t = k / (n + 1);
+      out.push({
+        lon: a.lon + (b.lon - a.lon) * t,
+        lat: a.lat + (b.lat - a.lat) * t,
+      });
+    }
+    out.push(b);
+  }
+  return out;
+}
+
+function nearestPointOnPath(p: LngLat, path: LngLat[]): { point: LngLat; distKm: number } {
+  let best = path[0]!;
+  let bestD = haversineKm(p, best);
+  for (let i = 1; i < path.length; i++) {
+    const q = path[i]!;
+    const d = haversineKm(p, q);
+    if (d < bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+  return { point: best, distKm: bestD };
+}
+
+/** Max distance from densified `candidate` samples to nearest `reference` vertex (km). */
+export function maxPathDeviationKm(
+  reference: LngLat[],
+  candidate: LngLat[],
+  sampleStepKm = 1.5,
+): number {
+  if (reference.length < 2 || candidate.length < 2) return Infinity;
+  const ref = densifyForSafety(reference, sampleStepKm);
+  let max = 0;
+  for (const p of densifyForSafety(candidate, sampleStepKm)) {
+    max = Math.max(max, nearestPointOnPath(p, ref).distKm);
+  }
+  return max;
+}
+
+/**
+ * Display polish may shortcut open water, but must not invent land chords.
+ *
+ * - Small deviation from routing → always OK.
+ * - Large deviation → OK only when a lake mask proves every far sample stays on
+ *   open water with a clear water line back to the routing track.
+ * - Without a mask, large deviation is rejected (keep routing as display).
+ */
+export function isSafeDisplayVsRouting(
+  routing: LngLat[],
+  display: LngLat[],
+  lake: LakeMask | null,
+  opts: { nearKm?: number; sampleStepKm?: number } = {},
+): boolean {
+  if (routing.length < 2 || display.length < 2) return false;
+  const nearKm = opts.nearKm ?? 3;
+  const sampleStepKm = opts.sampleStepKm ?? 1.2;
+  const maxDev = maxPathDeviationKm(routing, display, sampleStepKm);
+  if (maxDev <= nearKm) return true;
+  if (!lake) return false;
+  if (!pathWaterSafe(display, lake)) return false;
+
+  const ref = densifyForSafety(routing, sampleStepKm);
+  for (const p of densifyForSafety(display, sampleStepKm)) {
+    const near = nearestPointOnPath(p, ref);
+    if (near.distKm <= nearKm) continue;
+    if (!pointInOpenWater(p, lake)) return false;
+    if (!openWaterLineClear(near.point, p, lake)) return false;
+  }
+  return true;
+}
+
+/** Prefer a cached Nominatim mask that covers the track (no network). */
+export function cachedLakeMaskAlongPath(points: LngLat[]): LakeMask | null {
+  if (points.length < 2) return null;
+  for (const body of openWaterBodiesByArea()) {
+    if (!lakeCache.has(body.osmId)) continue;
+    const lake = lakeCache.get(body.osmId);
+    if (!lake) continue;
+    let hits = 0;
+    for (const p of points) {
+      if (inBBox(p, body.catalog.b, 0.05)) hits += 1;
+      if (hits >= 3) return lake;
+    }
+  }
+  return null;
+}
+
+/**
+ * Keep routing when open-water straighten is unsafe (land chord / wild deviation).
+ * Does not alter `routing` — only chooses which geometry to show.
+ */
+export function chooseSafeDisplayGeometry(
+  routing: LngLat[],
+  displayCandidate: LngLat[],
+  lake: LakeMask | null = cachedLakeMaskAlongPath(routing),
+): LngLat[] {
+  if (
+    displayCandidate.length >= 2 &&
+    isSafeDisplayVsRouting(routing, displayCandidate, lake)
+  ) {
+    return displayCandidate;
+  }
+  return routing;
+}
+
 function parseNominatimLake(
   name: string,
   osmId: number,
@@ -690,6 +805,8 @@ function replaceSpansOnMask(points: LngLat[], lake: LakeMask, catalogBBox: BBox)
       (detourKm > chordKm * 1.15 && openKm <= detourKm * 1.02);
     if (!improves) continue;
     if (openKm > chordKm * 2.8) continue;
+    // Reject open-water replacements that swing far onto shore / peninsulas.
+    if (!isSafeDisplayVsRouting(detourPts, open, lake)) continue;
 
     out = [...out.slice(0, enter), ...open, ...out.slice(leave + 1)];
   }
