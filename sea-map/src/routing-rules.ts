@@ -169,12 +169,12 @@ export const RYBINSK_LOCK_11: LngLat = { lon: 38.7083, lat: 58.0998 };
 export const RYBINSK_LOCK_12: LngLat = { lon: 38.7088, lat: 58.1004 };
 
 /**
- * Existing VOLGA_NAV_FAIRWAY pins around the hydro — used as BRouter vias only.
- * Not a dense splice corridor (see Dubna DUBNA_LOCK_CORRIDOR); lock-head-only
- * geometry repair would still risk land chords across the dam island.
+ * Existing fairway pins around the hydro — used as BRouter vias only.
+ * Not a dense splice corridor (see Dubna DUBNA_LOCK_CORRIDOR).
+ * Do NOT pin lower-pool [38.72, 58.07]: it sits ~2.5 km off the canal
+ * fairway and makes BRouter out-and-back spur before the lock.
  */
 const RYBINSK_LOCK_VIA_PINS: LngLat[] = [
-  { lon: 38.72, lat: 58.07 }, // нижний бьеф / подход
   RYBINSK_LOCK,
   { lon: 38.65, lat: 58.13 }, // водохранилище, подход к шлюзам
 ];

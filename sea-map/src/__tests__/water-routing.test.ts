@@ -329,12 +329,16 @@ describe('Rybinsk locks №11–12 (regression)', () => {
     expect(haversineNear(RYBINSK_LOCK, RYBINSK_LOCK_CORRIDOR, 0.2)).toBe(true);
   });
 
-  it('D: Rybinsk→Cherepovets dam-crossing is rejected by validator', () => {
+  it('D: Rybinsk→Cherepovets dam-crossing is rejected; vias use lock not lower spur pin', () => {
     const start = p(38.8558908, 58.0489536);
     const finish = p(37.9025005, 59.1221553);
     expect(endpointsStraddleRybinskBarrier(start, finish)).toBe(true);
     const vias = rybinskLockViasIfNeeded(start, finish);
     expect(vias.some((v) => haversineNear(RYBINSK_LOCK, [v], 0.05))).toBe(true);
+    expect(vias.some((v) => haversineNear(p(38.65, 58.13), [v], 0.05))).toBe(true);
+    // Lower-pool pin caused ~1.2 km BRouter out-and-back before the lock.
+    expect(vias.some((v) => haversineNear(p(38.72, 58.07), [v], 0.05))).toBe(false);
+    expect(vias).toHaveLength(2);
 
     const damTrack = densify(
       [
@@ -356,6 +360,14 @@ describe('Rybinsk locks №11–12 (regression)', () => {
     });
     expect(v.ok).toBe(false);
     expect(v.issues).toContain('illegal_barrier');
+  });
+
+  it('via set omits lower-pool pin that caused BRouter approach spur', () => {
+    const vias = rybinskLockViasIfNeeded(p(38.8559, 58.049), p(37.9025, 59.122));
+    expect(vias).toHaveLength(2);
+    expect(vias.some((v) => haversineNear(RYBINSK_LOCK, [v], 0.05))).toBe(true);
+    expect(vias.some((v) => haversineNear(p(38.65, 58.13), [v], 0.05))).toBe(true);
+    expect(vias.some((v) => haversineNear(p(38.72, 58.07), [v], 0.05))).toBe(false);
   });
 
   it('E: ordinary waterway along lower Volga does not trip Rybinsk barrier', () => {
