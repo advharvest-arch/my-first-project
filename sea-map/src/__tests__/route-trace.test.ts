@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe('RouteTrace schema (E0)', () => {
   it('exports schemaVersion = 1', () => {
-    expect(ROUTE_TRACE_SCHEMA_VERSION).toBe(1);
+    expect(ROUTE_TRACE_SCHEMA_VERSION).toBe(2);
   });
 
   it('beginRouteTrace + finish emits a complete schema without userCorrection', () => {
@@ -76,7 +76,7 @@ describe('RouteTrace schema (E0)', () => {
       waterName: 'Рыбинское водохранилище',
     });
 
-    expect(trace.schemaVersion).toBe(1);
+    expect(trace.schemaVersion).toBe(2);
     expect(trace.requestId).toMatch(/^rt-/);
     expect(trace.request.a).toEqual(ll(p(38.1, 58.4)));
     expect(trace.request.b).toEqual(ll(p(38.6, 58.35)));
@@ -188,9 +188,26 @@ describe('RouteTrace emission buffer / sink', () => {
     clearRouteTraces();
     for (let i = 0; i < ROUTE_TRACE_BUFFER_LIMIT + 5; i++) {
       emitRouteTrace({
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId: `rt-bulk-${i}`,
-        timing: { startedAtMs: i, endedAtMs: i + 1, durationMs: 1 },
+        timing: {
+          startedAtMs: i,
+          endedAtMs: i + 1,
+          durationMs: 1,
+          totalMs: 1,
+          bindMs: 0,
+          candidatesMs: 0,
+          phaseAMs: 0,
+          phaseBMs: 0,
+          phaseCMs: 0,
+          brouterMs: 0,
+          overpassMs: 0,
+          openLakeMs: 0,
+          validationMs: 0,
+          hydroMs: 0,
+          knowledgeMs: 0,
+          finalAssemblyMs: 0,
+        },
         request: {
           a: { lon: 0, lat: 0 },
           b: { lon: 1, lat: 1 },
@@ -306,7 +323,7 @@ describe('RouteTrace candidate / hydro helpers', () => {
 describe('RouteTrace re-exports from waterways', () => {
   it('waterways exports trace accessors without pulling UI', async () => {
     const mod = await import('../waterways');
-    expect(mod.ROUTE_TRACE_SCHEMA_VERSION).toBe(1);
+    expect(mod.ROUTE_TRACE_SCHEMA_VERSION).toBe(2);
     expect(typeof mod.getLastRouteTrace).toBe('function');
     expect(typeof mod.clearRouteTraces).toBe('function');
     expect(typeof mod.setRouteTraceSink).toBe('function');

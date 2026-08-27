@@ -1,10 +1,12 @@
 /**
- * E0/E2 — RouteTrace: structured logging for measureWaterChain / Phase A–D.
+ * E0/E2/E1.6 — RouteTrace: structured logging for measureWaterChain / Phase A–D.
  *
  * Side-effect only: never influences accept/reject, thresholds, ranking, or UI.
  * Hybrid Water Graph layers are reserved in the schema (null until Stage E2+).
  * userCorrection is schema-only — never populated in E0.
  * E2 adds optional `knowledge` (open Russian advisory facts) — diagnostic only.
+ * E1.6 adds detailed timing, performance, coverage, and failure classification
+ * for future AI learning — still diagnostic only.
  */
 
 import type { LngLat } from './geo';
@@ -12,8 +14,14 @@ import type { WaterCandidateSource } from './water-candidates';
 import type { WaterRouteValidationIssue } from './validate-water-route';
 import type { HydroAcceptDecision } from './hydro-gate';
 import type { RouteTraceKnowledge } from './water-knowledge';
+import {
+  classifyRouteFailure,
+  type RouteFailureSignal,
+} from './route-failure-classify';
+import type { RoutePerfCounters } from './route-perf-context';
 
-export const ROUTE_TRACE_SCHEMA_VERSION = 1 as const;
+/** E1.6 bumps schema; v1 fields remain (durationMs / startedAtMs / endedAtMs). */
+export const ROUTE_TRACE_SCHEMA_VERSION = 2 as const;
 
 /** Max traces retained in the in-memory ring buffer. */
 export const ROUTE_TRACE_BUFFER_LIMIT = 32;
@@ -101,14 +109,55 @@ export type RouteTraceFinal = {
   waterName: string | null;
 };
 
+/** E1.6 — stage timings (ms). totalMs mirrors durationMs. */
+export type RouteTraceTimingDetail = {
+  startedAtMs: number;
+  endedAtMs: number;
+  /** Backward-compatible total wall time. */
+  durationMs: number;
+  totalMs: number;
+  bindMs: number;
+  candidatesMs: number;
+  phaseAMs: number;
+  phaseBMs: number;
+  phaseCMs: number;
+  brouterMs: number;
+  overpassMs: number;
+  openLakeMs: number;
+  validationMs: number;
+  hydroMs: number;
+  knowledgeMs: number;
+  finalAssemblyMs: number;
+};
+
+export type RouteTracePerformance = {
+  cacheHit: boolean;
+  externalCalls: {
+    brouter: number;
+    overpass: number;
+    openLake: number;
+  };
+  cacheHits: {
+    brouter: number;
+    overpass: number;
+  };
+  candidateCount: number;
+  trialCount: number;
+  pairCount: number;
+  earlyStopTriggered: boolean;
+};
+
+export type RouteTraceCoverage = {
+  waterwayCoverage: 'unknown' | 'present' | 'sparse' | 'absent';
+  maskCoverage: 'unknown' | 'hit' | 'miss';
+  fairwayCoverage: 'unknown' | 'hit' | 'miss';
+  knowledgeCoverage: 'none' | 'partial' | 'matched';
+};
+
 export type RouteTrace = {
   schemaVersion: typeof ROUTE_TRACE_SCHEMA_VERSION;
   requestId: string;
-  timing: {
-    startedAtMs: number;
-    endedAtMs: number;
-    durationMs: number;
-  };
+  timing: RouteTraceTimingDetail;
   request: {
     a: RouteTraceLngLat;
     b: RouteTraceLngLat;
@@ -137,6 +186,12 @@ export type RouteTrace = {
   } | null;
   hydro: RouteTraceHydro | null;
   final: RouteTraceFinal;
+  /** E1.6 — AI-ready performance signals. */
+  performance?: RouteTracePerformance;
+  /** E1.6 — coverage heuristics for the request corridor. */
+  coverage?: RouteTraceCoverage;
+  /** E1.6 — classified failure (separate from rejectReason text). */
+  failure?: RouteFailureSignal;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
@@ -205,6 +260,113 @@ export function hydroToTrace(d: HydroAcceptDecision): RouteTraceHydro {
   };
 }
 
+function emptyTiming(startedAtMs: number, endedAtMs: number): RouteTraceTimingDetail {
+  const durationMs = Math.max(0, endedAtMs - startedAtMs);
+  return {
+    startedAtMs,
+    endedAtMs,
+    durationMs,
+    totalMs: durationMs,
+    bindMs: 0,
+    candidatesMs: 0,
+    phaseAMs: 0,
+    phaseBMs: 0,
+    phaseCMs: 0,
+    brouterMs: 0,
+    overpassMs: 0,
+    openLakeMs: 0,
+    validationMs: 0,
+    hydroMs: 0,
+    knowledgeMs: 0,
+    finalAssemblyMs: 0,
+  };
+}
+
+export function timingFromPerf(
+  startedAtMs: number,
+  endedAtMs: number,
+  perf: RoutePerfCounters | null,
+): RouteTraceTimingDetail {
+  const base = emptyTiming(startedAtMs, endedAtMs);
+  if (!perf) return base;
+  return {
+    ...base,
+    bindMs: Math.round(perf.bindMs),
+    candidatesMs: Math.round(perf.candidatesMs),
+    phaseAMs: Math.round(perf.phaseAMs),
+    phaseBMs: Math.round(perf.phaseBMs),
+    phaseCMs: Math.round(perf.phaseCMs),
+    brouterMs: Math.round(perf.brouterMs),
+    overpassMs: Math.round(perf.overpassMs),
+    openLakeMs: Math.round(perf.openLakeMs),
+    validationMs: Math.round(perf.validationMs),
+    hydroMs: Math.round(perf.hydroMs),
+    knowledgeMs: Math.round(perf.knowledgeMs),
+    finalAssemblyMs: Math.round(perf.finalAssemblyMs),
+  };
+}
+
+export function performanceFromPerf(perf: RoutePerfCounters | null): RouteTracePerformance {
+  if (!perf) {
+    return {
+      cacheHit: false,
+      externalCalls: { brouter: 0, overpass: 0, openLake: 0 },
+      cacheHits: { brouter: 0, overpass: 0 },
+      candidateCount: 0,
+      trialCount: 0,
+      pairCount: 0,
+      earlyStopTriggered: false,
+    };
+  }
+  return {
+    cacheHit: perf.brouterCacheHits + perf.overpassCacheHits > 0,
+    externalCalls: {
+      brouter: perf.brouterCalls,
+      overpass: perf.overpassCalls,
+      openLake: perf.openLakeOps,
+    },
+    cacheHits: {
+      brouter: perf.brouterCacheHits,
+      overpass: perf.overpassCacheHits,
+    },
+    candidateCount: perf.candidateCount,
+    trialCount: perf.trialCount,
+    pairCount: perf.pairCount,
+    earlyStopTriggered: perf.earlyStopTriggered,
+  };
+}
+
+export function inferCoverage(opts: {
+  sharedLake?: string | null;
+  candidates: RouteTraceCandidate[];
+  knowledgeFacts?: number;
+  finalOk: boolean;
+  method: string;
+}): RouteTraceCoverage {
+  const hasFairway = opts.candidates.some((c) => c.source === 'fairway');
+  const hasMask = opts.candidates.some((c) => c.source === 'mask');
+  const hasWaterway = opts.candidates.some(
+    (c) => c.source === 'waterway' || c.source === 'fairway',
+  );
+  return {
+    waterwayCoverage: hasWaterway
+      ? 'present'
+      : opts.finalOk
+        ? 'present'
+        : opts.candidates.length
+          ? 'sparse'
+          : 'unknown',
+    maskCoverage: opts.sharedLake ? 'hit' : hasMask ? 'hit' : 'miss',
+    fairwayCoverage: hasFairway ? 'hit' : 'miss',
+    knowledgeCoverage:
+      (opts.knowledgeFacts ?? 0) > 2
+        ? 'matched'
+        : (opts.knowledgeFacts ?? 0) > 0
+          ? 'partial'
+          : 'none',
+  };
+}
+
 /** Mutable builder used inside measureWaterChain — finish() emits once. */
 export type RouteTraceBuilder = {
   readonly requestId: string;
@@ -220,6 +382,8 @@ export type RouteTraceBuilder = {
   /** E2 advisory knowledge — set before finish; never affects accept/reject. */
   knowledge: RouteTraceKnowledge | null;
   lastRejectReason: string | null;
+  /** Optional perf counters attached at finish. */
+  perf: RoutePerfCounters | null;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -254,16 +418,29 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     hydro: null,
     knowledge: null,
     lastRejectReason: null,
+    perf: null,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
+      const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
+      const timing = timingFromPerf(builder.startedAtMs, endedAtMs, builder.perf);
+      const performance = performanceFromPerf(builder.perf);
+      const coverage = inferCoverage({
+        sharedLake: builder.phases.A?.sharedLake ?? builder.phases.B?.sharedLake ?? null,
+        candidates: builder.candidates,
+        knowledgeFacts: builder.knowledge?.factsMatched,
+        finalOk: final.ok,
+        method: final.method,
+      });
+      const failure =
+        classifyRouteFailure(rejectReason, {
+          ok: final.ok,
+          longSpanOverpassSkip: builder.request.longSpanOverpassSkip,
+        }) ?? undefined;
+
       const trace: RouteTrace = {
         schemaVersion: ROUTE_TRACE_SCHEMA_VERSION,
         requestId: builder.requestId,
-        timing: {
-          startedAtMs: builder.startedAtMs,
-          endedAtMs,
-          durationMs: Math.max(0, endedAtMs - builder.startedAtMs),
-        },
+        timing,
         request: builder.request,
         candidates: builder.candidates.slice(),
         chosenCandidate: builder.chosenCandidate,
@@ -279,10 +456,13 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
         hydro: builder.hydro,
         final: {
           ...final,
-          rejectReason: final.ok ? null : final.rejectReason ?? builder.lastRejectReason,
+          rejectReason,
         },
+        performance,
+        coverage,
         // userCorrection intentionally omitted (schema-only in E0)
       };
+      if (failure && !final.ok) trace.failure = failure;
       if (builder.knowledge) trace.knowledge = builder.knowledge;
       emitRouteTrace(trace);
       return trace;
