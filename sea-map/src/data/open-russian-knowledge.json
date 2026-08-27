@@ -1,0 +1,2604 @@
+{
+  "schemaVersion": "open-russian-knowledge-0.1.0",
+  "generatedAt": "2026-08-27T12:30:00Z",
+  "sourceNote": "Built from research/open-russian-data/normalized samples. Primary corridor bbox only (no giant unions).",
+  "corridors": {
+    "moscow_canal": {
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ]
+    },
+    "upper_volga": {
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "rivers": [
+        "volga",
+        "rybinsk_reservoir"
+      ]
+    },
+    "rybinsk": {
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ]
+    },
+    "oka": {
+      "bbox": [
+        35.8,
+        54.4,
+        43.2,
+        56.6
+      ],
+      "rivers": [
+        "oka"
+      ]
+    },
+    "kama": {
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "rivers": [
+        "kama"
+      ]
+    },
+    "don": {
+      "bbox": [
+        37.8,
+        46.4,
+        43.5,
+        50.2
+      ],
+      "rivers": [
+        "don"
+      ]
+    }
+  },
+  "facts": [
+    {
+      "id": "wf-dim-9677d902",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "volga",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г. Осташков - пр. Городомля",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 140,
+      "unit": "cm",
+      "widthM": 20,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-9677d902",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г. Осташков - пр. Городомля                             140 / 20         140            20",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-66a3fd60",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "с/х №63 (с/х №65, 407 км - Торовские створы)",
+      "kmFrom": 407,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 100,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-66a3fd60",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "с/х №63 (с/х №65, 407 км - Торовские створы)           400 / 100         400            100",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-96768e86",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "с/х №64 (с/х №63 (буй № 9) - г. Весьегонск)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 270,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-96768e86",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "с/х №64 (с/х №63 (буй № 9) - г. Весьегонск)             270 / 60         270             60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-3af46da7",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "c/x №63)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 100,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-3af46da7",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "c/x №63)                                               400 / 100         400            100",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-653de3e4",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "Брейтово (с/х №64, 23 км) - с/x №63 (431 км)",
+      "kmFrom": 23,
+      "kmTo": 431,
+      "value": 270,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-653de3e4",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "Брейтово (с/х №64, 23 км) - с/x №63 (431 км)            270 / 60         270            60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-da6f7bac",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "пристань Брейтово - с/х №64, 27 км",
+      "kmFrom": 27,
+      "kmTo": null,
+      "value": 200,
+      "unit": "cm",
+      "widthM": 30,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-da6f7bac",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "пристань Брейтово - с/х №64, 27 км                      200 / 30         200            30",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-7e49bf9b",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "volga",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "п. Мигалово - г. Тверь",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 210,
+      "unit": "cm",
+      "widthM": 25,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-7e49bf9b",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "п. Мигалово - г. Тверь                                  210 / 25         210             25",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-84409104",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "volga",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г. Тверь - Иваньковский г/у",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 100,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-84409104",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г. Тверь - Иваньковский г/у                            400 / 100         400            100         277.2 км",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-f0b135a2",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "Иваньковский г/у - Угличский шлюз",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 125,
+      "heightM": null,
+      "lock": "Иваньковский г/у - Угличский шлюз",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk",
+        "upper_volga"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-f0b135a2",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "Иваньковский г/у - Угличский шлюз                      400 / 125         400            125         буй № 166",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-6685d64f",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "с/х №65 (Угличский шлюз - Рыбинский г/у)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 125,
+      "heightM": null,
+      "lock": "с/х №65 (Угличский шлюз - Рыбинский г/у)",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk",
+        "upper_volga"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-6685d64f",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "с/х №65 (Угличский шлюз - Рыбинский г/у)               400 / 125         400            125",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-c9e692bf",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "Подход к пас. причалам г. Углич",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk",
+        "upper_volga"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-c9e692bf",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "Подход к пас. причалам г. Углич                         400 / 60         400             60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-c7d6ba4e",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "Колхозник)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 80,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-c7d6ba4e",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "Колхозник)                                              400 / 80         400            80",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-44de66a2",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "rybinsk_reservoir",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "подходы к грузовым причалам порта Углич",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk",
+        "upper_volga"
+      ],
+      "rivers": [
+        "rybinsk_reservoir",
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-44de66a2",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "подходы к грузовым причалам порта Углич                 400 / 60         400            60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-94e0944f",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "volga",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "пр. Калязин - устье (р. Волга)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 350,
+      "unit": "cm",
+      "widthM": 100,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-94e0944f",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "пр. Калязин - устье (р. Волга)                         350 / 100         350            100",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-a66d279a",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "volga",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "тур. кластер \"Волжское море\" - устье (р. Волга)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 360,
+      "unit": "cm",
+      "widthM": 40,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-a66d279a",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "тур. кластер \"Волжское море\" - устье (р. Волга)          360 / 40        360    40",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-86a4b296",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "volga",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "пос. 1-е Мая - устье (р. Волга)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 120,
+      "unit": "cm",
+      "widthM": 20,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        35.4,
+        56.4,
+        39.2,
+        58.4
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-86a4b296",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "пос. 1-е Мая - устье (р. Волга)                          120 / 20        120    20",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-b83fdc5e",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moskva",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "Иваньковский шлюз - Москва (Щукино)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 55,
+      "heightM": null,
+      "lock": "Иваньковский шлюз - Москва (Щукино)",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal",
+        "upper_volga"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva",
+        "volga"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-b83fdc5e",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "Иваньковский шлюз - Москва (Щукино)                      400 / 55        400    55",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-66820bc8",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "канала, 65 км",
+      "kmFrom": 65,
+      "kmTo": null,
+      "value": 250,
+      "unit": "cm",
+      "widthM": 80,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-66820bc8",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "канала, 65 км                                            250 / 80        250    80",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-273d1f93",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "пристань Аксаково - основной с/х канала, 75 км",
+      "kmFrom": 75,
+      "kmTo": null,
+      "value": 250,
+      "unit": "cm",
+      "widthM": 80,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-273d1f93",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "пристань Аксаково - основной с/х канала, 75 км           250 / 80        250    80",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-bd218b99",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "Нижний подход. канал шлюза №8 - Западный порт",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 350,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": "Нижний подход. канал шлюза №8 - Западный порт",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-bd218b99",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "Нижний подход. канал шлюза №8 - Западный порт            350 / 60        350    60     В. Черногорский",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-f9345055",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "31 км - шлюз №10",
+      "kmFrom": 31,
+      "kmTo": null,
+      "value": 300,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": "31 км - шлюз №10",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-f9345055",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "31 км - шлюз №10                                         300 / 60        300    60     Дорогомиловский",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-d00b72d7",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "шлюз №10 - причал Беседы",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 310,
+      "unit": "cm",
+      "widthM": 50,
+      "heightM": null,
+      "lock": "шлюз №10 - причал Беседы",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-d00b72d7",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "шлюз №10 - причал Беседы                                 310 / 50        310    50",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-7a273b7c",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "причал Беседы - шлюз Софьино",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 240,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": "причал Беседы - шлюз Софьино",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-7a273b7c",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "причал Беседы - шлюз Софьино                             240 / 60        240    60     Заозерский",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-b0499093",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "шлюз Софьино - шлюз Северка",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 220,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": "шлюз Софьино - шлюз Северка",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-b0499093",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "шлюз Софьино - шлюз Северка                              220 / 60        220    60     В. Марчуговский",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-e95ffd6b",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moskva",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "шлюз Северка - устье р. Москвы (р. Ока)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 220,
+      "unit": "cm",
+      "widthM": 40,
+      "heightM": null,
+      "lock": "шлюз Северка - устье р. Москвы (р. Ока)",
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-e95ffd6b",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "шлюз Северка - устье р. Москвы (р. Ока)                  220 / 40        220    40     Коломенская лука",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-a71c3b30",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "oka",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г. Калуга (1099 км) - 1051 км",
+      "kmFrom": 1099,
+      "kmTo": 1051,
+      "value": 310,
+      "unit": "cm",
+      "widthM": 20,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "oka"
+      ],
+      "rivers": [
+        "oka"
+      ],
+      "bbox": [
+        35.8,
+        54.4,
+        43.2,
+        56.6
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-a71c3b30",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г. Калуга (1099 км) - 1051 км                             65 / 20        310    20",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-39e64e7c",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "1051 км - г. Алексин",
+      "kmFrom": 1051,
+      "kmTo": null,
+      "value": 410,
+      "unit": "cm",
+      "widthM": 20,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-39e64e7c",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "1051 км - г. Алексин                                      65 / 20        410    20",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-5f231aa4",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г. Алексин - 956 км",
+      "kmFrom": 956,
+      "kmTo": null,
+      "value": 310,
+      "unit": "cm",
+      "widthM": 30,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-5f231aa4",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г. Алексин - 956 км                                      100 / 30        310    30",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-9ed501e1",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "956 км - 886 км",
+      "kmFrom": 956,
+      "kmTo": 886,
+      "value": 260,
+      "unit": "cm",
+      "widthM": 30,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-9ed501e1",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "956 км - 886 км                                          100 / 30        260    30",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-6cbfc15f",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "886 км - н.п. Щурово",
+      "kmFrom": 886,
+      "kmTo": null,
+      "value": 340,
+      "unit": "cm",
+      "widthM": 30,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-6cbfc15f",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "886 км - н.п. Щурово                                     170 / 30        340    30",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-6e899159",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "н.п. Щурово - г/у Белоомут",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 220,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-6e899159",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "н.п. Щурово - г/у Белоомут                               220 / 60        220    60     Городецкий",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-a5582677",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г/у Белоомут - г/у Кузьминск",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 300,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-a5582677",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г/у Белоомут - г/у Кузьминск                             200 / 60        300    60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-af9ebd56",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г/у Кузьминск - г. Рязань",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 300,
+      "unit": "cm",
+      "widthM": 50,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-af9ebd56",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г/у Кузьминск - г. Рязань                                170 / 50        300    50",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-4e837d76",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "oka",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г. Рязань - п. Елатьма",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 300,
+      "unit": "cm",
+      "widthM": 50,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "oka"
+      ],
+      "rivers": [
+        "oka"
+      ],
+      "bbox": [
+        35.8,
+        54.4,
+        43.2,
+        56.6
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-4e837d76",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г. Рязань - п. Елатьма                                   170 / 50        300    50",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-2e096d6c",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "moscow_canal",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "п. Елатьма - вход в канал р. Сеймы",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal",
+        "oka"
+      ],
+      "rivers": [
+        "moscow_canal",
+        "moskva",
+        "oka"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-2e096d6c",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "п. Елатьма - вход в канал р. Сеймы                       170 / 60        400    60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-0e200bf9",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "oka",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "понтонный мост - устье (р.Ока)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 290,
+      "unit": "cm",
+      "widthM": 20,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "oka"
+      ],
+      "rivers": [
+        "oka"
+      ],
+      "bbox": [
+        35.8,
+        54.4,
+        43.2,
+        56.6
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-0e200bf9",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "понтонный мост - устье (р.Ока)                           120 / 20        290    20",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-dim-a212e227",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "dimension",
+      "signalClass": "advisory",
+      "severity": "low",
+      "river": "oka",
+      "waterBody": "moscow",
+      "basin": "moscow",
+      "segment": "г. Навашино - устье (р.Ока)",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": 400,
+      "unit": "cm",
+      "widthM": 60,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "open",
+      "confidence": 0.72,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "oka"
+      ],
+      "rivers": [
+        "oka"
+      ],
+      "bbox": [
+        35.8,
+        54.4,
+        43.2,
+        56.6
+      ],
+      "geometry": null,
+      "originalFactId": "wf-dim-a212e227",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "г. Навашино - устье (р.Ока)                              170 / 30        400    60",
+        "confidence": 0.72
+      }
+    },
+    {
+      "id": "wf-seg-ff6adb89",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Кама",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье р.Вятка — пос.Сейва",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "кама"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-ff6adb89",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Кама: устье р.Вятка → пос.Сейва (1215 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-6dc6bcf4",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Весляна",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — пос.Пельмин Бор",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "весляна"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-6dc6bcf4",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Весляна: устье (р.Кама) → пос.Пельмин Бор (70 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-52028b24",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Коса",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — пос.Кордон",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "коса"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-52028b24",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Коса: устье (р.Кама) → пос.Кордон (47 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-195753a3",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Вишера",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — г.Красновишерск",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "вишера"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-195753a3",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Вишера: устье (р.Кама) → г.Красновишерск (136 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-20aeec80",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Колва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Вишера) — дер.Петрецово",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "колва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-20aeec80",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Колва: устье (р.Вишера) → дер.Петрецово (234 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-d175a997",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Яйва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — рейд Камлесосплава",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "яйва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-d175a997",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Яйва: устье (р.Кама) → рейд Камлесосплава (15 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-2b8335af",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Иньва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — пос.Майкор",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "иньва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-2b8335af",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Иньва: устье (р.Кама) → пос.Майкор (26 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-2b93b007",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Косьва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — карьер",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "косьва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-2b93b007",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Косьва: устье (р.Кама) → карьер (35 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-754cac5f",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Обва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — автомост",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "обва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-754cac5f",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Обва: устье (р.Кама) → автомост (40 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-d8f4956b",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Чусовая",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — карьер",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "чусовая"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-d8f4956b",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Чусовая: устье (р.Кама) → карьер (140 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-173f019f",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Сылва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Чусовая) — дер.Шатово",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "сылва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-173f019f",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Сылва: устье (р.Чусовая) → дер.Шатово (88 км)",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "wf-seg-577705a9",
+      "source": "kama-dimensions",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceDate": "2022-06-01",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "segment",
+      "signalClass": "informational",
+      "severity": "low",
+      "river": "Река Нытва",
+      "waterBody": "kama",
+      "basin": "kama",
+      "segment": "устье (р.Кама) — г.Нытва",
+      "kmFrom": null,
+      "kmTo": null,
+      "value": null,
+      "unit": null,
+      "widthM": null,
+      "heightM": null,
+      "lock": null,
+      "barrier": null,
+      "navigationStatus": "unknown",
+      "confidence": 0.85,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "kama"
+      ],
+      "rivers": [
+        "kama",
+        "нытва"
+      ],
+      "bbox": [
+        48.5,
+        54.8,
+        58.5,
+        60.8
+      ],
+      "geometry": null,
+      "originalFactId": "wf-seg-577705a9",
+      "provenance": {
+        "sourceId": "kama-dimensions",
+        "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2022-06-01",
+        "originalText": "Река Нытва: устье (р.Кама) → г.Нытва (7 км)",
+        "confidence": 0.85
+      }
+    }
+  ],
+  "events": [
+    {
+      "id": "nev-closure-2415bc8a",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "navigation_event",
+      "eventType": "closure",
+      "signalClass": "advisory",
+      "severity": "high",
+      "river": "moscow_canal",
+      "waterBody": "moscow_canal",
+      "basin": "moscow",
+      "segment": "канала имени Москвы от шлюза № 7 до шлюза № 8",
+      "kmFrom": 44,
+      "kmTo": 41,
+      "value": null,
+      "unit": null,
+      "restriction": "запрещение движения судов",
+      "confidence": 0.8,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "nev-closure-2415bc8a",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "запрещение движения судов на участке канала имени Москвы от шлюза № 7 до шлюза № 8\n(44,0 км – 41,0 км)",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "nev-restrict-29b9ed3e",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "navigation_event",
+      "eventType": "restriction",
+      "signalClass": "advisory",
+      "severity": "medium",
+      "river": "volga",
+      "waterBody": "volga",
+      "basin": "volga",
+      "segment": "430-434.8 км",
+      "kmFrom": 430,
+      "kmTo": 434.8,
+      "value": null,
+      "unit": null,
+      "restriction": "ограничение движения / запрет обгона-расхождения",
+      "confidence": 0.7,
+      "validFrom": null,
+      "validTo": null,
+      "corridors": [
+        "rybinsk",
+        "upper_volga"
+      ],
+      "rivers": [
+        "volga"
+      ],
+      "bbox": [
+        37.4,
+        57.7,
+        39.6,
+        58.9
+      ],
+      "geometry": null,
+      "originalFactId": "nev-restrict-29b9ed3e",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "на участке от 430,00 км по 434,8 км 61 судового хода расхождение и обгон\nсудов и составов запрещ",
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": "nev-closure-kim-seasonal-demo",
+      "source": "kim-bulletins",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceDate": "2024-05-17",
+      "extractionDate": "2026-08-27T12:00:00Z",
+      "type": "navigation_event",
+      "eventType": "closure",
+      "signalClass": "advisory",
+      "severity": "high",
+      "river": "moscow_canal",
+      "waterBody": "moscow_canal",
+      "basin": "moscow",
+      "segment": "канала имени Москвы от шлюза № 7 до шлюза № 8 [seasonal demo window]",
+      "kmFrom": 44,
+      "kmTo": 41,
+      "value": null,
+      "unit": null,
+      "restriction": "запрещение движения судов",
+      "confidence": 0.8,
+      "validFrom": "2024-05-16",
+      "validTo": "2024-05-20",
+      "corridors": [
+        "moscow_canal"
+      ],
+      "rivers": [
+        "moscow_canal"
+      ],
+      "bbox": [
+        36.7,
+        55.55,
+        37.95,
+        56.95
+      ],
+      "geometry": null,
+      "originalFactId": "nev-closure-2415bc8a",
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "originalText": "запрещение движения судов на участке канала имени Москвы от шлюза № 7 до шлюза № 8\n(44,0 км – 41,0 км)",
+        "confidence": 0.8
+      }
+    }
+  ]
+}
