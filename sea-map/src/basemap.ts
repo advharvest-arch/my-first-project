@@ -19,6 +19,33 @@ type TileSource = {
 /** Hung tiles never fire tileerror — fail over quickly so the map stays snappy. */
 const TILE_FAIL_MS = 900;
 
+/**
+ * Optional public CARTO basemap key (Vite: VITE_CARTO_API_KEY).
+ * CARTO raster tiles now return an "API KEY REQUIRED" watermark on HTTP 200
+ * when the key is missing — that does not fire tileerror, so failover never runs.
+ * Never commit a real key; inject at build/preview via env / CI secrets.
+ */
+function cartoApiKey(): string {
+  const raw = import.meta.env.VITE_CARTO_API_KEY;
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+/** CARTO Voyager only when a key is configured — otherwise omit from the chain. */
+function cartoVoyagerSource(): TileSource | null {
+  const key = cartoApiKey();
+  if (!key) return null;
+  return {
+    url: `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(key)}`,
+    options: { subdomains: 'abcd', maxZoom: 20 },
+  };
+}
+
+function withOptionalCarto(sources: TileSource[], preferCartoFirst = true): TileSource[] {
+  const carto = cartoVoyagerSource();
+  if (!carto) return sources;
+  return preferCartoFirst ? [carto, ...sources] : [...sources, carto];
+}
+
 function offlineLandLayer(pane?: string): L.GeoJSON {
   const topology = landTopology as unknown as Topology<{ land: GeometryCollection }>;
   const land = topoFeature(topology, topology.objects.land);
@@ -130,15 +157,13 @@ function rasterLayer(sources: TileSource[], shared: L.TileLayerOptions = {}): L.
 }
 
 export function createBasemaps(): Record<BasemapId, BasemapDef> {
-  // Carto CDN first — almost always paints in tens of ms.
-  // OSM.org next for Cyrillic place names when Carto is blocked/slow.
+  // Default chain is key-free (OSM + Esri). CARTO is optional via VITE_CARTO_API_KEY:
+  // without a key CARTO serves an "API KEY REQUIRED" PNG at HTTP 200, which
+  // breaks Leaflet tileerror failover and blanks the whole map.
   // Skip OsmAnd HD: tiles are huge (~100–200 KB) and feel sluggish.
+  const hasCarto = Boolean(cartoApiKey());
   const osm = rasterLayer(
-    [
-      {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
-      },
+    withOptionalCarto([
       {
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         options: { maxZoom: 19 },
@@ -147,30 +172,34 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
         options: { maxZoom: 19 },
       },
-    ],
+    ]),
     {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      attribution: hasCarto
+        ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | Tiles &copy; Esri',
       maxZoom: 19,
     },
   );
 
   // Esri topo is far more reliable than OpenTopoMap (often overloaded).
   const topo = rasterLayer(
-    [
-      {
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-        options: { maxZoom: 19 },
-      },
-      {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
-      },
-      {
-        url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-        options: { subdomains: 'abc', maxZoom: 17 },
-      },
-    ],
+    withOptionalCarto(
+      [
+        {
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+          options: { maxZoom: 19 },
+        },
+        {
+          url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          options: { maxZoom: 19 },
+        },
+        {
+          url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+          options: { subdomains: 'abc', maxZoom: 17 },
+        },
+      ],
+      false,
+    ),
     {
       attribution:
         'Tiles &copy; Esri | &copy; OpenStreetMap | OpenTopoMap',
@@ -179,16 +208,19 @@ export function createBasemaps(): Record<BasemapId, BasemapDef> {
   );
 
   const satellite = rasterLayer(
-    [
-      {
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        options: { maxZoom: 19 },
-      },
-      {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        options: { subdomains: 'abcd', maxZoom: 20 },
-      },
-    ],
+    withOptionalCarto(
+      [
+        {
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          options: { maxZoom: 19 },
+        },
+        {
+          url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          options: { maxZoom: 19 },
+        },
+      ],
+      false,
+    ),
     {
       attribution: 'Tiles &copy; Esri | &copy; OpenStreetMap',
       maxZoom: 19,

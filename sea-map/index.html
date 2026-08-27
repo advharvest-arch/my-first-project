@@ -14,10 +14,10 @@
     <meta name="format-detection" content="telephone=no" />
     <title>AquaRoute — карта и измерения по воде</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <!-- Warm tile CDN before JS finishes parsing. -->
-    <link rel="preconnect" href="https://basemaps.cartocdn.com" crossorigin />
-    <link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com" />
+    <!-- Warm key-free tile CDNs before JS finishes parsing (CARTO needs VITE_CARTO_API_KEY). -->
+    <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin />
     <link rel="dns-prefetch" href="https://tile.openstreetmap.org" />
+    <link rel="dns-prefetch" href="https://server.arcgisonline.com" />
     <!-- Optional fonts; non-blocking so they never delay the map. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
