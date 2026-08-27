@@ -23,6 +23,7 @@ import {
   fairwayPinsNear,
   mergeCandidatePools,
   notePhaseCBrouterTrial,
+  pairClassPenalty,
   resetPhaseCBrouterTrials,
   selectPhaseCPairs,
   scoreAcceptedPhaseCRoute,
@@ -1306,11 +1307,12 @@ export function snapWaterCandidates(
         for (let j = stride; j < line.coords.length; j += stride) {
           const c = closestOnSegment(click, line.coords[j - stride]!, line.coords[j]!);
           if (c.distKm > maxKm) continue;
+          const source = line.kind === 'lake' ? ('lake' as const) : ('waterway' as const);
           const cand: WaterCandidate = {
             point: c.point,
             distKm: c.distKm,
-            source: line.kind === 'lake' ? 'lake' : 'waterway',
-            rank: candidateRank(c.distKm, click, c.point, toward),
+            source,
+            rank: candidateRank(c.distKm, click, c.point, toward, source),
           };
           if (!bestOnLine || cand.rank < bestOnLine.rank) bestOnLine = cand;
         }
@@ -3284,13 +3286,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         point: pt,
         distKm: haversineKm(a, pt),
         source: 'mask' as const,
-        rank: candidateRank(haversineKm(a, pt), a, pt, b),
+        rank: candidateRank(haversineKm(a, pt), a, pt, b, 'mask'),
       }));
       const maskB: WaterCandidate[] = pinsB.map((pt) => ({
         point: pt,
         distKm: haversineKm(b, pt),
         source: 'mask' as const,
-        rank: candidateRank(haversineKm(b, pt), b, pt, a),
+        rank: candidateRank(haversineKm(b, pt), b, pt, a, 'mask'),
       }));
       candsA = mergeCandidatePools([candsA, maskA], k);
       candsB = mergeCandidatePools([candsB, maskB], k);
@@ -3316,11 +3318,14 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         if (trial.path) {
           const geom = trial.path.routingGeometry ?? trial.path.points;
           const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
+          // hydro / barrier rejects never reach here (acceptPath filtered);
+          // classPenalty is soft fairway preference among accepted trials.
           const score = scoreAcceptedPhaseCRoute(
             reach.startKm,
             reach.finishKm,
             trial.path.lengthKm,
             geo,
+            { classPenalty: pairClassPenalty(ca, cb), hydroReject: false },
           );
           if (!best || score < best.score) best = { path: trial.path, score };
         }
@@ -3344,6 +3349,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
               reach.finishKm,
               accepted.lengthKm,
               geo,
+              { classPenalty: pairClassPenalty(ca, cb), hydroReject: false },
             );
             if (!best || score < best.score) best = { path: accepted, score };
           }

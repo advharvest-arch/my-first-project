@@ -8,11 +8,17 @@ import {
   PHASE_C_K,
   PHASE_C_MAX_PAIRS,
   PHASE_C_FAIRWAY_SEARCH_KM,
+  PHASE_C_HYDRO_REJECT_SCORE,
+  SOURCE_CLASS_PENALTY,
   candidateRank,
   diversifyCandidates,
   fairwayPinsNear,
+  nearestFairwayDistKm,
+  offFairwayStemPenalty,
+  pairClassPenalty,
   selectPhaseCPairs,
   scoreAcceptedPhaseCRoute,
+  sourceClassPenalty,
   towardAlignmentKm2,
   type WaterCandidate,
 } from '../water-candidates';
@@ -63,8 +69,10 @@ describe('Phase C — candidate helpers', () => {
     expect(towardAlignmentKm2(origin, south, toward)).toBeGreaterThan(
       towardAlignmentKm2(origin, north, toward),
     );
-    expect(candidateRank(haversineKm(origin, south), origin, south, toward)).toBeLessThan(
-      candidateRank(haversineKm(origin, north), origin, north, toward),
+    expect(
+      candidateRank(haversineKm(origin, south), origin, south, toward, 'waterway'),
+    ).toBeLessThan(
+      candidateRank(haversineKm(origin, north), origin, north, toward, 'waterway'),
     );
   });
 
@@ -137,6 +145,120 @@ describe('Phase C — candidate helpers', () => {
     const good = scoreAcceptedPhaseCRoute(0.5, 0.5, 100, 90);
     const bad = scoreAcceptedPhaseCRoute(4, 4, 200, 90);
     expect(good).toBeLessThan(bad);
+  });
+});
+
+describe('Phase D — class-weighted candidates (soft fairway preference)', () => {
+  it('class order: fairway < mask < lake < waterway < raw', () => {
+    expect(sourceClassPenalty('fairway')).toBeLessThan(sourceClassPenalty('mask'));
+    expect(sourceClassPenalty('mask')).toBeLessThan(sourceClassPenalty('lake'));
+    expect(sourceClassPenalty('lake')).toBeLessThan(sourceClassPenalty('waterway'));
+    expect(sourceClassPenalty('waterway')).toBeLessThan(sourceClassPenalty('raw'));
+    expect(SOURCE_CLASS_PENALTY.fairway).toBe(0);
+  });
+
+  it('same geometry: fairway ranks better than waterway (soft, finite)', () => {
+    const origin = p(49.05, 55.75);
+    const toward = p(49.4, 53.55);
+    const pin = p(49.0526, 55.7514); // on VOLGA_NAV_FAIRWAY near Kazan
+    const d = haversineKm(origin, pin);
+    const fair = candidateRank(d, origin, pin, toward, 'fairway');
+    const way = candidateRank(d, origin, pin, toward, 'waterway');
+    expect(fair).toBeLessThan(way);
+    expect(Number.isFinite(way)).toBe(true);
+    expect(Number.isFinite(fair)).toBe(true);
+  });
+
+  it('off-fairway waterway gets stem soft penalty; fairway/mask exempt', () => {
+    // STEM finish — northern tributary, ~30 km off Volga fairway.
+    const stemB = p(45.05, 56.35);
+    expect(nearestFairwayDistKm(stemB)).toBeGreaterThan(20);
+    expect(offFairwayStemPenalty(stemB, 'waterway')).toBeGreaterThan(1.5);
+    expect(offFairwayStemPenalty(stemB, 'fairway')).toBe(0);
+    expect(offFairwayStemPenalty(stemB, 'mask')).toBe(0);
+
+    // On-fairway Kazan pin — no stem tax for waterway either.
+    const onFw = p(49.0526, 55.7514);
+    expect(nearestFairwayDistKm(onFw)).toBeLessThan(1);
+    expect(offFairwayStemPenalty(onFw, 'waterway')).toBe(0);
+  });
+
+  it('fairway is not a hard filter: waterway remains eligible with finite rank', () => {
+    const origin = p(45.05, 56.35);
+    const toward = p(45.5, 56.2);
+    const far = p(45.05, 56.349);
+    const rank = candidateRank(0.1, origin, far, toward, 'waterway');
+    expect(Number.isFinite(rank)).toBe(true);
+    expect(rank).toBeLessThan(20);
+  });
+
+  it('selectPhaseCPairs prefers fairway×fairway over waterway×waterway', () => {
+    const a0 = p(49.0, 55.75);
+    const b0 = p(49.4, 53.55);
+    // Same pin locations — only source/class differs, so soft class must decide.
+    const pinA = p(49.05, 55.74);
+    const pinB = p(49.43, 53.5);
+    const mk = (
+      pt: LngLat,
+      source: WaterCandidate['source'],
+      origin: LngLat,
+      toward: LngLat,
+    ): WaterCandidate => {
+      const distKm = haversineKm(origin, pt);
+      return {
+        point: pt,
+        distKm,
+        source,
+        rank: candidateRank(distKm, origin, pt, toward, source),
+      };
+    };
+    const candsA = [mk(pinA, 'fairway', a0, b0), mk(pinA, 'waterway', a0, b0)];
+    const candsB = [mk(pinB, 'fairway', b0, a0), mk(pinB, 'waterway', b0, a0)];
+    const pairs = selectPhaseCPairs(candsA, candsB, a0, b0, 4);
+    expect(pairs.length).toBeGreaterThan(0);
+    expect(pairs[0]![0].source).toBe('fairway');
+    expect(pairs[0]![1].source).toBe('fairway');
+  });
+
+  it('scoreAcceptedPhaseCRoute: hydroReject → ∞; soft class prefers fairway pair', () => {
+    expect(
+      scoreAcceptedPhaseCRoute(1, 1, 100, 80, { hydroReject: true }),
+    ).toBe(PHASE_C_HYDRO_REJECT_SCORE);
+
+    const fw = scoreAcceptedPhaseCRoute(1, 1, 100, 80, {
+      classPenalty: pairClassPenalty(
+        { point: p(0, 0), distKm: 0, source: 'fairway', rank: 0 },
+        { point: p(1, 1), distKm: 0, source: 'fairway', rank: 0 },
+      ),
+    });
+    const ww = scoreAcceptedPhaseCRoute(1, 1, 100, 80, {
+      classPenalty: pairClassPenalty(
+        { point: p(0, 0), distKm: 0, source: 'waterway', rank: 0 },
+        { point: p(1, 1), distKm: 0, source: 'waterway', rank: 0 },
+      ),
+    });
+    expect(fw).toBeLessThan(ww);
+    expect(Number.isFinite(fw)).toBe(true);
+  });
+
+  it('STEM-like off-fairway finish: stem waterway worse class+stem than fairway', () => {
+    const a = p(45.5, 56.2);
+    const b = p(45.05, 56.35);
+    const fairNearB = p(45.1, 56.084); // Volga fairway south of stem
+    const stemB = p(45.05, 56.349);
+    expect(offFairwayStemPenalty(stemB, 'waterway')).toBeGreaterThan(
+      offFairwayStemPenalty(fairNearB, 'fairway'),
+    );
+    // Equal distance so class + stem tax decide (fairway soft preference).
+    const rFair = candidateRank(5, b, fairNearB, a, 'fairway');
+    const rStem = candidateRank(5, b, stemB, a, 'waterway');
+    expect(rStem).toBeGreaterThan(rFair);
+    expect(
+      pairClassPenalty(
+        { point: fairNearB, distKm: 5, source: 'fairway', rank: rFair },
+        { point: stemB, distKm: 5, source: 'waterway', rank: rStem },
+      ),
+    ).toBeGreaterThan(sourceClassPenalty('fairway') * 2);
   });
 });
 
