@@ -205,7 +205,8 @@ export function openWaterLineClear(
   return true;
 }
 
-function nearestOpenWater(p: LngLat, lake: LakeMask, maxKm = 10): LngLat | null {
+/** Nearest open-water sample on a lake mask (Phase A / Phase C mask pins). */
+export function nearestOpenWater(p: LngLat, lake: LakeMask, maxKm = 10): LngLat | null {
   if (pointInOpenWater(p, lake)) return { ...p };
   const stepKm = 0.4;
   const rings = Math.ceil(maxKm / stepKm);
@@ -866,6 +867,47 @@ export async function straightenOpenWaterSpans(
     result = replaceSpansOnMask(result, lake, body.catalog.b);
   }
   return result;
+}
+
+/**
+ * Phase C mask pins: nearest open water at the click, plus samples stepped
+ * toward `toward` (destination-biased), without leaving the water mask.
+ */
+export async function openLakePinsToward(
+  p: LngLat,
+  toward: LngLat,
+  maxKm: number,
+  k: number,
+): Promise<LngLat[]> {
+  const shared = findSharedOpenLake([p, toward]);
+  if (!shared) return [];
+  const lake = await fetchLakeMask(shared.name, shared.osmId);
+  if (!lake) return [];
+
+  const out: LngLat[] = [];
+  const near = nearestOpenWater(p, lake, maxKm);
+  if (near) out.push(near);
+
+  const geo = haversineKm(p, toward);
+  if (geo < 0.2) return out.slice(0, k);
+
+  const steps = Math.min(8, Math.max(3, k * 2));
+  for (let i = 1; i <= steps; i++) {
+    const t = Math.min(0.85, (i / steps) * Math.min(1, maxKm / Math.max(geo, 0.1)));
+    const sample = {
+      lon: p.lon + (toward.lon - p.lon) * t,
+      lat: p.lat + (toward.lat - p.lat) * t,
+    };
+    const pin = pointInOpenWater(sample, lake)
+      ? sample
+      : nearestOpenWater(sample, lake, Math.min(4, maxKm));
+    if (!pin) continue;
+    if (haversineKm(p, pin) > maxKm) continue;
+    if (out.some((q) => haversineKm(q, pin) < 0.9)) continue;
+    out.push(pin);
+    if (out.length >= k) break;
+  }
+  return out.slice(0, k);
 }
 
 /**

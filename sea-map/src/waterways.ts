@@ -1,22 +1,46 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
-import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath } from './open-lake';
+import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath, openLakePinsToward } from './open-lake';
 import { dualGeometry } from './route-geometry';
 import { validateWaterRoute } from './validate-water-route';
 import {
   endpointReachToOriginals,
   maxSnapKmForMethod,
   maxWaterSnapKm,
+  maxOpenWaterSnapKm,
   chooseBrouterWaterMethod,
   endpointSnapKmForAccept,
+  MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM,
+  MAX_SHARED_LAKE_BROUTER_KM,
 } from './water-snap';
+import {
+  PHASE_C_K,
+  PHASE_C_MAX_PAIRS,
+  PHASE_C_FAIRWAY_SEARCH_KM,
+  type WaterCandidate,
+  candidateRank,
+  diversifyCandidates,
+  fairwayPinsNear,
+  mergeCandidatePools,
+  notePhaseCBrouterTrial,
+  resetPhaseCBrouterTrials,
+  selectPhaseCPairs,
+  scoreAcceptedPhaseCRoute,
+} from './water-candidates';
 import {
   ensureGvrIndex,
   officialGvrName,
   rememberGvrPair,
   resolveWaterName,
 } from './gvr';
+import { endpointsStraddleRybinskBarrier } from './routing-rules';
 import waterBodies from './water-bodies.json';
+
+export {
+  getPhaseCBrouterTrials,
+  resetPhaseCBrouterTrials,
+  type WaterCandidate,
+} from './water-candidates';
 
 export type ItinerarySegment = {
   name: string;
@@ -1247,6 +1271,65 @@ export function snapClickToWater(
   if (bestWay && bestWay.distKm <= Math.min(maxKm, 0.9)) return bestWay;
   if (bestLake && (!bestWay || bestLake.distKm + 0.12 < bestWay.distKm)) return bestLake;
   return bestWay ?? bestLake;
+}
+
+/**
+ * Phase C: collect up to `k` endpoint candidates (waterway / lake / fairway),
+ * ranked with optional destination bias. Not nearest-only.
+ *
+ * `maxKm` is the candidate *search* radius (typically open-water 10 km for
+ * Phase C). Acceptance ceilings remain endpointSnapKmForAccept (3 / 5.5 / 10).
+ */
+export function snapWaterCandidates(
+  click: LngLat,
+  maxKm: number,
+  k: number = PHASE_C_K,
+  toward?: LngLat | null,
+): WaterCandidate[] {
+  const { cx, cy } = pointCell(click);
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      void loadCell(cx + dx, cy + dy);
+    }
+  }
+
+  const wayHits: WaterCandidate[] = [];
+  const lakeHits: WaterCandidate[] = [];
+  const seen = new Set<string>();
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (const line of cellCache.get(cellKey(cx + dx, cy + dy)) ?? []) {
+        if (seen.has(line.id) || line.coords.length < 2) continue;
+        seen.add(line.id);
+        const stride = Math.max(1, Math.floor(line.coords.length / 80));
+        let bestOnLine: WaterCandidate | null = null;
+        for (let j = stride; j < line.coords.length; j += stride) {
+          const c = closestOnSegment(click, line.coords[j - stride]!, line.coords[j]!);
+          if (c.distKm > maxKm) continue;
+          const cand: WaterCandidate = {
+            point: c.point,
+            distKm: c.distKm,
+            source: line.kind === 'lake' ? 'lake' : 'waterway',
+            rank: candidateRank(c.distKm, click, c.point, toward),
+          };
+          if (!bestOnLine || cand.rank < bestOnLine.rank) bestOnLine = cand;
+        }
+        if (!bestOnLine) continue;
+        if (bestOnLine.source === 'lake') lakeHits.push(bestOnLine);
+        else wayHits.push(bestOnLine);
+      }
+    }
+  }
+
+  wayHits.sort((a, b) => a.rank - b.rank || a.distKm - b.distKm);
+  lakeHits.sort((a, b) => a.rank - b.rank || a.distKm - b.distKm);
+
+  const fairway = fairwayPinsNear(click, maxKm, toward, k);
+  const merged = mergeCandidatePools(
+    [diversifyCandidates(wayHits, k, 0.85), diversifyCandidates(lakeHits, k, 0.85), fairway],
+    Math.max(k, PHASE_C_K),
+  );
+  return merged.slice(0, Math.max(1, Math.min(5, k)));
 }
 
 function uniqueWaterName(...parts: Array<string | null | undefined>): string | null {
@@ -3060,6 +3143,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     };
   }
 
+  resetPhaseCBrouterTrials();
   await ensureCoreWaterways();
 
   /** Original user coordinates — endpoint reach is always measured against these. */
@@ -3086,11 +3170,15 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       enrich?: boolean;
       /** Phase A: mask-verified open-water track — skip dry-land chord heuristics. */
       openWaterVerified?: boolean;
+      /** Optional residual override (Phase C long shared-lake only). */
+      endpointSnapKm?: number;
     },
   ): Promise<WaterPath | null> => {
     // Phase A verified open-lake → full 10 km reach.
     // Phase B shared-bbox BRouter → 5.5 km stem-miss ceiling (not full open snap).
-    const snapKm = endpointSnapKmForAccept(extras.method, Boolean(extras.openWaterVerified));
+    const snapKm =
+      extras.endpointSnapKm ??
+      endpointSnapKmForAccept(extras.method, Boolean(extras.openWaterVerified));
     // Hard gate: routing ends must reach the *original* START/FINISH.
     const reach = endpointReachToOriginals(routing, originalWaypoints, snapKm);
     if (!reach.ok) return null;
@@ -3128,6 +3216,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   const tryBrouterChain = async (
     routeWaypoints: LngLat[],
     method: 'waterway' | 'lake' = 'waterway',
+    endpointSnapKm?: number,
   ): Promise<{ path: WaterPath | null; hadGeometry: boolean }> => {
     const brouted = await routeWithBrouterAdaptive(routeWaypoints);
     if (!brouted || brouted.points.length < 2 || brouted.lengthKm <= 0) {
@@ -3152,8 +3241,117 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       waterName: named,
       method,
       enrich: false,
+      endpointSnapKm,
     });
     return { path, hadGeometry: true };
+  };
+
+  /**
+   * Phase C: destination-biased multi-candidate A×B trials (budget ≤ 3×3).
+   * Acceptance ceilings unchanged for Phase A/B paths.
+   * Long shared-lake hops (geo > Phase B 150 km cap, e.g. L07) may use a
+   * Phase-C-only residual up to fairway search radius so inland shore clicks
+   * can bind to fairway pins — Vetluga-class short stems keep 5.5 km.
+   */
+  const tryPhaseCMultiCandidate = async (
+    method: 'waterway' | 'lake',
+    allowOpenLake: boolean,
+  ): Promise<WaterPath | null> => {
+    if (originalWaypoints.length !== 2) return null;
+    const a = originalWaypoints[0]!;
+    const b = originalWaypoints[1]!;
+    // Do not invent open-lake chords across the Rybinsk dam (DAM regression).
+    if (endpointsStraddleRybinskBarrier(a, b)) return null;
+
+    const searchKm = maxOpenWaterSnapKm();
+    const k = PHASE_C_K;
+    const geo = haversineKm(a, b);
+    const phaseCMethod: 'waterway' | 'lake' = allowOpenLake ? 'lake' : method;
+    const longSharedLake = allowOpenLake && geo > MAX_SHARED_LAKE_BROUTER_KM;
+    const phaseCSnapKm = longSharedLake
+      ? Math.min(PHASE_C_FAIRWAY_SEARCH_KM, 12)
+      : endpointSnapKmForAccept(phaseCMethod, false);
+
+    let candsA = snapWaterCandidates(a, searchKm, k, b);
+    let candsB = snapWaterCandidates(b, searchKm, k, a);
+
+    if (allowOpenLake) {
+      const [pinsA, pinsB] = await Promise.all([
+        openLakePinsToward(a, b, searchKm, k),
+        openLakePinsToward(b, a, searchKm, k),
+      ]);
+      const maskA: WaterCandidate[] = pinsA.map((pt) => ({
+        point: pt,
+        distKm: haversineKm(a, pt),
+        source: 'mask' as const,
+        rank: candidateRank(haversineKm(a, pt), a, pt, b),
+      }));
+      const maskB: WaterCandidate[] = pinsB.map((pt) => ({
+        point: pt,
+        distKm: haversineKm(b, pt),
+        source: 'mask' as const,
+        rank: candidateRank(haversineKm(b, pt), b, pt, a),
+      }));
+      candsA = mergeCandidatePools([candsA, maskA], k);
+      candsB = mergeCandidatePools([candsB, maskB], k);
+    }
+
+    if (!candsA.length || !candsB.length) return null;
+
+    const pairs = selectPhaseCPairs(candsA, candsB, a, b, PHASE_C_MAX_PAIRS);
+    if (!pairs.length) return null;
+
+    let best: { path: WaterPath; score: number } | null = null;
+    let brouterLeft = PHASE_C_MAX_PAIRS;
+
+    for (const [ca, cb] of pairs) {
+      if (brouterLeft > 0) {
+        notePhaseCBrouterTrial();
+        brouterLeft -= 1;
+        const trial = await tryBrouterChain(
+          [ca.point, cb.point],
+          phaseCMethod,
+          phaseCSnapKm,
+        );
+        if (trial.path) {
+          const geom = trial.path.routingGeometry ?? trial.path.points;
+          const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
+          const score = scoreAcceptedPhaseCRoute(
+            reach.startKm,
+            reach.finishKm,
+            trial.path.lengthKm,
+            geo,
+          );
+          if (!best || score < best.score) best = { path: trial.path, score };
+        }
+      }
+
+      if (allowOpenLake && !longSharedLake) {
+        const open = await routeAcrossOpenLake([ca.point, cb.point]);
+        if (open && open.points.length >= 2 && open.lengthKm > 0) {
+          const densified = densifyOpenWaterPath(open.points, 1.5);
+          const accepted = await acceptPath(densified, densified, open.lengthKm, {
+            waterName: open.waterName,
+            method: 'lake',
+            openWaterVerified: true,
+            endpointSnapKm: MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM,
+          });
+          if (accepted) {
+            const geom = accepted.routingGeometry ?? accepted.points;
+            const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
+            const score = scoreAcceptedPhaseCRoute(
+              reach.startKm,
+              reach.finishKm,
+              accepted.lengthKm,
+              geo,
+            );
+            if (!best || score < best.score) best = { path: accepted, score };
+          }
+        }
+      }
+    }
+
+    return best?.path ?? null;
   };
 
   const routeOnCachedLines = async (lines: WaterLine[]): Promise<WaterPath | null> => {
@@ -3223,6 +3421,14 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     if (snapped) {
       const second = await tryBrouterChain(snapped, brouterMethod);
       if (second.path) return second.path;
+    }
+
+    // 2b) Phase C — multi-candidate endpoint binding (max 3×3 BRouter trials).
+    // Runs before the stem-miss early exit so L07-class wrong stems can recover,
+    // and before Overpass so L02 mid-pool can try fairway/mask pins.
+    if (originalWaypoints.length === 2) {
+      const phaseC = await tryPhaseCMultiCandidate(brouterMethod, Boolean(sharedLake));
+      if (phaseC) return phaseC;
     }
 
     // BRouter produced a water track that does not reach the original START/FINISH
