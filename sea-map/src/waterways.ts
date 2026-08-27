@@ -1,6 +1,6 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
-import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath, openLakePinsToward } from './open-lake';
+import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath, openLakePinsToward, isLakeMaskComplete } from './open-lake';
 import { dualGeometry } from './route-geometry';
 import { validateWaterRoute } from './validate-water-route';
 import { evaluateHydroAcceptGate } from './hydro-gate';
@@ -60,6 +60,7 @@ import {
   LONG_SPAN_TRIGGER_KM,
   runLongSpanSegmentedRoute,
 } from './long-span-segment';
+import { runWaterGraphShadow, type CenterlineSource } from './water-graph';
 import { mapPool } from './parallel-candidates';
 
 import {
@@ -3289,6 +3290,97 @@ async function measureWaterChainInner(
 
   const emitDone = (path: WaterPath, rejectReason?: string | null): WaterPath => {
     attachKnowledge(path);
+    // E2.0 — WaterGraph shadow (diagnostic only; never changes returned path).
+    if (getRouteFeatureFlags().USE_WATER_GRAPH) {
+      try {
+        const centerlines: CenterlineSource[] = [];
+        const geom =
+          path.routingGeometry && path.routingGeometry.length >= 2
+            ? path.routingGeometry
+            : path.points;
+        if (geom.length >= 2 && path.method !== 'route_not_found') {
+          centerlines.push({
+            id: 'legacy-route',
+            kind: 'brouter',
+            coords: geom,
+            waterId: 'cl:legacy',
+            source: 'legacy-measureWaterChain',
+            sourceId: path.method,
+          });
+        }
+        const shared = findSharedOpenLake(originalWaypoints);
+        const lake = shared ? cachedLakeMaskAlongPath(originalWaypoints) : null;
+        const shadow = runWaterGraphShadow({
+          a: originalWaypoints[0]!,
+          b: originalWaypoints[originalWaypoints.length - 1]!,
+          legacyLengthKm: path.lengthKm,
+          legacyOk: path.method !== 'route_not_found' && path.points.length >= 2,
+          candidates: trace.candidates.map((c) => ({
+            endpoint: c.endpoint,
+            point: { lon: c.point.lon, lat: c.point.lat },
+            source: c.source,
+            distKm: c.distKm,
+            classPenalty: c.classPenalty,
+            stemPenalty: c.stemPenalty,
+            rank: c.rank,
+          })),
+          centerlines,
+          lake,
+          lakeComplete: lake ? isLakeMaskComplete(lake) : false,
+        });
+        const comps = shadow.components;
+        const timing = shadow.timing;
+        trace.graph = {
+          ...trace.graph,
+          hybridAvailable: true,
+          built: shadow.built,
+          nodeCount: shadow.nodeCount,
+          edgeCount: shadow.edgeCount,
+          layers: shadow.layers,
+          componentCount: comps?.connectedComponents,
+          largestComponentKm: comps?.largestComponentKm,
+          isolatedNodes: comps?.isolatedNodes,
+          deadEnds: comps?.deadEnds,
+          portalCount: comps?.portalCount,
+          lockCount: comps?.lockCount,
+          maskNodeCount: comps?.maskNodeCount,
+          waterwayNodeCount: comps?.waterwayNodeCount,
+          graphBuildMs: shadow.buildMs,
+          centerlineMs: timing?.centerlineMs,
+          maskMs: timing?.maskMs,
+          seamMs: timing?.seamMs,
+          fairwayMs: timing?.fairwayMs,
+          searchMs: shadow.searchMs,
+          buildMs: shadow.buildMs,
+          totalGraphMs: shadow.buildMs + shadow.searchMs,
+          pathFound: shadow.pathFound,
+          pathLengthKm: shadow.pathLengthKm,
+          pathCost: shadow.pathCost,
+          edgeKinds: shadow.edgeKinds,
+          rejectReason: shadow.rejectReason,
+          failureStage: shadow.failureStage,
+          terminalA: shadow.terminalA
+            ? {
+                source: shadow.terminalA.source,
+                distKm: shadow.terminalA.distKm,
+                nodeId: shadow.terminalA.nodeId,
+              }
+            : null,
+          terminalB: shadow.terminalB
+            ? {
+                source: shadow.terminalB.source,
+                distKm: shadow.terminalB.distKm,
+                nodeId: shadow.terminalB.nodeId,
+              }
+            : null,
+          expandedNodes: shadow.expandedNodes,
+          legacyCompare: shadow.legacyCompare,
+          note: 'E2.0 WaterGraph shadow — production result remains legacy',
+        };
+      } catch {
+        // Shadow failures must never affect routing.
+      }
+    }
     if (path.method === 'route_not_found' || path.points.length < 2) {
       trace.finish({
         ok: false,

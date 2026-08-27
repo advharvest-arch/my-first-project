@@ -73,14 +73,58 @@ export type RouteTraceBrouterAttempt = {
 };
 
 /**
- * Hybrid graph placeholder — E0 records legacy Overpass usage only.
- * Full layer stats arrive with WaterGraph (E2+).
+ * Hybrid graph diagnostics — E0 stub; E2.0 fills shadow WaterGraph fields.
+ * `hybridAvailable` is boolean (was literal false in E0).
  */
 export type RouteTraceGraphInfo = {
-  hybridAvailable: false;
+  hybridAvailable: boolean;
   legacyOverpassUsed: boolean;
   legacySource?: 'cache' | 'fetch' | null;
   note: string;
+  /** E2.0 shadow */
+  built?: boolean;
+  nodeCount?: number;
+  edgeCount?: number;
+  layers?: {
+    centerline: boolean;
+    mask: boolean;
+    fairway: boolean;
+    lock: boolean;
+  };
+  componentCount?: number;
+  largestComponentKm?: number;
+  isolatedNodes?: number;
+  deadEnds?: number;
+  portalCount?: number;
+  lockCount?: number;
+  maskNodeCount?: number;
+  waterwayNodeCount?: number;
+  graphBuildMs?: number;
+  centerlineMs?: number;
+  maskMs?: number;
+  seamMs?: number;
+  fairwayMs?: number;
+  searchMs?: number;
+  buildMs?: number;
+  totalGraphMs?: number;
+  pathFound?: boolean;
+  pathLengthKm?: number;
+  pathCost?: number;
+  edgeKinds?: string[];
+  rejectReason?: string | null;
+  failureStage?: string | null;
+  terminalA?: { source: string; distKm: number; nodeId: string } | null;
+  terminalB?: { source: string; distKm: number; nodeId: string } | null;
+  expandedNodes?: number;
+  legacyCompare?: {
+    legacyLengthKm: number;
+    graphLengthKm: number;
+    deltaKm: number;
+    deltaPct: number;
+    agree: boolean;
+    graphBetter: boolean;
+    graphRejected: boolean;
+  };
 };
 
 export type RouteTraceHydro = {
@@ -446,7 +490,7 @@ const DEFAULT_GRAPH: RouteTraceGraphInfo = {
   hybridAvailable: false,
   legacyOverpassUsed: false,
   legacySource: null,
-  note: 'E0: hybrid WaterGraph not built; Overpass local graph is legacy fallback only',
+  note: 'E2.0: WaterGraph shadow available behind USE_WATER_GRAPH; production uses legacy',
 };
 
 export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuilder {
