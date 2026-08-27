@@ -113,7 +113,13 @@ export type RouteTrace = {
     a: RouteTraceLngLat;
     b: RouteTraceLngLat;
     waypointCount: number;
+    /** Haversine / route-span km between endpoints (diagnostic). */
     geoKm: number;
+    /**
+     * True when geoKm > 120 and Overpass fallback is skipped by design.
+     * Observability only — does not change routing.
+     */
+    longSpanOverpassSkip?: boolean;
   };
   candidates: RouteTraceCandidate[];
   chosenCandidate: RouteTraceChosenPair | null;

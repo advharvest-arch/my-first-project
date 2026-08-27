@@ -3749,6 +3749,15 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   // Long inland trips only work via BRouter. Overpass cell crawl cannot connect
   // Seliger→Vokhma and only hangs the UI for minutes before returning empty.
   if (routeSpanKm(originalWaypoints) > 120) {
+    // Observability only — records why Overpass fallback was skipped (no threshold change).
+    trace.request.longSpanOverpassSkip = true;
+    trace.phases.overpass = {
+      attempted: false,
+      ok: false,
+      phase: 'overpass_fetch',
+      rejectReason: 'span_gt_120',
+    };
+    trace.lastRejectReason = 'span_gt_120';
     return emitDone(routeNotFound(), 'span_gt_120');
   }
 
