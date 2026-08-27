@@ -42,6 +42,21 @@ import {
   getWaterKnowledgeForRoute,
   toRouteTraceKnowledge,
 } from './water-knowledge';
+import { getRouteFeatureFlags } from './route-feature-flags';
+import { shouldEarlyStopPhaseC } from './phase-c-early-stop';
+import {
+  beginProviderRequestScope,
+  endProviderRequestScope,
+} from './provider-cache';
+import {
+  addPerfMs,
+  createRoutePerfCounters,
+  getRoutePerf,
+  nowPerfMs,
+  setRoutePerf,
+  timeSync,
+} from './route-perf-context';
+
 import {
   ensureGvrIndex,
   officialGvrName,
@@ -167,36 +182,43 @@ async function fetchOneOverpass(endpoint: string, body: string, ms: number): Pro
  */
 async function overpassQuery(query: string): Promise<OverpassElement[]> {
   const body = `data=${encodeURIComponent(query)}`;
-  return await new Promise<OverpassElement[]>((resolve, reject) => {
-    let pending = OVERPASS_ENDPOINTS.length;
-    let empty: OverpassElement[] | null = null;
-    let done = false;
-    const errors: unknown[] = [];
+  const t0 = nowPerfMs();
+  const perf = getRoutePerf();
+  if (perf) perf.overpassCalls += 1;
+  try {
+    return await new Promise<OverpassElement[]>((resolve, reject) => {
+      let pending = OVERPASS_ENDPOINTS.length;
+      let empty: OverpassElement[] | null = null;
+      let done = false;
+      const errors: unknown[] = [];
 
-    for (const endpoint of OVERPASS_ENDPOINTS) {
-      fetchOneOverpass(endpoint, body, 16000)
-        .then((els) => {
-          if (done) return;
-          if (els.length > 0) {
-            done = true;
-            resolve(els);
-            return;
-          }
-          empty = els;
-          pending -= 1;
-          if (pending === 0) resolve(empty ?? []);
-        })
-        .catch((err) => {
-          if (done) return;
-          errors.push(err);
-          pending -= 1;
-          if (pending === 0) {
-            if (empty) resolve(empty);
-            else reject(errors[errors.length - 1] ?? new Error('Overpass failed'));
-          }
-        });
-    }
-  });
+      for (const endpoint of OVERPASS_ENDPOINTS) {
+        fetchOneOverpass(endpoint, body, 16000)
+          .then((els) => {
+            if (done) return;
+            if (els.length > 0) {
+              done = true;
+              resolve(els);
+              return;
+            }
+            empty = els;
+            pending -= 1;
+            if (pending === 0) resolve(empty ?? []);
+          })
+          .catch((err) => {
+            if (done) return;
+            errors.push(err);
+            pending -= 1;
+            if (pending === 0) {
+              if (empty) resolve(empty);
+              else reject(errors[errors.length - 1] ?? new Error('Overpass failed'));
+            }
+          });
+      }
+    });
+  } finally {
+    addPerfMs('overpassMs', nowPerfMs() - t0);
+  }
 }
 
 function isWaterArea(tags: Record<string, string> | undefined): boolean {
@@ -1141,10 +1163,18 @@ function mergeLines(groups: WaterLine[][]): WaterLine[] {
 async function loadCell(cx: number, cy: number): Promise<WaterLine[]> {
   const id = cellKey(cx, cy);
   const hit = cellCache.get(id);
-  if (hit?.length) return hit;
+  if (hit?.length) {
+    const perf = getRoutePerf();
+    if (perf) perf.overpassCacheHits += 1;
+    return hit;
+  }
 
   const emptyUntil = emptyCellUntil.get(id) ?? 0;
-  if (emptyUntil > Date.now()) return [];
+  if (emptyUntil > Date.now()) {
+    const perf = getRoutePerf();
+    if (perf) perf.overpassCacheHits += 1;
+    return [];
+  }
 
   const inflight = cellInflight.get(id);
   if (inflight) return inflight;
@@ -3156,8 +3186,24 @@ export async function routeAlongWater(origin: LngLat, destination: LngLat): Prom
 }
 
 export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath> {
+  const perf = createRoutePerfCounters();
+  setRoutePerf(perf);
+  beginProviderRequestScope();
+  try {
+    return await measureWaterChainInner(waypoints, perf);
+  } finally {
+    endProviderRequestScope();
+    setRoutePerf(null);
+  }
+}
+
+async function measureWaterChainInner(
+  waypoints: LngLat[],
+  perf: ReturnType<typeof createRoutePerfCounters>,
+): Promise<WaterPath> {
   if (waypoints.length < 2) {
     const trace = beginRouteTrace(waypoints, 0);
+    trace.perf = perf;
     const empty: WaterPath = {
       points: waypoints.slice(),
       lengthKm: 0,
@@ -3188,6 +3234,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       ? haversineKm(originalWaypoints[0]!, originalWaypoints[1]!)
       : routeSpanKm(originalWaypoints);
   const trace: RouteTraceBuilder = beginRouteTrace(originalWaypoints, geoSpanKm0);
+  trace.perf = perf;
 
   /** Water mode must never present a geodesic START→FINISH chord as success. */
   const routeNotFound = (): WaterPath => ({
@@ -3202,6 +3249,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   const attachKnowledge = (path: WaterPath): void => {
     // E2 advisory only — never changes accept/reject / ranking / thresholds.
+    const t0 = nowPerfMs();
     try {
       const routePts =
         path.routingGeometry && path.routingGeometry.length >= 2
@@ -3218,6 +3266,8 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       if (wk.factsMatched > 0) trace.knowledge = toRouteTraceKnowledge(wk);
     } catch {
       // Knowledge failures must never affect routing.
+    } finally {
+      addPerfMs('knowledgeMs', nowPerfMs() - t0);
     }
   };
 
@@ -3278,20 +3328,25 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       return null;
     }
 
-    const validation = validateWaterRoute(routing, {
-      waypoints: originalWaypoints,
-      lengthKm: trackLengthKm > 0 ? trackLengthKm : pathLength(routing),
-      method: extras.method,
-      endpointSnapKm: snapKm,
-      openWaterVerified: extras.openWaterVerified,
-    });
+    const validation = timeSync('validationMs', () =>
+      validateWaterRoute(routing, {
+        waypoints: originalWaypoints,
+        lengthKm: trackLengthKm > 0 ? trackLengthKm : pathLength(routing),
+        method: extras.method,
+        endpointSnapKm: snapKm,
+        openWaterVerified: extras.openWaterVerified,
+      }),
+    );
     // Trace copy of validator / hydro — does not alter accept.
     trace.validator = { ok: validation.ok, issues: validation.issues.slice() };
     if (routing.length >= 2) {
+      const tH = nowPerfMs();
       try {
         trace.hydro = hydroToTrace(evaluateHydroAcceptGate(routing));
       } catch {
         /* ignore */
+      } finally {
+        addPerfMs('hydroMs', nowPerfMs() - tH);
       }
     }
     if (!validation.ok) {
@@ -3415,14 +3470,19 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       ? Math.min(PHASE_C_FAIRWAY_SEARCH_KM, 12)
       : endpointSnapKmForAccept(phaseCMethod, false);
 
+    const tCand = nowPerfMs();
     let candsA = snapWaterCandidates(a, searchKm, k, b);
     let candsB = snapWaterCandidates(b, searchKm, k, a);
 
     if (allowOpenLake) {
+      const tPins = nowPerfMs();
       const [pinsA, pinsB] = await Promise.all([
         openLakePinsToward(a, b, searchKm, k),
         openLakePinsToward(b, a, searchKm, k),
       ]);
+      addPerfMs('openLakeMs', nowPerfMs() - tPins);
+      const perfPins = getRoutePerf();
+      if (perfPins) perfPins.openLakeOps += 2;
       const maskA: WaterCandidate[] = pinsA.map((pt) => ({
         point: pt,
         distKm: haversineKm(a, pt),
@@ -3437,6 +3497,12 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       }));
       candsA = mergeCandidatePools([candsA, maskA], k);
       candsB = mergeCandidatePools([candsB, maskB], k);
+    }
+    addPerfMs('candidatesMs', nowPerfMs() - tCand);
+    addPerfMs('bindMs', nowPerfMs() - tCand);
+    {
+      const perfC = getRoutePerf();
+      if (perfC) perfC.candidateCount += candsA.length + candsB.length;
     }
 
     // E0: record candidate pool (side-effect only).
@@ -3482,6 +3548,10 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       };
       return null;
     }
+    {
+      const perfP = getRoutePerf();
+      if (perfP) perfP.pairCount += pairs.length;
+    }
 
     let best: {
       path: WaterPath;
@@ -3492,12 +3562,17 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     } | null = null;
     let brouterLeft = PHASE_C_MAX_PAIRS;
     let pairsTried = 0;
+    const earlyStopEnabled = getRouteFeatureFlags().USE_ROUTE_EARLY_STOP;
 
     for (const [ca, cb] of pairs) {
       pairsTried += 1;
       if (brouterLeft > 0) {
         notePhaseCBrouterTrial();
         brouterLeft -= 1;
+        {
+          const perfT = getRoutePerf();
+          if (perfT) perfT.trialCount += 1;
+        }
         const trial = await tryBrouterChain(
           [ca.point, cb.point],
           phaseCMethod,
@@ -3509,21 +3584,42 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
           const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
           // hydro / barrier rejects never reach here (acceptPath filtered);
           // classPenalty is soft fairway preference among accepted trials.
+          const classPen = pairClassPenalty(ca, cb);
           const score = scoreAcceptedPhaseCRoute(
             reach.startKm,
             reach.finishKm,
             trial.path.lengthKm,
             geo,
-            { classPenalty: pairClassPenalty(ca, cb), hydroReject: false },
+            { classPenalty: classPen, hydroReject: false },
           );
           if (!best || score < best.score) {
             best = { path: trial.path, score, ca, cb, via: 'brouter' };
+          }
+          if (
+            shouldEarlyStopPhaseC({
+              enabled: earlyStopEnabled,
+              score,
+              startResidualKm: reach.startKm,
+              finishResidualKm: reach.finishKm,
+              lengthKm: trial.path.lengthKm,
+              geoKm: geo,
+              classPenalty: classPen,
+              hydroReject: false,
+            })
+          ) {
+            const perfE = getRoutePerf();
+            if (perfE) perfE.earlyStopTriggered = true;
+            break;
           }
         }
       }
 
       if (allowOpenLake && !longSharedLake) {
+        const tLake = nowPerfMs();
         const open = await routeAcrossOpenLake([ca.point, cb.point]);
+        addPerfMs('openLakeMs', nowPerfMs() - tLake);
+        const perfLake = getRoutePerf();
+        if (perfLake) perfLake.openLakeOps += 1;
         if (open && open.points.length >= 2 && open.lengthKm > 0) {
           const densified = densifyOpenWaterPath(open.points, 1.5);
           const accepted = await acceptPath(densified, densified, open.lengthKm, {
@@ -3535,15 +3631,32 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
           if (accepted) {
             const geom = accepted.routingGeometry ?? accepted.points;
             const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
+            const classPen = pairClassPenalty(ca, cb);
             const score = scoreAcceptedPhaseCRoute(
               reach.startKm,
               reach.finishKm,
               accepted.lengthKm,
               geo,
-              { classPenalty: pairClassPenalty(ca, cb), hydroReject: false },
+              { classPenalty: classPen, hydroReject: false },
             );
             if (!best || score < best.score) {
               best = { path: accepted, score, ca, cb, via: 'open_lake' };
+            }
+            if (
+              shouldEarlyStopPhaseC({
+                enabled: earlyStopEnabled,
+                score,
+                startResidualKm: reach.startKm,
+                finishResidualKm: reach.finishKm,
+                lengthKm: accepted.lengthKm,
+                geoKm: geo,
+                classPenalty: classPen,
+                hydroReject: false,
+              })
+            ) {
+              const perfE = getRoutePerf();
+              if (perfE) perfE.earlyStopTriggered = true;
+              break;
             }
           }
         }
@@ -3624,57 +3737,66 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   // residual ceiling — not full 10 km open snap), so stem-miss inside a giant
   // reservoir catalog bbox (Volga→Vetluga) still fails.
   const sharedLake = findSharedOpenLake(originalWaypoints);
-  if (sharedLake) {
-    const open = await routeAcrossOpenLake(originalWaypoints);
-    if (open && open.points.length >= 2 && open.lengthKm > 0) {
-      // Phase A: densify clear chords so gap heuristics (and UI) see continuous water,
-      // and mark the track as mask-verified so dry-land geodesic rejects do not apply.
-      // Hydro-gate / KNOWN_BARRIERS still run inside validateWaterRoute.
-      const densified = densifyOpenWaterPath(open.points, 1.5);
-      const accepted = await acceptPath(densified, densified, open.lengthKm, {
-        waterName: open.waterName,
-        method: 'lake',
-        openWaterVerified: true,
-      });
-      if (accepted) {
+  {
+    const tA = nowPerfMs();
+    if (sharedLake) {
+      const tLake = nowPerfMs();
+      const open = await routeAcrossOpenLake(originalWaypoints);
+      addPerfMs('openLakeMs', nowPerfMs() - tLake);
+      const perfLake = getRoutePerf();
+      if (perfLake) perfLake.openLakeOps += 1;
+      if (open && open.points.length >= 2 && open.lengthKm > 0) {
+        // Phase A: densify clear chords so gap heuristics (and UI) see continuous water,
+        // and mark the track as mask-verified so dry-land geodesic rejects do not apply.
+        // Hydro-gate / KNOWN_BARRIERS still run inside validateWaterRoute.
+        const densified = densifyOpenWaterPath(open.points, 1.5);
+        const accepted = await acceptPath(densified, densified, open.lengthKm, {
+          waterName: open.waterName,
+          method: 'lake',
+          openWaterVerified: true,
+        });
+        if (accepted) {
+          trace.phases.A = {
+            attempted: true,
+            ok: true,
+            phase: 'A',
+            lengthKm: accepted.lengthKm,
+            method: 'lake',
+            openWaterVerified: true,
+            sharedLake: sharedLake.name,
+          };
+          addPerfMs('phaseAMs', nowPerfMs() - tA);
+          return emitDone(accepted);
+        }
         trace.phases.A = {
           attempted: true,
-          ok: true,
+          ok: false,
           phase: 'A',
-          lengthKm: accepted.lengthKm,
           method: 'lake',
           openWaterVerified: true,
           sharedLake: sharedLake.name,
+          rejectReason: trace.lastRejectReason ?? 'phase_a_reject',
         };
-        return emitDone(accepted);
+      } else {
+        trace.phases.A = {
+          attempted: true,
+          ok: false,
+          phase: 'A',
+          sharedLake: sharedLake.name,
+          rejectReason: 'open_lake_fail',
+        };
+        if (!trace.lastRejectReason) trace.lastRejectReason = 'open_lake_fail';
       }
-      trace.phases.A = {
-        attempted: true,
-        ok: false,
-        phase: 'A',
-        method: 'lake',
-        openWaterVerified: true,
-        sharedLake: sharedLake.name,
-        rejectReason: trace.lastRejectReason ?? 'phase_a_reject',
-      };
     } else {
       trace.phases.A = {
-        attempted: true,
+        attempted: false,
         ok: false,
         phase: 'A',
-        sharedLake: sharedLake.name,
-        rejectReason: 'open_lake_fail',
+        sharedLake: null,
+        rejectReason: 'no_shared_lake',
       };
-      if (!trace.lastRejectReason) trace.lastRejectReason = 'open_lake_fail';
     }
-  } else {
-    trace.phases.A = {
-      attempted: false,
-      ok: false,
-      phase: 'A',
-      sharedLake: null,
-      rejectReason: 'no_shared_lake',
-    };
+    addPerfMs('phaseAMs', nowPerfMs() - tA);
   }
 
   const geoSpanKm =
@@ -3689,6 +3811,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   // 2) BRouter on original clicks, then retry with water snaps if ends miss FINISH/START.
   {
+    const tB = nowPerfMs();
     const first = await tryBrouterChain(originalWaypoints, brouterMethod, undefined, 'original');
     if (first.path) {
       trace.phases.B = {
@@ -3700,6 +3823,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
         sharedLake: sharedLake?.name ?? null,
         brouterHadGeometry: true,
       };
+      addPerfMs('phaseBMs', nowPerfMs() - tB);
       return emitDone(first.path);
     }
 
@@ -3717,6 +3841,7 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
           brouterHadGeometry: true,
           rejectReason: null,
         };
+        addPerfMs('phaseBMs', nowPerfMs() - tB);
         return emitDone(second.path);
       }
     }
@@ -3730,12 +3855,15 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       brouterHadGeometry: first.hadGeometry,
       rejectReason: trace.lastRejectReason ?? 'phase_b_fail',
     };
+    addPerfMs('phaseBMs', nowPerfMs() - tB);
 
     // 2b) Phase C — multi-candidate endpoint binding (max 3×3 BRouter trials).
     // Runs before the stem-miss early exit so L07-class wrong stems can recover,
     // and before Overpass so L02 mid-pool can try fairway/mask pins.
     if (originalWaypoints.length === 2) {
+      const tC = nowPerfMs();
       const phaseC = await tryPhaseCMultiCandidate(brouterMethod, Boolean(sharedLake));
+      addPerfMs('phaseCMs', nowPerfMs() - tC);
       if (phaseC) return emitDone(phaseC);
     }
 

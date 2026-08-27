@@ -79,6 +79,14 @@ function warningLines(trace: RouteTrace | null): string {
   if (trace.request.longSpanOverpassSkip) {
     bits.push('long-span: Overpass fallback skipped (span_gt_120)');
   }
+  if (trace.failure) {
+    bits.push(`failure: ${trace.failure.category}/${trace.failure.code} @ ${trace.failure.stage}`);
+  }
+  if (trace.performance) {
+    bits.push(
+      `perf: total=${Math.round(trace.timing.totalMs)}ms br=${trace.timing.brouterMs}ms op=${trace.timing.overpassMs}ms trials=${trace.performance.trialCount}`,
+    );
+  }
   if (trace.validator && !trace.validator.ok) {
     bits.push(`validator: ${trace.validator.issues.join(', ') || 'fail'}`);
   }
