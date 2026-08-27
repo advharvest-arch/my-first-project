@@ -15,9 +15,18 @@ export type WaterRouteValidationIssue =
   | 'endpoints_far'
   | 'near_geodesic_chord'
   | 'river_chord'
+  | 'excessive_detour'
   | 'illegal_barrier'
   | 'not_on_water_network'
   | 'direct_forbidden';
+
+/**
+ * Max length/geo ratio for *unverified* shared-lake BRouter accepts (Phase B).
+ * Giant reservoir bboxes (e.g. Чебоксарское) can label a river-stem climb as
+ * method=lake when residual ≤5.5 km (STEM wrong-arm ~3.1). Real open-pool /
+ * fairway hops stay ~1.4–1.6 (L05/L14/L07). Phase A verified is exempt.
+ */
+export const MAX_UNVERIFIED_LAKE_DETOUR_RATIO = 2.5;
 
 export type WaterRouteValidation = {
   ok: boolean;
@@ -126,6 +135,18 @@ export function validateWaterRoute(
     if (ratio <= 1.18 && points.length < expectedMinPts) {
       issues.push('river_chord');
     }
+  }
+
+  // Unverified lake (Phase B shared-bbox): reject river-stem / wrong-arm climbs
+  // that only pass the 5.5 km residual ceiling inside a giant reservoir box.
+  // Phase A mask-verified open water is exempt (openWaterVerified).
+  if (
+    !openWaterVerified &&
+    opts.method === 'lake' &&
+    geo >= 12 &&
+    lengthKm / Math.max(geo, 0.001) > MAX_UNVERIFIED_LAKE_DETOUR_RATIO
+  ) {
+    issues.push('excessive_detour');
   }
 
   if (hasIllegalBarrierCrossing(points)) {

@@ -2,7 +2,7 @@
  * Phase A/B — verified open-water accept + shared-lake BRouter lake method.
  */
 import { describe, expect, it } from 'vitest';
-import { pathLengthKm, type LngLat } from '../geo';
+import { haversineKm, pathLengthKm, type LngLat } from '../geo';
 import { densifyOpenWaterPath } from '../open-lake';
 import {
   RYBINSK_LOCK,
@@ -12,7 +12,10 @@ import {
   DUBNA_LOCK_CORRIDOR,
   hasIllegalBarrierCrossing,
 } from '../routing-rules';
-import { validateWaterRoute } from '../validate-water-route';
+import {
+  MAX_UNVERIFIED_LAKE_DETOUR_RATIO,
+  validateWaterRoute,
+} from '../validate-water-route';
 import {
   MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM,
   MAX_SHARED_LAKE_BROUTER_KM,
@@ -25,7 +28,6 @@ import {
 import { hydroHighConfidenceRejects } from '../hydro-gate';
 
 const p = (lon: number, lat: number): LngLat => ({ lon, lat });
-
 function densify(points: LngLat[], stepKm = 8): LngLat[] {
   if (points.length < 2) return points.slice();
   const out: LngLat[] = [points[0]!];
@@ -201,9 +203,12 @@ describe('Phase B — shared-lake BRouter lake method', () => {
       method: 'lake',
     });
     expect(asLake.issues).not.toContain('endpoints_far');
+    expect(asLake.issues).not.toContain('excessive_detour');
+    expect(pathLengthKm(track) / haversineKm(a, b)).toBeLessThanOrEqual(
+      MAX_UNVERIFIED_LAKE_DETOUR_RATIO,
+    );
     expect(asLake.ok).toBe(true);
   });
-
   it('Rybinsk mid→lock-like track: Phase B lake method accepts; dam chord still illegal', () => {
     const a = p(38.4, 58.3);
     const b = p(38.72, 58.05);
@@ -345,5 +350,226 @@ describe('Phase B — shared-lake BRouter lake method', () => {
         method: 'waterway',
       }).issues,
     ).not.toContain('illegal_barrier');
+  });
+});
+
+describe('Phase B — excessive_detour stem / wrong-arm guard', () => {
+  it('exports MAX_UNVERIFIED_LAKE_DETOUR_RATIO = 2.5', () => {
+    expect(MAX_UNVERIFIED_LAKE_DETOUR_RATIO).toBe(2.5);
+  });
+
+  it('STEM wrong-arm: residual ≤5.5 but ratio >2.5 → excessive_detour', () => {
+    // Live STEM: Cheboksary pool click → northern tributary (geo ~32 km,
+    // BRouter ~100 km, residual ~5.34/0.09). Must not pass as unverified lake.
+    const a = p(45.5, 56.2);
+    const b = p(45.05, 56.35);
+    const track = densify(
+      [
+        p(45.47, 56.163),
+        p(45.47, 56.1),
+        p(45.1, 56.084),
+        p(44.8, 56.05),
+        p(44.5, 56.08),
+        p(44.3, 56.15),
+        p(44.2, 56.22),
+        p(44.4, 56.28),
+        p(44.7, 56.32),
+        p(44.95, 56.34),
+        p(45.05, 56.349),
+      ],
+      4,
+    );
+    const geo = haversineKm(a, b);
+    const len = pathLengthKm(track);
+    const ratio = len / geo;
+    expect(geo).toBeGreaterThanOrEqual(12);
+    expect(ratio).toBeGreaterThan(MAX_UNVERIFIED_LAKE_DETOUR_RATIO);
+    const reach = endpointReachToOriginals(
+      track,
+      [a, b],
+      endpointSnapKmForAccept('lake', false),
+    );
+    expect(reach.ok).toBe(true);
+
+    const v = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm: len,
+      method: 'lake',
+    });
+    expect(v.ok).toBe(false);
+    expect(v.issues).toContain('excessive_detour');
+    expect(v.issues).not.toContain('endpoints_far');
+  });
+
+  it('L05-like ratio ~1.55 unverified lake → accept (no excessive_detour)', () => {
+    const a = p(45.45, 56.35);
+    const b = p(47.25, 56.14);
+    const track = densify(
+      [
+        p(45.5, 56.32),
+        p(45.85, 56.28),
+        p(46.25, 56.22),
+        p(46.65, 56.2),
+        p(47.0, 56.14),
+        p(47.28, 56.13),
+      ],
+      6,
+    );
+    const geo = haversineKm(a, b);
+    const lengthKm = geo * 1.55;
+    expect(lengthKm / geo).toBeCloseTo(1.55, 5);
+    expect(lengthKm / geo).toBeLessThanOrEqual(MAX_UNVERIFIED_LAKE_DETOUR_RATIO);
+    const reach = endpointReachToOriginals(
+      track,
+      [a, b],
+      endpointSnapKmForAccept('lake', false),
+    );
+    expect(reach.ok).toBe(true);
+    const v = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm,
+      method: 'lake',
+    });
+    expect(v.issues).not.toContain('excessive_detour');
+    expect(v.ok).toBe(true);
+  });
+
+  it('L14-like ratio ~1.63 unverified lake → accept', () => {
+    const a = p(38.4, 58.3);
+    const b = p(38.72, 58.05);
+    const track = densify(
+      [
+        p(38.42, 58.28),
+        p(38.5, 58.2),
+        p(38.65, 58.13),
+        RYBINSK_LOCK_11,
+        RYBINSK_LOCK,
+        RYBINSK_LOCK_12,
+        p(38.73, 58.06),
+      ],
+      5,
+    );
+    const geo = haversineKm(a, b);
+    const lengthKm = geo * 1.63;
+    expect(lengthKm / geo).toBeCloseTo(1.63, 5);
+    expect(lengthKm / geo).toBeLessThanOrEqual(MAX_UNVERIFIED_LAKE_DETOUR_RATIO);
+    const v = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm,
+      method: 'lake',
+    });
+    expect(v.issues).not.toContain('excessive_detour');
+    expect(v.issues).not.toContain('illegal_barrier');
+    expect(v.ok).toBe(true);
+  });
+
+  it('L07-like ratio ~1.37 unverified lake → accept', () => {
+    const a = p(49.0, 55.75);
+    const b = p(49.4, 53.55);
+    const track = densify(
+      [
+        p(49.05, 55.74),
+        p(49.05, 55.4),
+        p(49.2, 55.1),
+        p(49.1, 54.7),
+        p(48.9, 54.3),
+        p(49.0, 53.9),
+        p(49.2, 53.6),
+        p(49.45, 53.48),
+      ],
+      8,
+    );
+    const geo = haversineKm(a, b);
+    const lengthKm = geo * 1.37;
+    expect(lengthKm / geo).toBeCloseTo(1.37, 5);
+    expect(lengthKm / geo).toBeLessThan(1.6);
+    // Long shared-lake Phase C may use a wider residual; keep accept under 12 km.
+    const v = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm,
+      method: 'lake',
+      endpointSnapKm: 12,
+    });
+    expect(v.issues).not.toContain('excessive_detour');
+    expect(v.ok).toBe(true);
+  });
+
+  it('Phase A openWaterVerified exempts high detour ratio', () => {
+    const a = p(45.5, 56.2);
+    const b = p(45.05, 56.35);
+    const track = densify(
+      [
+        p(45.47, 56.163),
+        p(45.47, 56.1),
+        p(45.1, 56.084),
+        p(44.8, 56.05),
+        p(44.5, 56.08),
+        p(44.3, 56.15),
+        p(44.2, 56.22),
+        p(44.4, 56.28),
+        p(44.7, 56.32),
+        p(45.05, 56.349),
+      ],
+      4,
+    );
+    expect(pathLengthKm(track) / haversineKm(a, b)).toBeGreaterThan(
+      MAX_UNVERIFIED_LAKE_DETOUR_RATIO,
+    );
+    const v = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm: pathLengthKm(track),
+      method: 'lake',
+      openWaterVerified: true,
+    });
+    expect(v.issues).not.toContain('excessive_detour');
+  });
+
+  it('VETL stem-miss still fails via endpoints_far (unchanged 5.5 km ceiling)', () => {
+    const start = p(44.0, 56.33);
+    const finish = p(45.05, 56.15);
+    const stemFinish = p(45.133, 56.102);
+    const stemTrack = densify(
+      [
+        start,
+        p(44.15, 56.28),
+        p(44.32, 56.17),
+        p(44.55, 56.07),
+        p(44.77, 56.06),
+        p(44.93, 56.07),
+        stemFinish,
+      ],
+      8,
+    );
+    const v = validateWaterRoute(stemTrack, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(stemTrack),
+      method: 'lake',
+    });
+    expect(v.ok).toBe(false);
+    expect(v.issues).toContain('endpoints_far');
+  });
+
+  it('DAM chord still rejects via illegal_barrier (not only detour)', () => {
+    const dam = densifyOpenWaterPath(
+      densify(
+        [
+          p(38.8558908, 58.0489536),
+          p(38.821867, 58.088214),
+          p(38.823371, 58.095732),
+          p(38.821867, 58.104336),
+          p(38.4, 58.55),
+        ],
+        4,
+      ),
+      1.5,
+    );
+    const v = validateWaterRoute(dam, {
+      waypoints: [dam[0]!, dam.at(-1)!],
+      lengthKm: pathLengthKm(dam),
+      method: 'lake',
+      openWaterVerified: true,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.issues).toContain('illegal_barrier');
   });
 });
