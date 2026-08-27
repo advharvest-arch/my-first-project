@@ -76,6 +76,9 @@ function warningLines(trace: RouteTrace | null): string {
   if (!trace.final.ok && trace.final.rejectReason) {
     bits.push(`reject: ${trace.final.rejectReason}`);
   }
+  if (trace.request.longSpanOverpassSkip) {
+    bits.push('long-span: Overpass fallback skipped (span_gt_120)');
+  }
   if (trace.validator && !trace.validator.ok) {
     bits.push(`validator: ${trace.validator.issues.join(', ') || 'fail'}`);
   }

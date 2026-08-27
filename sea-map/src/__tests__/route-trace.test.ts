@@ -120,6 +120,28 @@ describe('RouteTrace schema (E0)', () => {
     expect(trace.final.ok).toBe(false);
   });
 
+  it('longSpanOverpassSkip is optional observability on request', () => {
+    const builder = beginRouteTrace([p(44.5, 48.7), p(48.0, 46.35)], 370);
+    builder.request.longSpanOverpassSkip = true;
+    builder.phases.overpass = {
+      attempted: false,
+      ok: false,
+      phase: 'overpass_fetch',
+      rejectReason: 'span_gt_120',
+    };
+    builder.lastRejectReason = 'span_gt_120';
+    const trace = builder.finish({
+      ok: false,
+      method: 'route_not_found',
+      lengthKm: 0,
+      rejectReason: 'span_gt_120',
+      waterName: null,
+    });
+    expect(trace.request.longSpanOverpassSkip).toBe(true);
+    expect(trace.phases.overpass?.rejectReason).toBe('span_gt_120');
+    expect(trace.final.rejectReason).toBe('span_gt_120');
+  });
+
   it('RouteTraceUserCorrection type is schema-only (assignable but unused)', () => {
     const correction: RouteTraceUserCorrection = {
       preferredBind: { endpoint: 'A', point: { lon: 1, lat: 2 }, source: 'fairway' },
