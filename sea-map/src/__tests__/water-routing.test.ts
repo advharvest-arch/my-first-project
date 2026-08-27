@@ -212,7 +212,7 @@ describe('endpoint reach to original START/FINISH', () => {
 });
 
 describe('open water must not break on river snap radius', () => {
-  it('lake method allows finish residual beyond river MAX snap', () => {
+  it('Phase A verified lake allows finish residual beyond river MAX snap', () => {
     const a = p(48.42, 54.36);
     const b = p(48.55, 54.4);
     // Fairway end ~6.5 km from open-water click (audit residual).
@@ -221,10 +221,18 @@ describe('open water must not break on river snap radius', () => {
     expect(riverReach.ok).toBe(false);
     const lakeReach = endpointReachToOriginals(track, [a, b], maxOpenWaterSnapKm());
     expect(lakeReach.ok).toBe(true);
+    // Unverified Phase B ceiling (5.5 km) would reject ~6.5 km — need Phase A.
+    const asPhaseB = validateWaterRoute(track, {
+      waypoints: [a, b],
+      lengthKm: pathLengthKm(track),
+      method: 'lake',
+    });
+    expect(asPhaseB.issues).toContain('endpoints_far');
     const v = validateWaterRoute(track, {
       waypoints: [a, b],
       lengthKm: pathLengthKm(track),
       method: 'lake',
+      openWaterVerified: true,
     });
     expect(v.issues).not.toContain('endpoints_far');
   });

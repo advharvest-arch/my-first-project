@@ -477,6 +477,11 @@ function densifyForSafety(points: LngLat[], stepKm: number): LngLat[] {
   return out;
 }
 
+/** Densify a verified open-water track (~1–2 km steps) before validation. */
+export function densifyOpenWaterPath(points: LngLat[], stepKm = 1.5): LngLat[] {
+  return densifyForSafety(points, stepKm);
+}
+
 function nearestPointOnPath(p: LngLat, path: LngLat[]): { point: LngLat; distKm: number } {
   let best = path[0]!;
   let bestD = haversineKm(p, best);

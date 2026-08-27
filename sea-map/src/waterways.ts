@@ -1,12 +1,14 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
-import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath } from './open-lake';
+import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath } from './open-lake';
 import { dualGeometry } from './route-geometry';
 import { validateWaterRoute } from './validate-water-route';
 import {
   endpointReachToOriginals,
   maxSnapKmForMethod,
   maxWaterSnapKm,
+  chooseBrouterWaterMethod,
+  endpointSnapKmForAccept,
 } from './water-snap';
 import {
   ensureGvrIndex,
@@ -3078,9 +3080,17 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     routing: LngLat[],
     display: LngLat[],
     trackLengthKm: number,
-    extras: { waterName: string | null; method: 'waterway' | 'lake'; enrich?: boolean },
+    extras: {
+      waterName: string | null;
+      method: 'waterway' | 'lake';
+      enrich?: boolean;
+      /** Phase A: mask-verified open-water track — skip dry-land chord heuristics. */
+      openWaterVerified?: boolean;
+    },
   ): Promise<WaterPath | null> => {
-    const snapKm = maxSnapKmForMethod(extras.method);
+    // Phase A verified open-lake → full 10 km reach.
+    // Phase B shared-bbox BRouter → 5.5 km stem-miss ceiling (not full open snap).
+    const snapKm = endpointSnapKmForAccept(extras.method, Boolean(extras.openWaterVerified));
     // Hard gate: routing ends must reach the *original* START/FINISH.
     const reach = endpointReachToOriginals(routing, originalWaypoints, snapKm);
     if (!reach.ok) return null;
@@ -3090,10 +3100,13 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       lengthKm: trackLengthKm > 0 ? trackLengthKm : pathLength(routing),
       method: extras.method,
       endpointSnapKm: snapKm,
+      openWaterVerified: extras.openWaterVerified,
     });
     if (!validation.ok) return null;
     return finalizeMeasuredRoute(display, trackLengthKm, originalWaypoints, {
-      ...extras,
+      waterName: extras.waterName,
+      method: extras.method,
+      enrich: extras.enrich,
       routingGeometry: routing,
     });
   };
@@ -3170,29 +3183,39 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
 
   // 1) Pure open-water legs (lake or reservoir): straight chords that only
   // bend around islands / peninsulas. BRouter river fairways hug the shore
-  // and must not win here — but if the lake mask is unavailable, short
-  // same-lake hops may still use the wider open-water snap (not long stem runs
-  // that merely sit inside a giant reservoir catalog bbox).
+  // and must not win here — but if the lake mask is unavailable, shared-lake
+  // BRouter hops may still use Phase B lake accept (≤150 km geo, 5.5 km
+  // residual ceiling — not full 10 km open snap), so stem-miss inside a giant
+  // reservoir catalog bbox (Volga→Vetluga) still fails.
   const sharedLake = findSharedOpenLake(originalWaypoints);
   if (sharedLake) {
     const open = await routeAcrossOpenLake(originalWaypoints);
     if (open && open.points.length >= 2 && open.lengthKm > 0) {
-      const accepted = await acceptPath(open.points, open.points, open.lengthKm, {
+      // Phase A: densify clear chords so gap heuristics (and UI) see continuous water,
+      // and mark the track as mask-verified so dry-land geodesic rejects do not apply.
+      // Hydro-gate / KNOWN_BARRIERS still run inside validateWaterRoute.
+      const densified = densifyOpenWaterPath(open.points, 1.5);
+      const accepted = await acceptPath(densified, densified, open.lengthKm, {
         waterName: open.waterName,
         method: 'lake',
+        openWaterVerified: true,
       });
       if (accepted) return accepted;
     }
   }
 
-  const shortOpenWaterHop =
-    !!sharedLake &&
-    originalWaypoints.length === 2 &&
-    haversineKm(originalWaypoints[0]!, originalWaypoints[1]!) <= 25;
+  const geoSpanKm =
+    originalWaypoints.length === 2
+      ? haversineKm(originalWaypoints[0]!, originalWaypoints[1]!)
+      : routeSpanKm(originalWaypoints);
+  const brouterMethod = chooseBrouterWaterMethod(
+    Boolean(sharedLake),
+    geoSpanKm,
+    originalWaypoints.length,
+  );
 
   // 2) BRouter on original clicks, then retry with water snaps if ends miss FINISH/START.
   {
-    const brouterMethod = shortOpenWaterHop ? 'lake' : 'waterway';
     const first = await tryBrouterChain(originalWaypoints, brouterMethod);
     if (first.path) return first.path;
 
