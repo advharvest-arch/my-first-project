@@ -32,6 +32,27 @@ export function maxSnapKmForMethod(method: 'waterway' | 'lake' | string): number
   return method === 'lake' ? maxOpenWaterSnapKm() : maxWaterSnapKm();
 }
 
+/**
+ * Max geodesic for accepting a BRouter track as method=lake when both ends
+ * share an open-water catalog body (Phase B). Longer spans stay waterway so
+ * giant reservoir bboxes cannot widen endpoint reach indefinitely.
+ */
+export const MAX_SHARED_LAKE_BROUTER_KM = 150;
+
+/**
+ * Choose BRouter accept method: shared open-water body + span within cap → lake
+ * (10 km endpoint reach); otherwise waterway (3 km).
+ */
+export function chooseBrouterWaterMethod(
+  sharedOpenLake: boolean,
+  geoKm: number,
+  waypointCount = 2,
+): 'waterway' | 'lake' {
+  if (!sharedOpenLake || waypointCount < 2) return 'waterway';
+  if (!(geoKm > 0) || geoKm > MAX_SHARED_LAKE_BROUTER_KM) return 'waterway';
+  return 'lake';
+}
+
 export type EndpointReach = {
   ok: boolean;
   startKm: number;

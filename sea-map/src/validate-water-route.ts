@@ -36,6 +36,14 @@ export type ValidateWaterRouteOptions = {
   /** Max jump between consecutive vertices (km). */
   maxGapKm?: number;
   /**
+   * Verified open-lake / reservoir track (shared catalog body + mask-routed
+   * water path). Skips dry-land near_geodesic / geometry_gap / river_chord
+   * heuristics that otherwise reject clear open-water chords.
+   * Does NOT skip illegal_barrier / hydro-gate.
+   * Never set for ordinary BRouter shore tracks or unverified geodesics.
+   */
+  openWaterVerified?: boolean;
+  /**
    * Optional water-network proximity samples (km).
    * When provided and fractionNear is low → not_on_water_network.
    * Not required for open water / reservoirs.
@@ -83,8 +91,10 @@ export function validateWaterRoute(
 
   const geo = haversineKm(a, b);
   const lengthKm = opts.lengthKm ?? pathLengthKm(points);
+  const openWaterVerified = Boolean(opts.openWaterVerified);
   const maxGap = opts.maxGapKm ?? Math.max(25, Math.min(80, geo * 0.15 + 20));
-  if (hasGeometryGap(points, maxGap)) issues.push('geometry_gap');
+  // Dry-land gap heuristic: skip for mask-verified open-water tracks (Phase A).
+  if (!openWaterVerified && hasGeometryGap(points, maxGap)) issues.push('geometry_gap');
 
   // Reach original user START/FINISH — not an intermediate snapped pin.
   const snap = opts.endpointSnapKm ?? maxSnapKmForMethod(opts.method ?? 'waterway');
@@ -93,7 +103,8 @@ export function validateWaterRoute(
   }
 
   // Collapsed snap or pure land/air chord (near-geodesic).
-  if (geo >= 12) {
+  // Verified open-lake chords are allowed to be short/geodesic (Phase A).
+  if (!openWaterVerified && geo >= 12) {
     const ratio = lengthKm / Math.max(geo, 0.001);
     if (lengthKm < geo * 0.85) issues.push('near_geodesic_chord');
     else if (points.length <= 2) issues.push('near_geodesic_chord');
@@ -105,7 +116,7 @@ export function validateWaterRoute(
 
   // Suspiciously straight chord across an expected river bend:
   // long span, few vertices relative to distance, still nearly geodesic.
-  if (geo >= 40) {
+  if (!openWaterVerified && geo >= 40) {
     const ratio = lengthKm / Math.max(geo, 0.001);
     const expectedMinPts = Math.max(8, Math.floor(geo / 12));
     if (ratio <= 1.18 && points.length < expectedMinPts) {
