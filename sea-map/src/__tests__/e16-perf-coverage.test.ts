@@ -36,6 +36,7 @@ describe('route feature flags', () => {
     expect(f.USE_ROUTE_EARLY_STOP).toBe(false);
     expect(f.USE_BROUTER_RESULT_CACHE).toBe(true);
     expect(f.USE_BROUTER_REQUEST_DEDUP).toBe(true);
+    expect(f.USE_WATER_GRAPH).toBe(false);
   });
 
   it('test override then reset restores defaults', () => {

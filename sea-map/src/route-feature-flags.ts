@@ -35,6 +35,11 @@ export type RouteFeatureFlags = {
    * Production must leave null.
    */
   PHASE_C_MAX_PAIRS_OVERRIDE: number | null;
+  /**
+   * E2.0 — Hybrid WaterGraph shadow mode.
+   * When true: build/search graph for RouteTrace only; legacy path remains production result.
+   */
+  USE_WATER_GRAPH: boolean;
 };
 
 const defaults: RouteFeatureFlags = {
@@ -45,6 +50,7 @@ const defaults: RouteFeatureFlags = {
   USE_PARALLEL_CANDIDATES: false,
   PARALLEL_CANDIDATE_CONCURRENCY: 2,
   PHASE_C_MAX_PAIRS_OVERRIDE: null,
+  USE_WATER_GRAPH: false,
 };
 
 let overrides: Partial<RouteFeatureFlags> = {};
