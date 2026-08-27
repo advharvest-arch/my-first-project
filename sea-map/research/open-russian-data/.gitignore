@@ -1,0 +1,9 @@
+# Large downloaded binaries are referenced by URL in PROVENANCE.json.
+# Keep text extracts + small fixtures in git.
+raw/volga/*.pdf
+raw/kama/*.pdf
+raw/kama/*.xlsx
+raw/volgo-balt/*.pdf
+!raw/**/*.txt
+!raw/**/*.json
+!raw/kim/bulletin-2024-05-17.pdf

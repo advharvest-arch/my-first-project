@@ -1,0 +1,74 @@
+[
+  {
+    "waterway": "Река Кама",
+    "lowerBound": "пос.Сейва",
+    "upperBound": "устье р.Вятка",
+    "lengthKm": 1215.0
+  },
+  {
+    "waterway": "Река Весляна",
+    "lowerBound": "пос.Пельмин Бор",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 70.0
+  },
+  {
+    "waterway": "Река Коса",
+    "lowerBound": "пос.Кордон",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 47.0
+  },
+  {
+    "waterway": "Река Вишера",
+    "lowerBound": "г.Красновишерск",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 136.0
+  },
+  {
+    "waterway": "Река Колва",
+    "lowerBound": "дер.Петрецово",
+    "upperBound": "устье (р.Вишера)",
+    "lengthKm": 234.0
+  },
+  {
+    "waterway": "Река Яйва",
+    "lowerBound": "рейд Камлесосплава",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 15.0
+  },
+  {
+    "waterway": "Река Иньва",
+    "lowerBound": "пос.Майкор",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 26.0
+  },
+  {
+    "waterway": "Река Косьва",
+    "lowerBound": "карьер",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 35.0
+  },
+  {
+    "waterway": "Река Обва",
+    "lowerBound": "автомост",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 40.0
+  },
+  {
+    "waterway": "Река Чусовая",
+    "lowerBound": "карьер",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 140.0
+  },
+  {
+    "waterway": "Река Сылва",
+    "lowerBound": "дер.Шатово",
+    "upperBound": "устье (р.Чусовая)",
+    "lengthKm": 88.0
+  },
+  {
+    "waterway": "Река Нытва",
+    "lowerBound": "г.Нытва",
+    "upperBound": "устье (р.Кама)",
+    "lengthKm": 7.0
+  }
+]

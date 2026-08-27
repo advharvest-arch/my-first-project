@@ -1,0 +1,62 @@
+{
+  "retrievedAt": "2026-08-27",
+  "files": [
+    {
+      "path": "raw/kim/bulletin-2024-05-17.pdf",
+      "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+      "sourceId": "kim-bulletins"
+    },
+    {
+      "path": "raw/volgo-balt/enc-code-classifier-rf-2024.pdf",
+      "sourceUrl": "https://www.volgo-balt.ru/activity/kartografiya/",
+      "sourceId": "volgobalt-cartography",
+      "note": "Downloaded from cartography medialibrary; classifier of ENC codes RF 2024"
+    },
+    {
+      "path": "raw/volgo-balt/enc-code-classifier-ladoga-2024.pdf",
+      "sourceUrl": "https://www.volgo-balt.ru/activity/kartografiya/",
+      "sourceId": "volgobalt-cartography"
+    },
+    {
+      "path": "raw/volgo-balt/rd-enc-general-requirements-2022-draft.pdf",
+      "sourceUrl": "https://www.volgo-balt.ru/activity/kartografiya/",
+      "sourceId": "volgobalt-cartography"
+    },
+    {
+      "path": "raw/volga/at-58-r-2026-03-27.pdf",
+      "sourceUrl": "https://xn--80adbch2buek4ak3i.xn--p1ai/uploads/rasporyajenie_rosmorrechflota27.03.pdf",
+      "sourceId": "volga-fairways"
+    },
+    {
+      "path": "raw/volga/rasp.pdf",
+      "sourceUrl": "https://xn--80adbch2buek4ak3i.xn--p1ai/uploads/rasp.pdf",
+      "sourceId": "volga-fairways",
+      "note": "Large disposition PDF from Volga basin fairway list page"
+    },
+    {
+      "path": "raw/kama/vvp-segments.xlsx",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2022/06/Участки-ВВП.xlsx",
+      "sourceId": "kama-dimensions"
+    },
+    {
+      "path": "raw/kama/bridge-clearances.pdf",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2021/04/надводные-габариты-мостов.pdf",
+      "sourceId": "kama-dimensions"
+    },
+    {
+      "path": "raw/kama/bt-527-r-2024.pdf",
+      "sourceUrl": "https://kamvodput.ru/wp-content/uploads/2024/01/Распоряжение-№БТ-527-р-полное.pdf",
+      "sourceId": "kama-dimensions"
+    }
+  ],
+  "excluded": [
+    {
+      "what": "S-57/S-63 ENC cells",
+      "reason": "closed federal property / license required"
+    },
+    {
+      "what": "Volga KNN/IS paid issues",
+      "reason": "restricted - purchase/application"
+    }
+  ]
+}
