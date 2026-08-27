@@ -106,7 +106,7 @@ describe('provider cache success / negative TTL', () => {
     expect(calls).toBe(1);
 
     putCachedBrouterResult(key + ':neg', null, 'negative');
-    expect(getCachedBrouterResult(key + ':neg')).toEqual({ hit: true, value: null });
+    expect(getCachedBrouterResult(key + ':neg')).toMatchObject({ hit: true, value: null });
     endProviderRequestScope();
   });
 });

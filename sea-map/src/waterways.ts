@@ -56,6 +56,11 @@ import {
   setRoutePerf,
   timeSync,
 } from './route-perf-context';
+import {
+  LONG_SPAN_TRIGGER_KM,
+  runLongSpanSegmentedRoute,
+} from './long-span-segment';
+import { mapPool } from './parallel-candidates';
 
 import {
   ensureGvrIndex,
@@ -186,7 +191,7 @@ async function overpassQuery(query: string): Promise<OverpassElement[]> {
   const perf = getRoutePerf();
   if (perf) perf.overpassCalls += 1;
   try {
-    return await new Promise<OverpassElement[]>((resolve, reject) => {
+    return await new Promise<OverpassElement[]>((resolve) => {
       let pending = OVERPASS_ENDPOINTS.length;
       let empty: OverpassElement[] | null = null;
       let done = false;
@@ -211,7 +216,7 @@ async function overpassQuery(query: string): Promise<OverpassElement[]> {
             pending -= 1;
             if (pending === 0) {
               if (empty) resolve(empty);
-              else reject(errors[errors.length - 1] ?? new Error('Overpass failed'));
+              else resolve([]);
             }
           });
       }
@@ -1253,7 +1258,18 @@ async function fetchWaterNetwork(
 export function prefetchWaterNear(point: LngLat): void {
   void ensureCoreWaterways();
   const { cx, cy } = pointCell(point);
-  void loadCell(cx, cy);
+  void loadCell(cx, cy).catch(() => {});
+}
+
+/** Awaited warm for long-span joint snaps (E1.7). */
+export async function warmWaterNear(point: LngLat): Promise<void> {
+  await ensureCoreWaterways();
+  const { cx, cy } = pointCell(point);
+  await Promise.all(
+    [-1, 0, 1].flatMap((dx) =>
+      [-1, 0, 1].map((dy) => loadCell(cx + dx, cy + dy).catch(() => [] as WaterLine[])),
+    ),
+  );
 }
 
 /** Warm cache for the visible map (call on inland moveend). */
@@ -1265,7 +1281,7 @@ export function prefetchWaterBbox(south: number, west: number, north: number, ea
   const cy1 = Math.floor(north / CELL_DEG);
   const midX = Math.round((cx0 + cx1) / 2);
   const midY = Math.round((cy0 + cy1) / 2);
-  void loadCell(midX, midY);
+  void loadCell(midX, midY).catch(() => {});
 }
 
 export type WaterSnap = {
@@ -1288,7 +1304,7 @@ export function snapClickToWater(
   // Warm neighbours in the background — do not block the click / route.
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
-      void loadCell(cx + dx, cy + dy);
+      void loadCell(cx + dx, cy + dy).catch(() => {});
     }
   }
 
@@ -1343,7 +1359,7 @@ export function snapWaterCandidates(
   const { cx, cy } = pointCell(click);
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) {
-      void loadCell(cx + dx, cy + dy);
+      void loadCell(cx + dx, cy + dy).catch(() => {});
     }
   }
 
@@ -3537,7 +3553,9 @@ async function measureWaterChainInner(
       return null;
     }
 
-    const pairs = selectPhaseCPairs(candsA, candsB, a, b, PHASE_C_MAX_PAIRS);
+    const maxPairs =
+      getRouteFeatureFlags().PHASE_C_MAX_PAIRS_OVERRIDE ?? PHASE_C_MAX_PAIRS;
+    const pairs = selectPhaseCPairs(candsA, candsB, a, b, maxPairs);
     if (!pairs.length) {
       trace.phases.C = {
         attempted: true,
@@ -3560,10 +3578,106 @@ async function measureWaterChainInner(
       cb: WaterCandidate;
       via: 'brouter' | 'open_lake';
     } | null = null;
-    let brouterLeft = PHASE_C_MAX_PAIRS;
+    let brouterLeft = maxPairs;
     let pairsTried = 0;
-    const earlyStopEnabled = getRouteFeatureFlags().USE_ROUTE_EARLY_STOP;
+    const flagsC = getRouteFeatureFlags();
+    const earlyStopEnabled = flagsC.USE_ROUTE_EARLY_STOP;
 
+    const considerBrouterTrial = (
+      ca: WaterCandidate,
+      cb: WaterCandidate,
+      trial: { path: WaterPath | null; hadGeometry: boolean },
+    ): boolean => {
+      // returns true if early-stop triggered
+      if (!trial.path) return false;
+      const geom = trial.path.routingGeometry ?? trial.path.points;
+      const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
+      const classPen = pairClassPenalty(ca, cb);
+      const score = scoreAcceptedPhaseCRoute(
+        reach.startKm,
+        reach.finishKm,
+        trial.path.lengthKm,
+        geo,
+        { classPenalty: classPen, hydroReject: false },
+      );
+      if (!best || score < best.score) {
+        best = { path: trial.path, score, ca, cb, via: 'brouter' };
+      }
+      if (
+        shouldEarlyStopPhaseC({
+          enabled: earlyStopEnabled,
+          score,
+          startResidualKm: reach.startKm,
+          finishResidualKm: reach.finishKm,
+          lengthKm: trial.path.lengthKm,
+          geoKm: geo,
+          classPenalty: classPen,
+          hydroReject: false,
+        })
+      ) {
+        const perfE = getRoutePerf();
+        if (perfE) perfE.earlyStopTriggered = true;
+        return true;
+      }
+      return false;
+    };
+
+    // E1.7 experimental: capped parallel BRouter trials (default off).
+    if (flagsC.USE_PARALLEL_CANDIDATES) {
+      const concurrency = flagsC.PARALLEL_CANDIDATE_CONCURRENCY;
+      const slice = pairs.slice(0, brouterLeft);
+      pairsTried = slice.length;
+      const results = await mapPool(slice, concurrency, async ([ca, cb]) => {
+        notePhaseCBrouterTrial();
+        const perfT = getRoutePerf();
+        if (perfT) perfT.trialCount += 1;
+        const trial = await tryBrouterChain(
+          [ca.point, cb.point],
+          phaseCMethod,
+          phaseCSnapKm,
+          'phase_c',
+        );
+        return { ca, cb, trial };
+      });
+      brouterLeft = 0;
+      for (const r of results) {
+        if (considerBrouterTrial(r.ca, r.cb, r.trial) && earlyStopEnabled) break;
+      }
+      // Open-lake still sequential (lighter + mask-bound).
+      if (allowOpenLake && !longSharedLake && !getRoutePerf()?.earlyStopTriggered) {
+        for (const [ca, cb] of pairs) {
+          const tLake = nowPerfMs();
+          const open = await routeAcrossOpenLake([ca.point, cb.point]);
+          addPerfMs('openLakeMs', nowPerfMs() - tLake);
+          const perfLake = getRoutePerf();
+          if (perfLake) perfLake.openLakeOps += 1;
+          if (open && open.points.length >= 2 && open.lengthKm > 0) {
+            const densified = densifyOpenWaterPath(open.points, 1.5);
+            const accepted = await acceptPath(densified, densified, open.lengthKm, {
+              waterName: open.waterName,
+              method: 'lake',
+              openWaterVerified: true,
+              endpointSnapKm: MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM,
+            });
+            if (accepted) {
+              const geom = accepted.routingGeometry ?? accepted.points;
+              const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
+              const classPen = pairClassPenalty(ca, cb);
+              const score = scoreAcceptedPhaseCRoute(
+                reach.startKm,
+                reach.finishKm,
+                accepted.lengthKm,
+                geo,
+                { classPenalty: classPen, hydroReject: false },
+              );
+              if (!best || score < best.score) {
+                best = { path: accepted, score, ca, cb, via: 'open_lake' };
+              }
+            }
+          }
+        }
+      }
+    } else {
     for (const [ca, cb] of pairs) {
       pairsTried += 1;
       if (brouterLeft > 0) {
@@ -3579,39 +3693,7 @@ async function measureWaterChainInner(
           phaseCSnapKm,
           'phase_c',
         );
-        if (trial.path) {
-          const geom = trial.path.routingGeometry ?? trial.path.points;
-          const reach = endpointReachToOriginals(geom, originalWaypoints, 99);
-          // hydro / barrier rejects never reach here (acceptPath filtered);
-          // classPenalty is soft fairway preference among accepted trials.
-          const classPen = pairClassPenalty(ca, cb);
-          const score = scoreAcceptedPhaseCRoute(
-            reach.startKm,
-            reach.finishKm,
-            trial.path.lengthKm,
-            geo,
-            { classPenalty: classPen, hydroReject: false },
-          );
-          if (!best || score < best.score) {
-            best = { path: trial.path, score, ca, cb, via: 'brouter' };
-          }
-          if (
-            shouldEarlyStopPhaseC({
-              enabled: earlyStopEnabled,
-              score,
-              startResidualKm: reach.startKm,
-              finishResidualKm: reach.finishKm,
-              lengthKm: trial.path.lengthKm,
-              geoKm: geo,
-              classPenalty: classPen,
-              hydroReject: false,
-            })
-          ) {
-            const perfE = getRoutePerf();
-            if (perfE) perfE.earlyStopTriggered = true;
-            break;
-          }
-        }
+        if (considerBrouterTrial(ca, cb, trial)) break;
       }
 
       if (allowOpenLake && !longSharedLake) {
@@ -3662,6 +3744,7 @@ async function measureWaterChainInner(
         }
       }
     }
+    } // end sequential vs parallel
 
     if (best) {
       trace.chosenCandidate = {
@@ -3803,6 +3886,76 @@ async function measureWaterChainInner(
     originalWaypoints.length === 2
       ? haversineKm(originalWaypoints[0]!, originalWaypoints[1]!)
       : routeSpanKm(originalWaypoints);
+
+  // E1.7 — experimental long-span segmentation (default OFF).
+  // When enabled and span > 120 km: try water-aware segments before monolithic BRouter.
+  // On failure, fall through to Phase B so flag-on does not regress successful monoliths.
+  {
+    const flags = getRouteFeatureFlags();
+    if (
+      flags.USE_LONG_SPAN_SEGMENTATION &&
+      originalWaypoints.length === 2 &&
+      geoSpanKm > LONG_SPAN_TRIGGER_KM
+    ) {
+      const tSeg = nowPerfMs();
+      const seg = await runLongSpanSegmentedRoute(
+        originalWaypoints[0]!,
+        originalWaypoints[originalWaypoints.length - 1]!,
+        snapClickToWater,
+        (lon, lat) => warmWaterNear({ lon, lat }),
+      );
+      addPerfMs('phaseBMs', nowPerfMs() - tSeg);
+      trace.longSpan = {
+        enabled: true,
+        segmented: true,
+        segmentCount: seg.segments.length,
+        failedSegment: seg.failedSegment,
+        seamFailures: seg.seamFailures,
+        rejectReason: seg.rejectReason,
+      };
+      trace.segments = seg.segments.map((s) => ({
+        index: s.index,
+        a: s.a,
+        b: s.b,
+        lengthKm: s.lengthKm,
+        method: s.method,
+        brouterAttempts: s.brouterAttempts,
+        ok: s.ok,
+        rejectReason: s.rejectReason,
+      }));
+      if (seg.ok && seg.points.length >= 2) {
+        const accepted = await acceptPath(seg.points, seg.points, seg.lengthKm, {
+          waterName: seg.waterName,
+          method: 'waterway',
+        });
+        if (accepted) {
+          trace.phases.B = {
+            attempted: true,
+            ok: true,
+            phase: 'B',
+            lengthKm: accepted.lengthKm,
+            method: 'waterway',
+            rejectReason: null,
+          };
+          return emitDone(accepted);
+        }
+        if (!trace.longSpan.rejectReason) {
+          trace.longSpan.rejectReason = trace.lastRejectReason ?? 'segment_chain_accept_fail';
+        }
+      }
+      // Fall through to monolithic Phase B/C.
+    } else {
+      trace.longSpan = {
+        enabled: flags.USE_LONG_SPAN_SEGMENTATION,
+        segmented: false,
+        segmentCount: 0,
+        failedSegment: null,
+        seamFailures: 0,
+        rejectReason: null,
+      };
+    }
+  }
+
   const brouterMethod = chooseBrouterWaterMethod(
     Boolean(sharedLake),
     geoSpanKm,

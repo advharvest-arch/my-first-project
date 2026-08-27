@@ -132,6 +132,12 @@ export type RouteTraceTimingDetail = {
 
 export type RouteTracePerformance = {
   cacheHit: boolean;
+  /** Flat E1.7 counters for AI / reports. */
+  brouterCalls: number;
+  brouterCacheHits: number;
+  brouterCacheMisses: number;
+  dedupedRequests: number;
+  candidateTrials: number;
   externalCalls: {
     brouter: number;
     overpass: number;
@@ -140,6 +146,11 @@ export type RouteTracePerformance = {
   cacheHits: {
     brouter: number;
     overpass: number;
+  };
+  brouterCache?: {
+    hit: number;
+    miss: number;
+    deduped: number;
   };
   candidateCount: number;
   trialCount: number;
@@ -152,6 +163,27 @@ export type RouteTraceCoverage = {
   maskCoverage: 'unknown' | 'hit' | 'miss';
   fairwayCoverage: 'unknown' | 'hit' | 'miss';
   knowledgeCoverage: 'none' | 'partial' | 'matched';
+};
+
+/** E1.7 — long-span segmentation diagnostics. */
+export type RouteTraceLongSpan = {
+  enabled: boolean;
+  segmented: boolean;
+  segmentCount: number;
+  failedSegment: number | null;
+  seamFailures: number;
+  rejectReason?: string | null;
+};
+
+export type RouteTraceSegment = {
+  index: number;
+  a: RouteTraceLngLat;
+  b: RouteTraceLngLat;
+  lengthKm: number;
+  method: string;
+  brouterAttempts: number;
+  ok: boolean;
+  rejectReason: string | null;
 };
 
 export type RouteTrace = {
@@ -186,10 +218,14 @@ export type RouteTrace = {
   } | null;
   hydro: RouteTraceHydro | null;
   final: RouteTraceFinal;
-  /** E1.6 — AI-ready performance signals. */
+  /** E1.6/E1.7 — AI-ready performance signals. */
   performance?: RouteTracePerformance;
   /** E1.6 — coverage heuristics for the request corridor. */
   coverage?: RouteTraceCoverage;
+  /** E1.7 — long-span segmentation summary. */
+  longSpan?: RouteTraceLongSpan;
+  /** E1.7 — per-segment traces when segmented routing ran. */
+  segments?: RouteTraceSegment[];
   /** E1.6 — classified failure (separate from rejectReason text). */
   failure?: RouteFailureSignal;
   /**
@@ -310,8 +346,14 @@ export function performanceFromPerf(perf: RoutePerfCounters | null): RouteTraceP
   if (!perf) {
     return {
       cacheHit: false,
+      brouterCalls: 0,
+      brouterCacheHits: 0,
+      brouterCacheMisses: 0,
+      dedupedRequests: 0,
+      candidateTrials: 0,
       externalCalls: { brouter: 0, overpass: 0, openLake: 0 },
       cacheHits: { brouter: 0, overpass: 0 },
+      brouterCache: { hit: 0, miss: 0, deduped: 0 },
       candidateCount: 0,
       trialCount: 0,
       pairCount: 0,
@@ -320,6 +362,11 @@ export function performanceFromPerf(perf: RoutePerfCounters | null): RouteTraceP
   }
   return {
     cacheHit: perf.brouterCacheHits + perf.overpassCacheHits > 0,
+    brouterCalls: perf.brouterCalls,
+    brouterCacheHits: perf.brouterCacheHits,
+    brouterCacheMisses: perf.brouterCacheMisses,
+    dedupedRequests: perf.dedupedRequests,
+    candidateTrials: perf.trialCount,
     externalCalls: {
       brouter: perf.brouterCalls,
       overpass: perf.overpassCalls,
@@ -328,6 +375,11 @@ export function performanceFromPerf(perf: RoutePerfCounters | null): RouteTraceP
     cacheHits: {
       brouter: perf.brouterCacheHits,
       overpass: perf.overpassCacheHits,
+    },
+    brouterCache: {
+      hit: perf.brouterCacheHits,
+      miss: perf.brouterCacheMisses,
+      deduped: perf.dedupedRequests,
     },
     candidateCount: perf.candidateCount,
     trialCount: perf.trialCount,
@@ -384,6 +436,9 @@ export type RouteTraceBuilder = {
   lastRejectReason: string | null;
   /** Optional perf counters attached at finish. */
   perf: RoutePerfCounters | null;
+  /** E1.7 long-span diagnostics. */
+  longSpan: RouteTraceLongSpan | null;
+  segments: RouteTraceSegment[];
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -419,6 +474,8 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     knowledge: null,
     lastRejectReason: null,
     perf: null,
+    longSpan: null,
+    segments: [],
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
       const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
@@ -462,6 +519,8 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
         coverage,
         // userCorrection intentionally omitted (schema-only in E0)
       };
+      if (builder.longSpan) trace.longSpan = builder.longSpan;
+      if (builder.segments.length) trace.segments = builder.segments.slice();
       if (failure && !final.ok) trace.failure = failure;
       if (builder.knowledge) trace.knowledge = builder.knowledge;
       emitRouteTrace(trace);

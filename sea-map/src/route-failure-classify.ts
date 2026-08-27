@@ -10,6 +10,7 @@ export type RouteFailureCategory =
   | 'external_provider_failure'
   | 'validator_reject'
   | 'hydro_reject'
+  | 'seam_failure'
   | 'performance_timeout'
   | 'none';
 
@@ -22,6 +23,8 @@ export type RouteFailureStage =
   | 'validation'
   | 'hydro'
   | 'bind'
+  | 'long_span'
+  | 'seam'
   | 'unknown';
 
 export type RouteFailureSignal = {
@@ -40,6 +43,23 @@ export function classifyRouteFailure(
     return { category: 'routing_failure', code: 'unknown', stage: 'unknown' };
   }
 
+  if (reason.startsWith('seam_') || reason === 'seam_failure') {
+    return { category: 'seam_failure', code: reason, stage: 'seam' };
+  }
+  if (
+    reason.startsWith('joint_snap') ||
+    reason.startsWith('chunk_too_long') ||
+    reason === 'insufficient_joints' ||
+    reason.startsWith('segment_')
+  ) {
+    const cat =
+      reason.includes('snap') || reason.includes('joint_snap')
+        ? 'snap_failure'
+        : reason.includes('bogus') || reason.includes('brouter')
+          ? 'external_provider_failure'
+          : 'routing_failure';
+    return { category: cat, code: reason, stage: 'long_span' };
+  }
   if (reason === 'span_gt_120' || opts?.longSpanOverpassSkip) {
     return {
       category: 'data_gap',
