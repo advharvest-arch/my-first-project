@@ -3,6 +3,7 @@ import { getRouteFeatureFlags } from './route-feature-flags';
 import {
   brouterCacheKey,
   getCachedBrouterResult,
+  normalizeBrouterLonlats,
   putCachedBrouterResult,
   withBrouterRequestDedup,
 } from './provider-cache';
@@ -422,8 +423,7 @@ async function brouterOnceNetwork(waypoints: LngLat[]): Promise<BrouterResult | 
 async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
   const flags = getRouteFeatureFlags();
-  const lonlats = waypoints.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join('|');
-  const key = brouterCacheKey(lonlats);
+  const key = brouterCacheKey(normalizeBrouterLonlats(waypoints, 'river'));
 
   const run = async (): Promise<BrouterResult | null> => {
     if (flags.USE_BROUTER_RESULT_CACHE) {
@@ -433,6 +433,8 @@ async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
         if (perf) perf.brouterCacheHits += 1;
         return cached.value;
       }
+      const perfMiss = getRoutePerf();
+      if (perfMiss) perfMiss.brouterCacheMisses += 1;
     }
     const hit = await brouterOnceNetwork(waypoints);
     if (flags.USE_BROUTER_RESULT_CACHE) {

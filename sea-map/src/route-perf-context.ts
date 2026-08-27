@@ -18,6 +18,8 @@ export type RoutePerfCounters = {
   finalAssemblyMs: number;
   brouterCalls: number;
   brouterCacheHits: number;
+  brouterCacheMisses: number;
+  dedupedRequests: number;
   overpassCalls: number;
   overpassCacheHits: number;
   openLakeOps: number;
@@ -43,6 +45,8 @@ export function createRoutePerfCounters(): RoutePerfCounters {
     finalAssemblyMs: 0,
     brouterCalls: 0,
     brouterCacheHits: 0,
+    brouterCacheMisses: 0,
+    dedupedRequests: 0,
     overpassCalls: 0,
     overpassCacheHits: 0,
     openLakeOps: 0,

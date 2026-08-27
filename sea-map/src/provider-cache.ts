@@ -1,12 +1,16 @@
 /**
- * E1.6 — short-TTL provider caches (BRouter).
- *
- * Success and negative caches are separate.
- * Negatives expire quickly so transient failures are not sticky.
- * Does not alter parsed geometry — only skips identical network round-trips.
+ * E1.6/E1.7 — short-TTL provider caches (BRouter) + session stats.
  */
 
+import { getRoutePerf } from './route-perf-context';
+
 export type ProviderCacheKind = 'success' | 'negative';
+
+export type BrouterCacheSessionStats = {
+  hit: number;
+  miss: number;
+  deduped: number;
+};
 
 type Entry<T> = {
   kind: ProviderCacheKind;
@@ -20,13 +24,13 @@ const MAX_ENTRIES = 256;
 
 const brouterCache = new Map<string, Entry<unknown>>();
 
-/** Request-scoped dedupe of in-flight + resolved BRouter keys. */
 type RequestScope = {
   resolved: Map<string, unknown>;
   inflight: Map<string, Promise<unknown>>;
 };
 
 let requestScope: RequestScope | null = null;
+let sessionStats: BrouterCacheSessionStats = { hit: 0, miss: 0, deduped: 0 };
 
 function now(): number {
   return Date.now();
@@ -44,8 +48,22 @@ function prune(map: Map<string, Entry<unknown>>): void {
   }
 }
 
-export function brouterCacheKey(lonlats: string): string {
-  return `br:${lonlats}`;
+/**
+ * Exact coordinate key — 6 decimal places (~0.1 m). Nearby points are NOT merged
+ * (could change the route). Profile included for future multi-profile safety.
+ */
+export function normalizeBrouterLonlats(
+  waypoints: Array<{ lon: number; lat: number }>,
+  profile = 'river',
+): string {
+  const lonlats = waypoints.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join('|');
+  return `${profile}:${lonlats}`;
+}
+
+export function brouterCacheKey(lonlatsOrNormalized: string): string {
+  return lonlatsOrNormalized.startsWith('br:')
+    ? lonlatsOrNormalized
+    : `br:${lonlatsOrNormalized}`;
 }
 
 export function beginProviderRequestScope(): void {
@@ -59,6 +77,14 @@ export function endProviderRequestScope(): void {
 export function clearProviderCaches(): void {
   brouterCache.clear();
   requestScope = null;
+}
+
+export function resetBrouterCacheSessionStats(): void {
+  sessionStats = { hit: 0, miss: 0, deduped: 0 };
+}
+
+export function getBrouterCacheSessionStats(): BrouterCacheSessionStats {
+  return { ...sessionStats };
 }
 
 export function getBrouterCacheStats(): {
@@ -76,23 +102,22 @@ export function getBrouterCacheStats(): {
   return { size: brouterCache.size, success, negative };
 }
 
-/**
- * Lookup BRouter cache. Returns undefined on miss.
- * `null` is a valid negative cached value.
- */
-export function getCachedBrouterResult<T>(key: string): { hit: true; value: T | null } | { hit: false } {
-  if (requestScope) {
-    if (requestScope.resolved.has(key)) {
-      return { hit: true, value: requestScope.resolved.get(key) as T | null };
-    }
+export function getCachedBrouterResult<T>(
+  key: string,
+): { hit: true; value: T | null; source: 'request' | 'ttl' } | { hit: false } {
+  if (requestScope?.resolved.has(key)) {
+    sessionStats.hit += 1;
+    return { hit: true, value: requestScope.resolved.get(key) as T | null, source: 'request' };
   }
   prune(brouterCache);
   const e = brouterCache.get(key);
   if (!e || e.expiresAtMs <= now()) {
     if (e) brouterCache.delete(key);
+    sessionStats.miss += 1;
     return { hit: false };
   }
-  return { hit: true, value: e.value as T | null };
+  sessionStats.hit += 1;
+  return { hit: true, value: e.value as T | null, source: 'ttl' };
 }
 
 export function putCachedBrouterResult<T>(
@@ -108,9 +133,6 @@ export function putCachedBrouterResult<T>(
   prune(brouterCache);
 }
 
-/**
- * Deduplicate concurrent identical BRouter fetches within one request scope.
- */
 export async function withBrouterRequestDedup<T>(
   key: string,
   enabled: boolean,
@@ -118,10 +140,19 @@ export async function withBrouterRequestDedup<T>(
 ): Promise<T | null> {
   if (!enabled || !requestScope) return factory();
   if (requestScope.resolved.has(key)) {
+    sessionStats.deduped += 1;
+    sessionStats.hit += 1;
+    const perf = getRoutePerf();
+    if (perf) perf.dedupedRequests += 1;
     return requestScope.resolved.get(key) as T | null;
   }
   const existing = requestScope.inflight.get(key);
-  if (existing) return (await existing) as T | null;
+  if (existing) {
+    sessionStats.deduped += 1;
+    const perf = getRoutePerf();
+    if (perf) perf.dedupedRequests += 1;
+    return (await existing) as T | null;
+  }
   const p = factory().then((v) => {
     requestScope?.resolved.set(key, v);
     requestScope?.inflight.delete(key);

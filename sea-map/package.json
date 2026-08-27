@@ -17,6 +17,7 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "bench:e16": "tsx scripts/e16-benchmark.ts",
+    "bench:e17": "tsx scripts/e17-benchmark.ts",
     "preview": "vite preview"
   },
   "devDependencies": {

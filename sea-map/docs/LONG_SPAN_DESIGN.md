@@ -1,6 +1,9 @@
-# E1.6 — LONG_SPAN_SEGMENTED_ROUTING (design only)
+# E1.6/E1.7 — LONG_SPAN_SEGMENTED_ROUTING
 
-**Status:** design + synthetic unit tests. **Not enabled in production.**
+**Status (E1.7):** prototype behind `USE_LONG_SPAN_SEGMENTATION=false`.  
+See `docs/E1_7_LONG_SPAN_REPORT.md` for benchmark decision gate.
+
+Production remains monolithic Phase B/C. Joints must snap to water (geodesic midpoints forbidden).
 
 ## Problem
 
