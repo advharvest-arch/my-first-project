@@ -1,5 +1,6 @@
 import { haversineKm, pathLengthKm, type LngLat } from './geo';
 import waterBodies from './water-bodies.json';
+import lakeMaskCache from './lake-mask-cache.json';
 
 type CatalogBody = {
   n: string;
@@ -14,18 +15,80 @@ type Hole = {
   bbox: BBox;
 };
 
+type OuterRing = {
+  ring: Array<[number, number]>;
+  bbox: BBox;
+};
+
 export type LakeMask = {
   name: string;
   osmId: number;
+  /** All OSM relation fragments contributing to this mask (E1). */
+  osmIds?: number[];
+  /** Primary outer (largest ring) — kept for backward compatibility. */
   outer: Array<[number, number]>;
   outerBBox: BBox;
+  /**
+   * All outer rings of a multipolygon / fragment union.
+   * When omitted, callers treat `outer` as the sole ring.
+   */
+  outers?: OuterRing[];
   holes: Hole[];
   bbox: BBox;
+  /**
+   * E1: true only when mask passes catalog coverage sanity (not a tip fragment).
+   * Phase A may set openWaterVerified only when this is true.
+   */
+  complete: boolean;
+  source?: 'bundled' | 'nominatim';
 };
+
+type BundledMaskPolygon = {
+  osmId?: number;
+  outer: Array<[number, number]>;
+  holes: Array<[number, number]>[];
+  bbox: BBox;
+};
+
+type BundledMaskEntry = {
+  name: string;
+  primaryOsmId: number;
+  osmIds: number[];
+  catalogBBox: BBox;
+  bbox: BBox;
+  complete: boolean;
+  metrics?: LakeMaskCompletenessMetrics;
+  polygons: BundledMaskPolygon[];
+  source?: string;
+  note?: string;
+};
+
+type BundledMaskFile = {
+  version: number;
+  generatedAt?: string;
+  note?: string;
+  masks: Record<string, BundledMaskEntry>;
+};
+
+export type LakeMaskCompletenessMetrics = {
+  lonCoverage: number;
+  latCoverage: number;
+  bboxAreaRatio: number;
+  intersectAreaRatio: number;
+};
+
+/** Catalog lon/lat span coverage required for openWaterVerified. */
+export const MASK_COMPLETE_LON_COVERAGE = 0.55;
+export const MASK_COMPLETE_LAT_COVERAGE = 0.55;
+export const MASK_COMPLETE_BBOX_AREA_RATIO = 0.3;
+export const MASK_COMPLETE_INTERSECT_AREA_RATIO = 0.25;
 
 /**
  * Natural lakes and large reservoirs with OSM multipolygon relations.
  * Straight open-water chords bend only around islands / capes / shore.
+ *
+ * Note: some reservoirs (Куйбышевское / Чебоксарское) are split across many
+ * OSM relations; E1 bundles fragment unions in lake-mask-cache.json.
  */
 const OPEN_WATER_OSM: Record<string, number> = {
   'ладожское озеро': 21149039,
@@ -41,8 +104,9 @@ const OPEN_WATER_OSM: Record<string, number> = {
   'рыбинское водохранилище': 1521563,
   'иваньковское водохранилище': 72136,
   'горьковское водохранилище': 1672785,
-  'чебоксарское водохранилище': 16760694,
-  'куйбышевское водохранилище': 116060,
+  // Primary id is one fragment; full geometry comes from lake-mask-cache.json.
+  'чебоксарское водохранилище': 4513430,
+  'куйбышевское водохранилище': 116061,
   'саратовское водохранилище': 6193700,
   'цимлянское водохранилище': 966973,
   'камское водохранилище': 14648915,
@@ -50,6 +114,7 @@ const OPEN_WATER_OSM: Record<string, number> = {
 };
 
 const CATALOG = waterBodies as CatalogBody[];
+const BUNDLED = lakeMaskCache as unknown as BundledMaskFile;
 const lakeCache = new Map<number, LakeMask | null>();
 const lakeInflight = new Map<number, Promise<LakeMask | null>>();
 
@@ -60,6 +125,11 @@ const GRID_STEP_KM = 0.7;
 
 function catalogKey(name: string): string {
   return name.trim().toLocaleLowerCase('ru');
+}
+
+function maskOuters(lake: LakeMask): OuterRing[] {
+  if (lake.outers && lake.outers.length) return lake.outers;
+  return [{ ring: lake.outer, bbox: lake.outerBBox }];
 }
 
 function inBBox(p: LngLat, b: BBox, pad = 0): boolean {
@@ -155,10 +225,18 @@ function segmentBBox(a: LngLat, b: LngLat, pad = 0.01): BBox {
   ];
 }
 
-/** True if point is on open water (inside outer, outside island holes). */
+/** True if point is on open water (inside any outer, outside island holes). */
 export function pointInOpenWater(p: LngLat, lake: LakeMask): boolean {
   if (!inBBox(p, lake.bbox, 0.02)) return false;
-  if (!pointInRing(p.lon, p.lat, lake.outer)) return false;
+  let inOuter = false;
+  for (const o of maskOuters(lake)) {
+    if (!inBBox(p, o.bbox, 0.02)) continue;
+    if (pointInRing(p.lon, p.lat, o.ring)) {
+      inOuter = true;
+      break;
+    }
+  }
+  if (!inOuter) return false;
   for (const hole of lake.holes) {
     if (!inBBox(p, hole.bbox, 0.002)) continue;
     if (pointInRing(p.lon, p.lat, hole.ring)) return false;
@@ -183,9 +261,11 @@ export function openWaterLineClear(
   const segBox = segmentBBox(a, b, 0.01);
   if (!overlapsBBox(segBox, lake.bbox)) return false;
 
-  // Leaving the lake through the outer shoreline.
-  if (overlapsBBox(segBox, lake.outerBBox) && segmentHitsRing(a, b, lake.outer)) {
-    return false;
+  // Leaving the lake through any outer shoreline.
+  for (const o of maskOuters(lake)) {
+    if (overlapsBBox(segBox, o.bbox) && segmentHitsRing(a, b, o.ring)) {
+      return false;
+    }
   }
   // Cutting an island / hole.
   for (const hole of lake.holes) {
@@ -262,29 +342,32 @@ function buildWaterGrid(lake: LakeMask, focus: BBox, stepKm = GRID_STEP_KM): Gri
       raw[r * cols + c] = pointInOpenWater(p, lake) ? 1 : 0;
     }
   }
-  // Erode by 1 cell: keep clearance from shore / island edges so neighbor
-  // chords do not nick land between cell centers.
+  // Erode by 1 cell for shore clearance — but island-dense reservoirs (E1
+  // Kuibyshev has hundreds of holes) lose channel connectivity after erosion.
+  const erode = lake.holes.length < 80;
   const walk = new Uint8Array(cols * rows);
-  for (let r = 1; r < rows - 1; r++) {
-    for (let c = 1; c < cols - 1; c++) {
-      const id = r * cols + c;
-      if (!raw[id]) continue;
-      let ok = true;
-      for (let dr = -1; dr <= 1 && ok; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (!raw[(r + dr) * cols + (c + dc)]) {
-            ok = false;
-            break;
+  if (erode) {
+    for (let r = 1; r < rows - 1; r++) {
+      for (let c = 1; c < cols - 1; c++) {
+        const id = r * cols + c;
+        if (!raw[id]) continue;
+        let ok = true;
+        for (let dr = -1; dr <= 1 && ok; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (!raw[(r + dr) * cols + (c + dc)]) {
+              ok = false;
+              break;
+            }
           }
         }
+        if (ok) walk[id] = 1;
       }
-      if (ok) walk[id] = 1;
     }
   }
-  // If erosion wiped a narrow channel, fall back to raw water for connectivity.
+  // If erosion wiped a narrow channel (or was skipped), use raw water cells.
   let walkable = 0;
   for (let i = 0; i < walk.length; i++) walkable += walk[i]!;
-  if (walkable < 8) {
+  if (!erode || walkable < 8) {
     for (let i = 0; i < raw.length; i++) walk[i] = raw[i]!;
   }
   return { west, south, cols, rows, dLon, dLat, walk };
@@ -368,16 +451,6 @@ function astarOpenWater(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
       [-1, -1],
     ] as const;
 
-    const edgeOk = new Map<string, boolean>();
-    const canTraverse = (from: number, to: number): boolean => {
-      const key = from < to ? `${from}:${to}` : `${to}:${from}`;
-      const cached = edgeOk.get(key);
-      if (cached != null) return cached;
-      const ok = openWaterLineClear(cellPoint(from, g), cellPoint(to, g), lake);
-      edgeOk.set(key, ok);
-      return ok;
-    };
-
     while (open.length) {
       let bi = 0;
       for (let i = 1; i < open.length; i++) {
@@ -399,12 +472,13 @@ function astarOpenWater(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
         const nid = nr * g.cols + nc;
         if (!g.walk[nid]) continue;
         if (dc !== 0 && dr !== 0) {
+          // Diagonal: require orthogonal corners walkable (no headland cut).
           const a1 = rr * g.cols + nc;
           const a2 = nr * g.cols + cc;
           if (!g.walk[a1] || !g.walk[a2]) continue;
         }
-        // Even orthogonal eroded cells can clip thin headlands — verify.
-        if (!canTraverse(cur, nid)) continue;
+        // Trust eroded grid neighbors. openWaterLineClear between cell centers
+        // falsely disconnects island-dense reservoirs (E1 Kuibyshev mid-pool).
         const np = cellPoint(nid, g);
         const tent = gScore[cur]! + haversineKm(curP, np);
         if (tent >= gScore[nid]!) continue;
@@ -453,7 +527,21 @@ function smoothOpenWaterPath(points: LngLat[], lake: LakeMask): LngLat[] {
 
 function pathWaterSafe(points: LngLat[], lake: LakeMask): boolean {
   for (let i = 1; i < points.length; i++) {
-    if (!openWaterLineClear(points[i - 1]!, points[i]!, lake)) return false;
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const d = haversineKm(a, b);
+    // A* grid edges (~GRID_STEP_KM): require endpoints + midpoint on water.
+    // Full openWaterLineClear is too strict beside islands (E1 Kuibyshev).
+    if (d <= GRID_STEP_KM * 1.6) {
+      if (!pointInOpenWater(a, lake) || !pointInOpenWater(b, lake)) return false;
+      const mid = {
+        lon: (a.lon + b.lon) / 2,
+        lat: (a.lat + b.lat) / 2,
+      };
+      if (!pointInOpenWater(mid, lake)) return false;
+      continue;
+    }
+    if (!openWaterLineClear(a, b, lake)) return false;
   }
   return true;
 }
@@ -582,6 +670,7 @@ function parseNominatimLake(
   name: string,
   osmId: number,
   geom: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  catalogBBox: BBox | null,
 ): LakeMask | null {
   const polys =
     geom.type === 'Polygon'
@@ -591,18 +680,7 @@ function parseNominatimLake(
         : [];
   if (!polys.length) return null;
 
-  let best: (typeof polys)[number] | null = null;
-  let bestN = 0;
-  for (const poly of polys) {
-    const n = poly[0]?.length ?? 0;
-    if (n > bestN) {
-      bestN = n;
-      best = poly;
-    }
-  }
-  if (!best || !best[0] || best[0].length < 8) return null;
-
-  const outer = best[0].map(([lon, lat]) => [lon, lat] as [number, number]);
+  const outers: OuterRing[] = [];
   const holes: Hole[] = [];
   const pushHole = (ring: Array<[number, number]>) => {
     if (ring.length < 4) return;
@@ -614,27 +692,134 @@ function parseNominatimLake(
     holes.push({ ring, bbox });
   };
 
-  for (let h = 1; h < best.length; h++) {
-    const ring = best[h];
-    if (!ring) continue;
-    pushHole(ring.map(([lon, lat]) => [lon, lat] as [number, number]));
-  }
-
+  // Each GeoJSON polygon contributes one outer (+ its inner rings as holes).
+  // Do NOT treat sibling multipolygon parts as holes (E1 fix).
   for (const poly of polys) {
-    if (poly === best) continue;
-    const ring = poly[0];
-    if (!ring) continue;
-    pushHole(ring.map(([lon, lat]) => [lon, lat] as [number, number]));
+    const outerRing = poly[0];
+    if (!outerRing || outerRing.length < 8) continue;
+    const outer = outerRing.map(([lon, lat]) => [lon, lat] as [number, number]);
+    outers.push({ ring: outer, bbox: ringBBox(outer) });
+    for (let h = 1; h < poly.length; h++) {
+      const ring = poly[h];
+      if (!ring) continue;
+      pushHole(ring.map(([lon, lat]) => [lon, lat] as [number, number]));
+    }
   }
+  if (!outers.length) return null;
+
+  outers.sort((a, b) => b.ring.length - a.ring.length);
+  const primary = outers[0]!;
+  const bbox = ringBBox(
+    outers.flatMap((o) => [
+      [o.bbox[0], o.bbox[1]],
+      [o.bbox[2], o.bbox[3]],
+    ]),
+  );
+  const metrics = catalogBBox
+    ? assessMaskCompleteness(bbox, catalogBBox)
+    : null;
+  const complete = metrics ? metrics.complete : false;
 
   return {
     name,
     osmId,
-    outer,
-    outerBBox: ringBBox(outer),
+    osmIds: [osmId],
+    outer: primary.ring,
+    outerBBox: primary.bbox,
+    outers,
     holes,
-    bbox: ringBBox(outer),
+    bbox,
+    complete,
+    source: 'nominatim',
   };
+}
+
+function bundledEntryToLakeMask(entry: BundledMaskEntry): LakeMask | null {
+  if (!entry.polygons?.length) return null;
+  const outers: OuterRing[] = [];
+  const holes: Hole[] = [];
+  for (const poly of entry.polygons) {
+    if (!poly.outer || poly.outer.length < 8) continue;
+    const ring = poly.outer.map(([lon, lat]) => [lon, lat] as [number, number]);
+    outers.push({ ring, bbox: poly.bbox ?? ringBBox(ring) });
+    for (const h of poly.holes ?? []) {
+      if (!h || h.length < 4) continue;
+      const hr = h.map(([lon, lat]) => [lon, lat] as [number, number]);
+      holes.push({ ring: hr, bbox: ringBBox(hr) });
+    }
+  }
+  if (!outers.length) return null;
+  outers.sort((a, b) => b.ring.length - a.ring.length);
+  const primary = outers[0]!;
+  // Trust bundled `complete` but re-validate against catalog metrics.
+  const metrics = assessMaskCompleteness(entry.bbox, entry.catalogBBox);
+  return {
+    name: entry.name,
+    osmId: entry.primaryOsmId,
+    osmIds: entry.osmIds?.slice() ?? [entry.primaryOsmId],
+    outer: primary.ring,
+    outerBBox: primary.bbox,
+    outers,
+    holes,
+    bbox: entry.bbox,
+    complete: Boolean(entry.complete) && metrics.complete,
+    source: 'bundled',
+  };
+}
+
+/**
+ * Compare mask bbox to catalog bbox. Tip-only Nominatim polygons fail these
+ * thresholds (Куйбышев tip ~0.07×0.11° vs catalog ~4.6×2.7°).
+ */
+export function assessMaskCompleteness(
+  maskBBox: BBox,
+  catalogBBox: BBox,
+): LakeMaskCompletenessMetrics & { complete: boolean } {
+  const [mw, ms, me, mn] = maskBBox;
+  const [cw, cs, ce, cn] = catalogBBox;
+  const catLon = Math.max(1e-9, ce - cw);
+  const catLat = Math.max(1e-9, cn - cs);
+  const lonCoverage = Math.max(0, Math.min(me, ce) - Math.max(mw, cw)) / catLon;
+  const latCoverage = Math.max(0, Math.min(mn, cn) - Math.max(ms, cs)) / catLat;
+  const carea = catLon * catLat;
+  const marea = Math.max(0, me - mw) * Math.max(0, mn - ms);
+  const inter =
+    Math.max(0, Math.min(me, ce) - Math.max(mw, cw)) *
+    Math.max(0, Math.min(mn, cn) - Math.max(ms, cs));
+  const bboxAreaRatio = marea / carea;
+  const intersectAreaRatio = inter / carea;
+  const complete =
+    lonCoverage >= MASK_COMPLETE_LON_COVERAGE &&
+    latCoverage >= MASK_COMPLETE_LAT_COVERAGE &&
+    bboxAreaRatio >= MASK_COMPLETE_BBOX_AREA_RATIO &&
+    intersectAreaRatio >= MASK_COMPLETE_INTERSECT_AREA_RATIO;
+  return {
+    lonCoverage,
+    latCoverage,
+    bboxAreaRatio,
+    intersectAreaRatio,
+    complete,
+  };
+}
+
+export function isLakeMaskComplete(lake: LakeMask | null | undefined): boolean {
+  return Boolean(lake?.complete);
+}
+
+function catalogBBoxForName(name: string): BBox | null {
+  const key = catalogKey(name);
+  for (const body of CATALOG) {
+    if (catalogKey(body.n) === key) return body.b;
+  }
+  return null;
+}
+
+function rememberMask(mask: LakeMask | null, osmId: number): LakeMask | null {
+  lakeCache.set(osmId, mask);
+  if (mask?.osmIds) {
+    for (const id of mask.osmIds) lakeCache.set(id, mask);
+  }
+  return mask;
 }
 
 async function fetchLakeMask(name: string, osmId: number): Promise<LakeMask | null> {
@@ -643,6 +828,13 @@ async function fetchLakeMask(name: string, osmId: number): Promise<LakeMask | nu
   if (pending) return pending;
 
   const job = (async (): Promise<LakeMask | null> => {
+    // E1: prefer bundled fragment-union masks (no Nominatim on critical path).
+    const bundled = BUNDLED.masks?.[catalogKey(name)];
+    if (bundled) {
+      const mask = bundledEntryToLakeMask(bundled);
+      return rememberMask(mask, osmId);
+    }
+
     // Low threshold: simplified shores must not cut across peninsulas / islands.
     const url =
       `https://nominatim.openstreetmap.org/lookup?osm_ids=R${osmId}` +
@@ -659,15 +851,12 @@ async function fetchLakeMask(name: string, osmId: number): Promise<LakeMask | nu
       const feat = gj.features?.[0];
       const geom = feat?.geometry;
       if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) {
-        lakeCache.set(osmId, null);
-        return null;
+        return rememberMask(null, osmId);
       }
-      const mask = parseNominatimLake(name, osmId, geom);
-      lakeCache.set(osmId, mask);
-      return mask;
+      const mask = parseNominatimLake(name, osmId, geom, catalogBBoxForName(name));
+      return rememberMask(mask, osmId);
     } catch {
-      lakeCache.set(osmId, null);
-      return null;
+      return rememberMask(null, osmId);
     } finally {
       lakeInflight.delete(osmId);
     }
@@ -714,18 +903,14 @@ function routeLegOnLake(a: LngLat, b: LngLat, lake: LakeMask): LngLat[] | null {
   if (openWaterLineClear(a, b, lake)) return [a, b];
   const routed = astarOpenWater(a, b, lake);
   if (!routed || routed.length < 2) return null;
-  // Attach true endpoints if they are on water and reachable by a short clear chord.
-  const path: LngLat[] = [];
-  if (openWaterLineClear(a, routed[0]!, lake)) path.push(a);
-  else path.push(routed[0]!);
-  for (let i = 1; i < routed.length - 1; i++) path.push(routed[i]!);
-  const last = routed[routed.length - 1]!;
-  if (openWaterLineClear(last, b, lake)) {
-    if (haversineKm(path[path.length - 1]!, last) > 0.05) path.push(last);
-    path.push(b);
-  } else {
-    path.push(last);
+  // Always keep true water endpoints; A* cells are densified mid-path.
+  const path: LngLat[] = [a];
+  for (const p of routed) {
+    if (haversineKm(path[path.length - 1]!, p) < 0.05) continue;
+    path.push(p);
   }
+  if (haversineKm(path[path.length - 1]!, b) >= 0.05) path.push(b);
+  if (path.length < 2) return null;
   const smooth = smoothOpenWaterPath(path, lake);
   if (pathWaterSafe(smooth, lake)) return smooth;
   if (pathWaterSafe(path, lake)) return path;
@@ -913,6 +1098,9 @@ export async function openLakePinsToward(
 /**
  * Straight open-water chords between waypoints, bending only to clear
  * islands / peninsulas / shore (grid A* on the lake mask).
+ *
+ * E1: requires a *complete* mask (catalog coverage sanity). Tip/partial
+ * Nominatim fragments must not authorize openWaterVerified Phase A.
  */
 export async function routeAcrossOpenLake(
   waypoints: LngLat[],
@@ -921,7 +1109,7 @@ export async function routeAcrossOpenLake(
   if (!shared) return null;
 
   const lake = await fetchLakeMask(shared.name, shared.osmId);
-  if (!lake) return null;
+  if (!lake || !lake.complete) return null;
 
   const snapped: LngLat[] = [];
   for (const p of waypoints) {

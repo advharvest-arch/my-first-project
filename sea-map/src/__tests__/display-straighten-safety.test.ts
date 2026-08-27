@@ -33,6 +33,8 @@ function rectLake(
     outerBBox: bbox,
     holes: [],
     bbox,
+    complete: true,
+    source: 'bundled',
   };
 }
 
