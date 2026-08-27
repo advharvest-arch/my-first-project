@@ -1,0 +1,221 @@
+{
+  "type": "FeatureCollection",
+  "name": "lower-volga-open-osm-style",
+  "properties": {
+    "note": "OSM-structured fixture for E2.1 offline tests; live Overpass preferred in runtime",
+    "corridor": "Volgograd-Astrakhan"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": 4010001,
+      "properties": {
+        "osmId": 4010001,
+        "waterway": "river",
+        "name": "Волга",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            44.516,
+            48.708
+          ],
+          [
+            44.7,
+            48.55
+          ],
+          [
+            45,
+            48.35
+          ],
+          [
+            45.3,
+            48.15
+          ],
+          [
+            45.6,
+            47.95
+          ],
+          [
+            45.9,
+            47.75
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 4010002,
+      "properties": {
+        "osmId": 4010002,
+        "waterway": "river",
+        "name": "Волга",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            47.2,
+            46.8
+          ],
+          [
+            46.95,
+            47
+          ],
+          [
+            46.7,
+            47.2
+          ],
+          [
+            46.45,
+            47.4
+          ],
+          [
+            46.2,
+            47.55
+          ],
+          [
+            45.9,
+            47.75
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 4010003,
+      "properties": {
+        "osmId": 4010003,
+        "waterway": "river",
+        "name": "Волга",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            47.2,
+            46.8
+          ],
+          [
+            47.45,
+            46.65
+          ],
+          [
+            47.7,
+            46.5
+          ],
+          [
+            47.9,
+            46.42
+          ],
+          [
+            48.02,
+            46.36
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 4010004,
+      "properties": {
+        "osmId": 4010004,
+        "waterway": "river",
+        "name": "Ахтуба",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            45,
+            48.35
+          ],
+          [
+            45.15,
+            48.2
+          ],
+          [
+            45.4,
+            47.95
+          ],
+          [
+            45.7,
+            47.7
+          ],
+          [
+            46,
+            47.45
+          ],
+          [
+            46.3,
+            47.2
+          ],
+          [
+            46.55,
+            47
+          ],
+          [
+            46.8,
+            46.8
+          ],
+          [
+            47.05,
+            46.6
+          ],
+          [
+            47.3,
+            46.5
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 4010005,
+      "properties": {
+        "osmId": 4010005,
+        "waterway": "river",
+        "name": "Волга",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            45.6,
+            47.95
+          ],
+          [
+            45.9,
+            47.75
+          ],
+          [
+            46.2,
+            47.55
+          ],
+          [
+            46.45,
+            47.4
+          ],
+          [
+            46.7,
+            47.2
+          ],
+          [
+            46.95,
+            47
+          ],
+          [
+            47.2,
+            46.8
+          ]
+        ]
+      }
+    }
+  ]
+}

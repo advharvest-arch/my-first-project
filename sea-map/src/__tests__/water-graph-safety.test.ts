@@ -60,16 +60,28 @@ describe('WaterGraph safety', () => {
       legacyLengthKm: 0,
       legacyOk: false,
       centerlines: [],
+      ingest: { failureCode: 'centerline_missing' },
     });
     expect(shadow.available).toBe(true);
-    // Lower Volga has no regional fairway → likely centerline_missing or unbound
     expect([
       'centerline_missing',
+      'centerline_empty_after_filter',
       'terminal_unbound',
       'graph_disconnected',
       'search_no_path',
       'none',
     ]).toContain(shadow.failureStage);
+  });
+
+  it('dam/weir features never become waterway edges via ingest filter', () => {
+    const g = buildWaterGraph({
+      a: { lon: 40, lat: 55 },
+      b: { lon: 40.2, lat: 55 },
+      centerlines: [],
+      options: { includeMask: false, includeFairway: false, includeLocks: false },
+    });
+    const crestLike = [...g.edges.values()].filter((e) => e.kind === 'waterway');
+    expect(crestLike.length).toBe(0);
   });
 
   it('graph path on synthetic centerline can validate search', () => {

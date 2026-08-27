@@ -128,6 +128,7 @@ export type WaterGraphBuildOptions = {
 
 export type WaterGraphFailureStage =
   | 'centerline_missing'
+  | 'centerline_empty_after_filter'
   | 'terminal_unbound'
   | 'graph_disconnected'
   | 'search_no_path'
@@ -135,16 +136,53 @@ export type WaterGraphFailureStage =
   | 'hydro_reject'
   | 'none';
 
+/** E2.1 shadow comparison classification. */
+export type WaterGraphLegacyClass =
+  | 'agree'
+  | 'graphBetter'
+  | 'graphRejected'
+  | 'graphNoPath'
+  | 'legacyBetter'
+  | 'legacyNoPath'
+  | 'bothFail';
+
+export type WaterGraphEdgeKindCounts = {
+  waterwayEdgeCount: number;
+  canalEdgeCount: number;
+  maskEdgeCount: number;
+  fairwayEdgeCount: number;
+  lockEdgeCount: number;
+  seamCount: number;
+};
+
+export type WaterGraphProvenance = {
+  sources: Array<'osm' | 'overpass' | 'brouter' | 'mask' | 'fairway' | 'lock' | 'fixture' | 'water-core'>;
+  centerlineSource: string;
+  sourceFeatureCount: number;
+  sourceWaterwayIds: string[];
+  osmFeatureCount?: number;
+  acceptedFeatureCount?: number;
+  rejectedFeatureCount?: number;
+  rejectionReasons?: Record<string, number>;
+  dataTimestampMs: number;
+  corridorBbox: [number, number, number, number] | null;
+  centerlineIngestMs?: number;
+};
+
 export type WaterGraphShadowResult = {
   available: true;
   built: boolean;
   nodeCount: number;
   edgeCount: number;
   layers: WaterGraphLayers;
+  edgeKindCounts: WaterGraphEdgeKindCounts;
   components: WaterGraphComponents | null;
   searchMs: number;
   buildMs: number;
-  timing?: WaterGraph['timing'];
+  timing?: WaterGraph['timing'] & {
+    centerlineIngestMs?: number;
+    totalGraphMs?: number;
+  };
   pathFound: boolean;
   pathLengthKm: number;
   pathCost: number;
@@ -155,6 +193,7 @@ export type WaterGraphShadowResult = {
   terminalB: WaterGraphTerminal | null;
   expandedNodes: number;
   validated: boolean;
+  provenance: WaterGraphProvenance;
   legacyCompare: {
     legacyLengthKm: number;
     graphLengthKm: number;
@@ -163,5 +202,9 @@ export type WaterGraphShadowResult = {
     agree: boolean;
     graphBetter: boolean;
     graphRejected: boolean;
+    graphNoPath: boolean;
+    legacyBetter: boolean;
+    legacyNoPath: boolean;
+    classification: WaterGraphLegacyClass;
   };
 };

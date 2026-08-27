@@ -14,9 +14,12 @@ import type {
   WaterGraphComponents,
   WaterGraphEdge,
   WaterGraphEdgeKind,
+  WaterGraphEdgeKindCounts,
+  WaterGraphLegacyClass,
   WaterGraphNode,
   WaterGraphNodeKind,
   WaterGraphPath,
+  WaterGraphProvenance,
   WaterGraphTerminal,
 } from './water-graph-types';
 import {
@@ -760,23 +763,82 @@ export type ShadowRunInput = {
   centerlines?: CenterlineSource[];
   lake?: LakeMask | null;
   lakeComplete?: boolean;
+  /** E2.1 ingest provenance (optional). */
+  ingest?: {
+    failureCode?: 'none' | 'centerline_missing' | 'centerline_empty_after_filter';
+    stats?: {
+      centerlineSource: string;
+      sourceFeatureCount: number;
+      sourceWaterwayIds: string[];
+      osmFeatureCount: number;
+      acceptedFeatureCount: number;
+      rejectedFeatureCount: number;
+      rejectionReasons: Record<string, number>;
+      dataTimestampMs: number;
+      corridorBbox: [number, number, number, number];
+      ingestMs: number;
+    };
+  };
 };
+
+function countEdgeKinds(g: WaterGraph): WaterGraphEdgeKindCounts {
+  const counts: WaterGraphEdgeKindCounts = {
+    waterwayEdgeCount: 0,
+    canalEdgeCount: 0,
+    maskEdgeCount: 0,
+    fairwayEdgeCount: 0,
+    lockEdgeCount: 0,
+    seamCount: 0,
+  };
+  for (const e of g.edges.values()) {
+    if (e.kind === 'waterway') counts.waterwayEdgeCount += 1;
+    else if (e.kind === 'canal') counts.canalEdgeCount += 1;
+    else if (e.kind === 'mask') counts.maskEdgeCount += 1;
+    else if (e.kind === 'fairway') counts.fairwayEdgeCount += 1;
+    else if (e.kind === 'lock') counts.lockEdgeCount += 1;
+    else if (e.kind === 'seam') counts.seamCount += 1;
+  }
+  return counts;
+}
+
+function classifyLegacyCompare(args: {
+  legacyOk: boolean;
+  validated: boolean;
+  agree: boolean;
+  graphBetter: boolean;
+  graphRejected: boolean;
+  graphLengthKm: number;
+  legacyLengthKm: number;
+}): WaterGraphLegacyClass {
+  const { legacyOk, validated, agree, graphBetter, graphRejected } = args;
+  if (!legacyOk && !validated) return 'bothFail';
+  if (!legacyOk && validated) return 'graphBetter';
+  if (legacyOk && !validated) {
+    if (graphRejected) return 'graphRejected';
+    return 'graphNoPath';
+  }
+  if (agree) return 'agree';
+  if (graphBetter) return 'graphBetter';
+  if (validated && legacyOk && args.graphLengthKm > args.legacyLengthKm * 1.05) {
+    return 'legacyBetter';
+  }
+  return 'agree';
+}
 
 /**
  * Shadow-only WaterGraph run. Never mutates production route decision.
  */
 export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResult {
   const tBuild0 = performance.now();
-  const brouterCl: CenterlineSource[] = [];
-  // optional legacy geometry not passed as path here — caller may supply centerlines
   const g = buildWaterGraph({
     a: input.a,
     b: input.b,
-    centerlines: [...(input.centerlines ?? []), ...brouterCl],
+    centerlines: input.centerlines ?? [],
     lake: input.lake ?? null,
     lakeComplete: input.lakeComplete,
   });
   const buildMs = performance.now() - tBuild0;
+  const edgeKindCounts = countEdgeKinds(g);
 
   const candsA =
     input.candidates?.filter((c) => c.endpoint === 'A').map((c) => ({
@@ -808,10 +870,19 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
   let expandedNodes = 0;
   let searchMs = 0;
   let validated = false;
+  let foundRawPath = false;
+
+  const ingestFail = input.ingest?.failureCode ?? 'none';
+  const hasOsmCenterline = (input.centerlines ?? []).some(
+    (c) => c.source === 'overpass' || c.source === 'fixture' || c.source === 'osm' || c.source === 'water-core',
+  );
 
   if (!g.layers.centerline && !g.layers.fairway && !g.layers.mask) {
-    failureStage = 'centerline_missing';
-    rejectReason = 'centerline_missing';
+    failureStage =
+      ingestFail === 'centerline_empty_after_filter'
+        ? 'centerline_empty_after_filter'
+        : 'centerline_missing';
+    rejectReason = failureStage;
   } else if (!termA || !termB) {
     failureStage = 'terminal_unbound';
     rejectReason = 'terminal_unbound';
@@ -826,6 +897,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
           : 'search_no_path';
       rejectReason = failureStage;
     } else {
+      foundRawPath = true;
       pathLengthKm = search.path.lengthKm;
       pathCost = search.path.cost;
       edgeKinds = search.path.edgeKinds.slice();
@@ -858,11 +930,57 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
   const deltaPct =
     legacyLengthKm > 0.1 ? deltaKm / legacyLengthKm : graphLengthKm > 0 ? 1 : 0;
   const agree =
+    input.legacyOk && validated && Math.abs(deltaPct) < 0.15;
+  const graphBetter =
+    validated && (!input.legacyOk || graphLengthKm < legacyLengthKm * 0.95);
+  const graphRejected =
+    foundRawPath && !validated && !!rejectReason;
+  const graphNoPath = !foundRawPath && !validated;
+  const legacyBetter =
     input.legacyOk &&
     validated &&
-    Math.abs(deltaPct) < 0.15;
-  const graphBetter = validated && input.legacyOk && graphLengthKm < legacyLengthKm * 0.95;
-  const graphRejected = !validated && !!rejectReason;
+    graphLengthKm > legacyLengthKm * 1.05;
+  const legacyNoPath = !input.legacyOk;
+  const classification = classifyLegacyCompare({
+    legacyOk: input.legacyOk,
+    validated,
+    agree,
+    graphBetter,
+    graphRejected,
+    graphLengthKm,
+    legacyLengthKm,
+  });
+
+  const sources: WaterGraphProvenance['sources'] = [];
+  if (hasOsmCenterline || (input.ingest?.stats?.sourceFeatureCount ?? 0) > 0) {
+    const src = input.ingest?.stats?.centerlineSource;
+    if (src === 'fixture') sources.push('fixture');
+    else if (src === 'water-core') sources.push('water-core');
+    else sources.push('overpass', 'osm');
+  }
+  if ((input.centerlines ?? []).some((c) => c.kind === 'brouter' || c.source?.includes('legacy'))) {
+    sources.push('brouter');
+  }
+  if (g.layers.mask) sources.push('mask');
+  if (g.layers.fairway) sources.push('fairway');
+  if (g.layers.lock) sources.push('lock');
+
+  const ingestStats = input.ingest?.stats;
+  const provenance: WaterGraphProvenance = {
+    sources: [...new Set(sources)],
+    centerlineSource: ingestStats?.centerlineSource ?? (hasOsmCenterline ? 'mixed' : 'empty'),
+    sourceFeatureCount: ingestStats?.sourceFeatureCount ?? (input.centerlines?.length ?? 0),
+    sourceWaterwayIds: ingestStats?.sourceWaterwayIds ?? [],
+    osmFeatureCount: ingestStats?.osmFeatureCount,
+    acceptedFeatureCount: ingestStats?.acceptedFeatureCount,
+    rejectedFeatureCount: ingestStats?.rejectedFeatureCount,
+    rejectionReasons: ingestStats?.rejectionReasons,
+    dataTimestampMs: ingestStats?.dataTimestampMs ?? Date.now(),
+    corridorBbox: ingestStats?.corridorBbox ?? null,
+    centerlineIngestMs: ingestStats?.ingestMs,
+  };
+
+  const totalGraphMs = buildMs + searchMs + (ingestStats?.ingestMs ?? 0);
 
   return {
     available: true,
@@ -870,10 +988,21 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     nodeCount: g.nodes.size,
     edgeCount: g.edges.size,
     layers: { ...g.layers },
+    edgeKindCounts,
     components: g.components ?? null,
     searchMs,
     buildMs,
-    timing: g.timing,
+    timing: {
+      ...(g.timing ?? {
+        buildMs,
+        centerlineMs: 0,
+        maskMs: 0,
+        seamMs: 0,
+        fairwayMs: 0,
+      }),
+      centerlineIngestMs: ingestStats?.ingestMs,
+      totalGraphMs,
+    },
     pathFound: validated,
     pathLengthKm: validated ? pathLengthKm : 0,
     pathCost: validated ? pathCost : 0,
@@ -884,6 +1013,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     terminalB: termB,
     expandedNodes,
     validated,
+    provenance,
     legacyCompare: {
       legacyLengthKm,
       graphLengthKm,
@@ -892,6 +1022,10 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
       agree,
       graphBetter,
       graphRejected,
+      graphNoPath,
+      legacyBetter,
+      legacyNoPath,
+      classification,
     },
   };
 }

@@ -61,6 +61,7 @@ import {
   runLongSpanSegmentedRoute,
 } from './long-span-segment';
 import { runWaterGraphShadow, type CenterlineSource } from './water-graph';
+import { ingestCorridorCenterlines } from './water-graph-ingest';
 import { mapPool } from './parallel-candidates';
 
 import {
@@ -3288,17 +3289,31 @@ async function measureWaterChainInner(
     }
   };
 
-  const emitDone = (path: WaterPath, rejectReason?: string | null): WaterPath => {
+  const emitDone = async (path: WaterPath, rejectReason?: string | null): Promise<WaterPath> => {
     attachKnowledge(path);
-    // E2.0 — WaterGraph shadow (diagnostic only; never changes returned path).
+    // E2.0/E2.1 — WaterGraph shadow (diagnostic only; never changes returned path).
     if (getRouteFeatureFlags().USE_WATER_GRAPH) {
       try {
+        const aPt = originalWaypoints[0]!;
+        const bPt = originalWaypoints[originalWaypoints.length - 1]!;
         const centerlines: CenterlineSource[] = [];
+
+        // E2.1 — ingest real OSM/Overpass (or empty if offline) before legacy fallback.
+        const ingest = await ingestCorridorCenterlines(aPt, bPt, {
+          // Prefer live Overpass; fixtures are for unit tests only.
+        });
+        centerlines.push(...ingest.centerlines);
+
         const geom =
           path.routingGeometry && path.routingGeometry.length >= 2
             ? path.routingGeometry
             : path.points;
-        if (geom.length >= 2 && path.method !== 'route_not_found') {
+        // BRouter/legacy geometry is fallback provider only — not source of truth.
+        if (
+          centerlines.length === 0 &&
+          geom.length >= 2 &&
+          path.method !== 'route_not_found'
+        ) {
           centerlines.push({
             id: 'legacy-route',
             kind: 'brouter',
@@ -3311,8 +3326,8 @@ async function measureWaterChainInner(
         const shared = findSharedOpenLake(originalWaypoints);
         const lake = shared ? cachedLakeMaskAlongPath(originalWaypoints) : null;
         const shadow = runWaterGraphShadow({
-          a: originalWaypoints[0]!,
-          b: originalWaypoints[originalWaypoints.length - 1]!,
+          a: aPt,
+          b: bPt,
           legacyLengthKm: path.lengthKm,
           legacyOk: path.method !== 'route_not_found' && path.points.length >= 2,
           candidates: trace.candidates.map((c) => ({
@@ -3327,9 +3342,14 @@ async function measureWaterChainInner(
           centerlines,
           lake,
           lakeComplete: lake ? isLakeMaskComplete(lake) : false,
+          ingest: {
+            failureCode: ingest.failureCode,
+            stats: ingest.stats,
+          },
         });
         const comps = shadow.components;
         const timing = shadow.timing;
+        const ek = shadow.edgeKindCounts;
         trace.graph = {
           ...trace.graph,
           hybridAvailable: true,
@@ -3345,14 +3365,21 @@ async function measureWaterChainInner(
           lockCount: comps?.lockCount,
           maskNodeCount: comps?.maskNodeCount,
           waterwayNodeCount: comps?.waterwayNodeCount,
+          waterwayEdgeCount: ek.waterwayEdgeCount,
+          canalEdgeCount: ek.canalEdgeCount,
+          maskEdgeCount: ek.maskEdgeCount,
+          fairwayEdgeCount: ek.fairwayEdgeCount,
+          lockEdgeCount: ek.lockEdgeCount,
+          seamCount: ek.seamCount,
           graphBuildMs: shadow.buildMs,
           centerlineMs: timing?.centerlineMs,
+          centerlineIngestMs: timing?.centerlineIngestMs ?? ingest.stats.ingestMs,
           maskMs: timing?.maskMs,
           seamMs: timing?.seamMs,
           fairwayMs: timing?.fairwayMs,
           searchMs: shadow.searchMs,
           buildMs: shadow.buildMs,
-          totalGraphMs: shadow.buildMs + shadow.searchMs,
+          totalGraphMs: timing?.totalGraphMs ?? shadow.buildMs + shadow.searchMs,
           pathFound: shadow.pathFound,
           pathLengthKm: shadow.pathLengthKm,
           pathCost: shadow.pathCost,
@@ -3375,7 +3402,17 @@ async function measureWaterChainInner(
             : null,
           expandedNodes: shadow.expandedNodes,
           legacyCompare: shadow.legacyCompare,
-          note: 'E2.0 WaterGraph shadow — production result remains legacy',
+          centerlineSource: shadow.provenance.centerlineSource,
+          sourceFeatureCount: shadow.provenance.sourceFeatureCount,
+          sourceWaterwayIds: shadow.provenance.sourceWaterwayIds,
+          osmFeatureCount: shadow.provenance.osmFeatureCount,
+          acceptedFeatureCount: shadow.provenance.acceptedFeatureCount,
+          rejectedFeatureCount: shadow.provenance.rejectedFeatureCount,
+          rejectionReasons: shadow.provenance.rejectionReasons,
+          dataTimestampMs: shadow.provenance.dataTimestampMs,
+          corridorBbox: shadow.provenance.corridorBbox,
+          provenanceSources: shadow.provenance.sources,
+          note: 'E2.1 WaterGraph shadow + OSM centerline ingest — production result remains legacy',
         };
       } catch {
         // Shadow failures must never affect routing.
@@ -3941,7 +3978,7 @@ async function measureWaterChainInner(
             sharedLake: sharedLake.name,
           };
           addPerfMs('phaseAMs', nowPerfMs() - tA);
-          return emitDone(accepted);
+          return await emitDone(accepted);
         }
         trace.phases.A = {
           attempted: true,
@@ -4029,7 +4066,7 @@ async function measureWaterChainInner(
             method: 'waterway',
             rejectReason: null,
           };
-          return emitDone(accepted);
+          return await emitDone(accepted);
         }
         if (!trace.longSpan.rejectReason) {
           trace.longSpan.rejectReason = trace.lastRejectReason ?? 'segment_chain_accept_fail';
@@ -4069,7 +4106,7 @@ async function measureWaterChainInner(
         brouterHadGeometry: true,
       };
       addPerfMs('phaseBMs', nowPerfMs() - tB);
-      return emitDone(first.path);
+      return await emitDone(first.path);
     }
 
     const snapped = snapWaypointsForRetry();
@@ -4087,7 +4124,7 @@ async function measureWaterChainInner(
           rejectReason: null,
         };
         addPerfMs('phaseBMs', nowPerfMs() - tB);
-        return emitDone(second.path);
+        return await emitDone(second.path);
       }
     }
 
@@ -4109,13 +4146,13 @@ async function measureWaterChainInner(
       const tC = nowPerfMs();
       const phaseC = await tryPhaseCMultiCandidate(brouterMethod, Boolean(sharedLake));
       addPerfMs('phaseCMs', nowPerfMs() - tC);
-      if (phaseC) return emitDone(phaseC);
+      if (phaseC) return await emitDone(phaseC);
     }
 
     // BRouter produced a water track that does not reach the original START/FINISH
     // (e.g. stem instead of tributary). Do not burn minutes on Overpass for that miss.
     if (first.hadGeometry && routeSpanKm(originalWaypoints) > 40) {
-      return emitDone(routeNotFound(), trace.lastRejectReason ?? 'stem_miss_early');
+      return await emitDone(routeNotFound(), trace.lastRejectReason ?? 'stem_miss_early');
     }
   }
 
@@ -4131,7 +4168,7 @@ async function measureWaterChainInner(
       rejectReason: 'span_gt_120',
     };
     trace.lastRejectReason = 'span_gt_120';
-    return emitDone(routeNotFound(), 'span_gt_120');
+    return await emitDone(routeNotFound(), 'span_gt_120');
   }
 
   // 3) Instant local fallback from water-core already in memory (no network).
@@ -4155,7 +4192,7 @@ async function measureWaterChainInner(
       lengthKm: fromCache.lengthKm,
       method: fromCache.method === 'lake' ? 'lake' : 'waterway',
     };
-    return emitDone(fromCache);
+    return await emitDone(fromCache);
   }
 
   // 4) Fetch more OSM geometry, then route (may be slower).
@@ -4179,7 +4216,7 @@ async function measureWaterChainInner(
       lengthKm: path.lengthKm,
       method: path.method === 'lake' ? 'lake' : 'waterway',
     };
-    return emitDone(path);
+    return await emitDone(path);
   }
 
   trace.phases.overpass = {
@@ -4188,7 +4225,7 @@ async function measureWaterChainInner(
     phase: 'overpass_fetch',
     rejectReason: 'overpass_fail',
   };
-  return emitDone(routeNotFound(), trace.lastRejectReason ?? 'route_not_found');
+  return await emitDone(routeNotFound(), trace.lastRejectReason ?? 'route_not_found');
 }
 
 /**
