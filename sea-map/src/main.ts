@@ -1785,3 +1785,47 @@ syncSpeedPresetChips();
 setStatus('Кликните точки маршрута на воде.');
 warmWaterCache();
 bootFromQuery();
+
+/** Dev-only manual test panel (USER_TEST_READY). Production builds skip this. */
+if (import.meta.env.DEV) {
+  void import('./user-test-panel').then(({ mountUserTestPanel }) => {
+    mountUserTestPanel({
+      map,
+      runRoute: async (a, b) => {
+        setMode('water');
+        waypoints = [
+          makeWaypoint(a.lon, a.lat, 'A'),
+          makeWaypoint(b.lon, b.lat, 'B'),
+        ];
+        lastRoutePath = null;
+        lastRoutingPath = null;
+        lastCumKm = [];
+        lastItinerary = [];
+        redrawWaypoints();
+        syncControls();
+        const midLat = (a.lat + b.lat) / 2;
+        const midLon = (a.lon + b.lon) / 2;
+        if (!map.getBounds().contains([a.lat, a.lon]) || !map.getBounds().contains([b.lat, b.lon])) {
+          map.setView([midLat, midLon], Math.max(map.getZoom(), 7));
+        }
+        await computeWaterRoute({ fit: true });
+      },
+      clearRoute: () => {
+        waypoints = [];
+        lastRoutePath = null;
+        lastRoutingPath = null;
+        lastCumKm = [];
+        lastItinerary = [];
+        pinnedWaterRoute = null;
+        drawLayer.clearLayers();
+        clearStats();
+        hideRouteDesc();
+        syncControls();
+        setStatus('');
+      },
+      setSuppressMapClick: (next) => {
+        suppressMapClick = next;
+      },
+    });
+  });
+}
