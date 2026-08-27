@@ -40,8 +40,36 @@ export function maxSnapKmForMethod(method: 'waterway' | 'lake' | string): number
 export const MAX_SHARED_LAKE_BROUTER_KM = 150;
 
 /**
- * Choose BRouter accept method: shared open-water body + span within cap → lake
- * (10 km endpoint reach); otherwise waterway (3 km).
+ * Endpoint residual ceiling for *unverified* BRouter accepts on a shared
+ * catalog lake/reservoir bbox (Phase B stem-miss guard).
+ *
+ * Giant bboxes (e.g. Чебоксарское) contain both open-pool hops and river
+ * stem→tributary misses. Full open-water snap (10 km) wrongly accepted
+ * Volga→Vetluga stem-miss (~7.4 km). Keep river snap (3 km) and Phase A
+ * verified open-lake snap (10 km) unchanged; only BRouter+shared-bbox uses
+ * this intermediate ceiling (covers mid-pool residuals ~3–4.5 km).
+ */
+export const MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM = 5.5;
+
+/**
+ * Endpoint reach used when accepting a path.
+ * - waterway → river snap (3 km)
+ * - lake + openWaterVerified (Phase A mask route) → full open-water snap (10 km)
+ * - lake without verified (Phase B shared-bbox BRouter) → stem-miss ceiling (5.5 km)
+ */
+export function endpointSnapKmForAccept(
+  method: 'waterway' | 'lake' | string,
+  openWaterVerified = false,
+): number {
+  if (method !== 'lake') return maxWaterSnapKm();
+  if (openWaterVerified) return maxOpenWaterSnapKm();
+  return Math.min(maxOpenWaterSnapKm(), MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM);
+}
+
+/**
+ * Choose BRouter accept method: shared open-water body + span within cap → lake;
+ * otherwise waterway. Lake here means Phase B shared-bbox accept (5.5 km
+ * residual ceiling), not Phase A mask-verified open water.
  */
 export function chooseBrouterWaterMethod(
   sharedOpenLake: boolean,

@@ -8,6 +8,7 @@ import {
   maxSnapKmForMethod,
   maxWaterSnapKm,
   chooseBrouterWaterMethod,
+  endpointSnapKmForAccept,
 } from './water-snap';
 import {
   ensureGvrIndex,
@@ -3087,7 +3088,9 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
       openWaterVerified?: boolean;
     },
   ): Promise<WaterPath | null> => {
-    const snapKm = maxSnapKmForMethod(extras.method);
+    // Phase A verified open-lake → full 10 km reach.
+    // Phase B shared-bbox BRouter → 5.5 km stem-miss ceiling (not full open snap).
+    const snapKm = endpointSnapKmForAccept(extras.method, Boolean(extras.openWaterVerified));
     // Hard gate: routing ends must reach the *original* START/FINISH.
     const reach = endpointReachToOriginals(routing, originalWaypoints, snapKm);
     if (!reach.ok) return null;
@@ -3181,8 +3184,9 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
   // 1) Pure open-water legs (lake or reservoir): straight chords that only
   // bend around islands / peninsulas. BRouter river fairways hug the shore
   // and must not win here — but if the lake mask is unavailable, shared-lake
-  // BRouter hops may still use the wider open-water snap (Phase B, ≤150 km),
-  // not long stem runs that merely sit inside a giant reservoir catalog bbox.
+  // BRouter hops may still use Phase B lake accept (≤150 km geo, 5.5 km
+  // residual ceiling — not full 10 km open snap), so stem-miss inside a giant
+  // reservoir catalog bbox (Volga→Vetluga) still fails.
   const sharedLake = findSharedOpenLake(originalWaypoints);
   if (sharedLake) {
     const open = await routeAcrossOpenLake(originalWaypoints);

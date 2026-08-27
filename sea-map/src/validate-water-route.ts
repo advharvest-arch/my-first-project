@@ -6,7 +6,7 @@ import {
   hasGeometryGap,
 } from './route-geometry';
 import { hasIllegalBarrierCrossing } from './routing-rules';
-import { maxSnapKmForMethod } from './water-snap';
+import { endpointSnapKmForAccept } from './water-snap';
 
 export type WaterRouteValidationIssue =
   | 'empty'
@@ -30,7 +30,8 @@ export type ValidateWaterRouteOptions = {
   method?: string;
   /**
    * Max distance from route ends to *original* user waypoints (km).
-   * Defaults to MAX_WATER_SNAP (river) / MAX_OPEN_WATER_SNAP (lake).
+   * Defaults via endpointSnapKmForAccept: waterway 3 km; lake+verified 10 km;
+   * lake without verified (Phase B shared-bbox) 5.5 km stem-miss ceiling.
    */
   endpointSnapKm?: number;
   /** Max jump between consecutive vertices (km). */
@@ -97,7 +98,10 @@ export function validateWaterRoute(
   if (!openWaterVerified && hasGeometryGap(points, maxGap)) issues.push('geometry_gap');
 
   // Reach original user START/FINISH — not an intermediate snapped pin.
-  const snap = opts.endpointSnapKm ?? maxSnapKmForMethod(opts.method ?? 'waterway');
+  // Unverified lake (Phase B shared-bbox) uses the stem-miss ceiling, not full 10 km.
+  const snap =
+    opts.endpointSnapKm ??
+    endpointSnapKmForAccept(opts.method ?? 'waterway', openWaterVerified);
   if (!endpointsNearWaypoints(points, opts.waypoints, snap)) {
     issues.push('endpoints_far');
   }

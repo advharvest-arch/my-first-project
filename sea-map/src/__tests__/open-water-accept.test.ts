@@ -14,9 +14,11 @@ import {
 } from '../routing-rules';
 import { validateWaterRoute } from '../validate-water-route';
 import {
+  MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM,
   MAX_SHARED_LAKE_BROUTER_KM,
   chooseBrouterWaterMethod,
   endpointReachToOriginals,
+  endpointSnapKmForAccept,
   maxOpenWaterSnapKm,
   maxWaterSnapKm,
 } from '../water-snap';
@@ -148,7 +150,15 @@ describe('Phase B — shared-lake BRouter lake method', () => {
     expect(chooseBrouterWaterMethod(true, 40, 1)).toBe('waterway');
   });
 
-  it('Cheboksary-like residuals: waterway fail, lake accept (no false endpoints_far)', () => {
+  it('endpointSnapKmForAccept: Phase A 10 km; Phase B shared-lake 5.5 km; waterway 3 km', () => {
+    expect(endpointSnapKmForAccept('lake', true)).toBe(maxOpenWaterSnapKm());
+    expect(endpointSnapKmForAccept('lake', false)).toBe(MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM);
+    expect(endpointSnapKmForAccept('waterway', false)).toBe(maxWaterSnapKm());
+    expect(MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM).toBeLessThan(7.4);
+    expect(MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM).toBeGreaterThan(4.2);
+  });
+
+  it('Cheboksary-like residuals: waterway fail, Phase B lake accept under 5.5 km', () => {
     const a = p(45.45, 56.35);
     const b = p(47.25, 56.14);
     // Meandering reservoir track (not a land chord) with ~4 km endpoint residuals.
@@ -167,10 +177,14 @@ describe('Phase B — shared-lake BRouter lake method', () => {
       ],
       6,
     );
+    const phaseBSnap = endpointSnapKmForAccept('lake', false);
     const reach3 = endpointReachToOriginals(track, [a, b], maxWaterSnapKm());
-    const reach10 = endpointReachToOriginals(track, [a, b], maxOpenWaterSnapKm());
+    const reachPhaseB = endpointReachToOriginals(track, [a, b], phaseBSnap);
     expect(reach3.ok).toBe(false);
-    expect(reach10.ok).toBe(true);
+    expect(reachPhaseB.ok).toBe(true);
+    expect(Math.max(reachPhaseB.startKm, reachPhaseB.finishKm)).toBeLessThanOrEqual(
+      MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM,
+    );
 
     const asWaterway = validateWaterRoute(track, {
       waypoints: [a, b],
@@ -180,6 +194,7 @@ describe('Phase B — shared-lake BRouter lake method', () => {
     expect(asWaterway.ok).toBe(false);
     expect(asWaterway.issues).toContain('endpoints_far');
 
+    // Unverified lake = Phase B ceiling (not full 10 km).
     const asLake = validateWaterRoute(track, {
       waypoints: [a, b],
       lengthKm: pathLengthKm(track),
@@ -189,7 +204,7 @@ describe('Phase B — shared-lake BRouter lake method', () => {
     expect(asLake.ok).toBe(true);
   });
 
-  it('Rybinsk mid→lock-like track: lake method accepts; dam chord still illegal', () => {
+  it('Rybinsk mid→lock-like track: Phase B lake method accepts; dam chord still illegal', () => {
     const a = p(38.4, 58.3);
     const b = p(38.72, 58.05);
     const lockTrack = densify(
@@ -204,8 +219,12 @@ describe('Phase B — shared-lake BRouter lake method', () => {
       ],
       6,
     );
-    const reach10 = endpointReachToOriginals(lockTrack, [a, b], maxOpenWaterSnapKm());
-    expect(reach10.ok).toBe(true);
+    const reachPhaseB = endpointReachToOriginals(
+      lockTrack,
+      [a, b],
+      endpointSnapKmForAccept('lake', false),
+    );
+    expect(reachPhaseB.ok).toBe(true);
     const v = validateWaterRoute(lockTrack, {
       waypoints: [a, b],
       lengthKm: pathLengthKm(lockTrack),
@@ -216,7 +235,10 @@ describe('Phase B — shared-lake BRouter lake method', () => {
     expect(hasIllegalBarrierCrossing(lockTrack)).toBe(false);
   });
 
-  it('Volga→Vetluga stem miss still endpoints_far under waterway (unchanged)', () => {
+  it('Volga→Vetluga stem miss: Phase B lake reject (regression) + waterway reject', () => {
+    // Live bug: both ends inside giant Чебоксарское bbox → method=lake;
+    // residual ~7.44 km passed full open-water 10 km snap. Must fail under
+    // Phase B 5.5 km ceiling while still failing under river 3 km.
     const start = p(44.0, 56.33);
     const finish = p(45.05, 56.15);
     const stemFinish = p(45.133, 56.102);
@@ -232,13 +254,48 @@ describe('Phase B — shared-lake BRouter lake method', () => {
       ],
       8,
     );
-    const v = validateWaterRoute(stemTrack, {
+    const residual = endpointReachToOriginals(
+      stemTrack,
+      [start, finish],
+      maxOpenWaterSnapKm(),
+    );
+    expect(residual.finishKm).toBeGreaterThan(7);
+    expect(residual.finishKm).toBeLessThan(8);
+    expect(residual.finishKm).toBeGreaterThan(MAX_SHARED_LAKE_BROUTER_ENDPOINT_KM);
+    // Old bug: full open snap would accept.
+    expect(residual.ok).toBe(true);
+
+    const reachPhaseB = endpointReachToOriginals(
+      stemTrack,
+      [start, finish],
+      endpointSnapKmForAccept('lake', false),
+    );
+    expect(reachPhaseB.ok).toBe(false);
+
+    const asPhaseBLake = validateWaterRoute(stemTrack, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(stemTrack),
+      method: 'lake',
+    });
+    expect(asPhaseBLake.ok).toBe(false);
+    expect(asPhaseBLake.issues).toContain('endpoints_far');
+
+    // Phase A verified would still allow 10 km — this case is not Phase A.
+    const asPhaseA = validateWaterRoute(stemTrack, {
+      waypoints: [start, finish],
+      lengthKm: pathLengthKm(stemTrack),
+      method: 'lake',
+      openWaterVerified: true,
+    });
+    expect(asPhaseA.issues).not.toContain('endpoints_far');
+
+    const asWaterway = validateWaterRoute(stemTrack, {
       waypoints: [start, finish],
       lengthKm: pathLengthKm(stemTrack),
       method: 'waterway',
     });
-    expect(v.ok).toBe(false);
-    expect(v.issues).toContain('endpoints_far');
+    expect(asWaterway.ok).toBe(false);
+    expect(asWaterway.issues).toContain('endpoints_far');
   });
 
   it('control corridors remain free of illegal_barrier (Myshkin / Ostashkov–Kazan / Dubna)', () => {
