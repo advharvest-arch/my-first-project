@@ -39,6 +39,10 @@ import {
   type RouteTraceBuilder,
 } from './route-trace';
 import {
+  getWaterKnowledgeForRoute,
+  toRouteTraceKnowledge,
+} from './water-knowledge';
+import {
   ensureGvrIndex,
   officialGvrName,
   rememberGvrPair,
@@ -3196,7 +3200,29 @@ export async function measureWaterChain(waypoints: LngLat[]): Promise<WaterPath>
     displayGeometry: [],
   });
 
+  const attachKnowledge = (path: WaterPath): void => {
+    // E2 advisory only — never changes accept/reject / ranking / thresholds.
+    try {
+      const routePts =
+        path.routingGeometry && path.routingGeometry.length >= 2
+          ? path.routingGeometry
+          : path.points.length >= 2
+            ? path.points
+            : originalWaypoints;
+      const wk = getWaterKnowledgeForRoute({
+        a: originalWaypoints[0]!,
+        b: originalWaypoints[originalWaypoints.length - 1]!,
+        route: routePts,
+        riverHints: path.waterName ? [path.waterName] : null,
+      });
+      if (wk.factsMatched > 0) trace.knowledge = toRouteTraceKnowledge(wk);
+    } catch {
+      // Knowledge failures must never affect routing.
+    }
+  };
+
   const emitDone = (path: WaterPath, rejectReason?: string | null): WaterPath => {
+    attachKnowledge(path);
     if (path.method === 'route_not_found' || path.points.length < 2) {
       trace.finish({
         ok: false,

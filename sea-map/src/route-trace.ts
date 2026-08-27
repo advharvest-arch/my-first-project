@@ -1,15 +1,17 @@
 /**
- * E0 — RouteTrace: structured logging for measureWaterChain / Phase A–D.
+ * E0/E2 — RouteTrace: structured logging for measureWaterChain / Phase A–D.
  *
  * Side-effect only: never influences accept/reject, thresholds, ranking, or UI.
  * Hybrid Water Graph layers are reserved in the schema (null until Stage E2+).
  * userCorrection is schema-only — never populated in E0.
+ * E2 adds optional `knowledge` (open Russian advisory facts) — diagnostic only.
  */
 
 import type { LngLat } from './geo';
 import type { WaterCandidateSource } from './water-candidates';
 import type { WaterRouteValidationIssue } from './validate-water-route';
 import type { HydroAcceptDecision } from './hydro-gate';
+import type { RouteTraceKnowledge } from './water-knowledge';
 
 export const ROUTE_TRACE_SCHEMA_VERSION = 1 as const;
 
@@ -130,6 +132,11 @@ export type RouteTrace = {
   hydro: RouteTraceHydro | null;
   final: RouteTraceFinal;
   /**
+   * E2 — Open Russian Knowledge Layer matches (advisory only).
+   * Omitted when no facts matched / knowledge disabled.
+   */
+  knowledge?: RouteTraceKnowledge;
+  /**
    * Schema reserved for future AI training / user feedback.
    * Always omitted (undefined) in E0 — never collect UI data here.
    */
@@ -204,6 +211,8 @@ export type RouteTraceBuilder = {
   graph: RouteTraceGraphInfo;
   validator: RouteTrace['validator'];
   hydro: RouteTraceHydro | null;
+  /** E2 advisory knowledge — set before finish; never affects accept/reject. */
+  knowledge: RouteTraceKnowledge | null;
   lastRejectReason: string | null;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
@@ -237,6 +246,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     graph: { ...DEFAULT_GRAPH },
     validator: null,
     hydro: null,
+    knowledge: null,
     lastRejectReason: null,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
@@ -267,6 +277,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
         },
         // userCorrection intentionally omitted (schema-only in E0)
       };
+      if (builder.knowledge) trace.knowledge = builder.knowledge;
       emitRouteTrace(trace);
       return trace;
     },
