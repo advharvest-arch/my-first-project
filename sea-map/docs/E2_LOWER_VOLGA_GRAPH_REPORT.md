@@ -1,50 +1,41 @@
-# E2.0 — Lower Volga WaterGraph report
+# E2.1 — Lower Volga WaterGraph (after centerline ingest)
 
-**Mode:** shadow diagnostics. Corridor: Volgograd → Astrakhan (+ mid splits).
+**Mode:** shadow. Fixture: OSM-structured open centerlines (`lower-volga.geojson`). Live Overpass used at runtime when reachable.
 
-## Fairway / centerline availability
+## Corridor
 
-| Layer | In corridor? |
+| Segment | A | B |
+| --- | --- | --- |
+| VG-D | Volgograd ~44.52E 48.7N | Astrakhan ~48.02E 46.36N |
+| Mid | ~45.9E 47.75N | ~46.95E 47.0N |
+| Branch | Akhtuba LineString in fixture | — |
+
+## Graph (fixture ingest, locks/mask off)
+
+| Metric | VG-D | Mid |
+| --- | --- | --- |
+| `failureStage` | **not** `centerline_missing` | **not** `centerline_missing` |
+| Centerline layer | yes (river) | yes |
+| Nodes / edges | >> 0 (see unit test / bench) | >> 0 |
+| Components | ≥1; Akhtuba may be separate | ≥1 |
+| `largestComponentKm` | tens–hundreds km along stem | mid stretch |
+
+## Interpretation
+
+| Question | Answer |
 | --- | --- |
-| `REGIONAL_FAIRWAYS` / VOLGA_NAV | **No** (~700 km away — upper cascade) |
-| Lock defs (Dubna/Rybinsk) | **No** |
-| OSM river | Yes (external); not auto-ingested in E2.0 builder |
-| Legacy BRouter geometry | Often yes on VG-D with good snaps — used as `cl:legacy` when shadow runs after success |
+| Still `centerline_missing`? | **No** (with ingest/fixture or live OSM) |
+| End-to-end production route? | **Not required** for E2.1 |
+| Where graph breaks? | Branch junctions (Akhtuba), long-span mid-only ingest, missing locks |
+| Fairway? | Still none on Lower Volga (no hardcoded crutches) |
 
-## Shadow without injected OSM
+## Remaining issues (for later analysis)
 
-| Stage | Typical |
-| --- | --- |
-| centerline | missing (no fairway, no legacy yet) |
-| terminal bind | unbound / weak |
-| `failureStage` | `centerline_missing` or `terminal_unbound` |
+1. Live Overpass may be unreachable in some CI/cloud egress → fixture proves pipeline; runtime needs Overpass allowlist.
+2. Full VG-D shadow currently mid-segment ingest by default (no global graph).
+3. No Lower Volga lock portals yet.
+4. End-to-end Dijkstra+validator path may still fail → `graph_disconnected` / `validator_reject` are now **diagnosable**.
 
-## Shadow after successful legacy VG-D
+## Production
 
-When `USE_WATER_GRAPH=true` and legacy returns a track, shadow injects legacy geometry as brouter centerline:
-
-| Expectation | |
-| --- | --- |
-| `layers.centerline` | true |
-| bind A/B | usually ok near track |
-| search | may succeed along densified legacy polyline |
-| components | often 1 along the track + global lock islands |
-
-This proves the **pipeline**, not Lower Volga coverage completeness.
-
-## Split diagnostics (targets)
-
-| Segment | What to watch in RouteTrace |
-| --- | --- |
-| Volgograd → Volzhsky | `centerline_missing` vs bind |
-| Mid Lower Volga | island/branch → future multi-component |
-| Approach Astrakhan | delta / Akhtuba ambiguity |
-| Full VG-D | legacyCompare agree% once OSM centerline ingested |
-
-## Conclusion
-
-Lower Volga problem is **not** “OSM empty”; it is **AquaRoute graph empty** until OpenStreetMap/BRouter polylines are loaded as centerline layers. E2.0 foundation can consume them; E2.1 should ingest them systematically.
-
-## Recommendation
-
-E2.1: corridor Overpass/water-core → `CenterlineSource` for Lower Volga; keep production on legacy until shadow agree% is high on VG-D + mid segments.
+UNCHANGED.

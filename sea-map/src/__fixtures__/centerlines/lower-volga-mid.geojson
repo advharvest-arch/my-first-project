@@ -1,0 +1,87 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": 4010010,
+      "properties": {
+        "osmId": 4010010,
+        "waterway": "river",
+        "name": "Волга",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            45.6,
+            47.95
+          ],
+          [
+            45.9,
+            47.75
+          ],
+          [
+            46.2,
+            47.55
+          ],
+          [
+            46.45,
+            47.4
+          ],
+          [
+            46.7,
+            47.2
+          ],
+          [
+            46.95,
+            47
+          ],
+          [
+            47.2,
+            46.8
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 4010011,
+      "properties": {
+        "osmId": 4010011,
+        "waterway": "river",
+        "name": "Ахтуба",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            45.4,
+            47.95
+          ],
+          [
+            45.7,
+            47.7
+          ],
+          [
+            46,
+            47.45
+          ],
+          [
+            46.3,
+            47.2
+          ],
+          [
+            46.55,
+            47
+          ],
+          [
+            46.8,
+            46.8
+          ]
+        ]
+      }
+    }
+  ]
+}

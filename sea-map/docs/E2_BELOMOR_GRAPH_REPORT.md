@@ -1,39 +1,38 @@
-# E2.0 — Belomor WaterGraph report
+# E2.1 — Belomor WaterGraph (after centerline ingest)
 
-**Mode:** shadow diagnostics only. No manual fairway added.
+**Mode:** shadow. Fixture: OSM-structured canal centerlines (`belomor.geojson`). No manual fairway.
 
-## Setup
+## Corridor
 
-Corridor seeds: Povenets-ish → Belomorsk-ish (~62.86N–64.52N, ~34.8E).
+| Segment | Approx |
+| --- | --- |
+| South | ~62.7–63.2N @ 34.8E |
+| Mid | ~63.2–63.9N |
+| North | ~64.0–64.6N (weak BRouter zone) |
 
-Regional fairways: **none** in this bbox (NW vias stop ~63°N; `REGIONAL_FAIRWAYS` are Volga/Topo).
-
-## Graph build (no OSM polylines injected)
+## Graph (fixture ingest)
 
 | Metric | Result |
 | --- | --- |
-| Centerline layer | absent unless caller supplies OSM/BRouter samples |
-| Fairway layer | absent |
-| Lock layer | global Dubna/Rybinsk portals may appear if bbox pad includes them — **not Belomor locks** |
-| Components | typically **0 useful Belomor edges** without centerline input |
-| `failureStage` (shadow, empty inputs) | `centerline_missing` |
+| `failureStage` | **not** `centerline_missing` |
+| Edge kinds | `canal` edges present |
+| Components | ≥1; north gap in fixture can show **disconnected** north tip |
+| Lock portals | Still **missing** Belomor staircase (Dubna/Rybinsk only) |
 
 ## Interpretation
 
 | Question | Answer |
 | --- | --- |
-| OSM canal exists? | Yes (E1.6/E1.7 Overpass) |
-| AquaRoute graph connected? | **No** until centerline polylines are ingested |
-| Missing lock portals? | **Yes** — Belomor staircase not in KNOWN_BARRIERS / lock defs |
-| BRouter gaps? | Mid-segment quality flaky (E1.7) |
-| DATA_GAP vs DISCONNECTED | Data exists in OSM; **graph disconnected / missing** in AquaRoute |
+| OSM canal in graph? | **Yes** (after ingest) |
+| Connected end-to-end? | Not guaranteed — gaps / missing locks visible via components |
+| DATA_GAP vs DISCONNECTED | Distinguishes `centerline_missing` from `graph_disconnected` |
 
-## Next (E2.1)
+## Remaining issues
 
-1. Feed OSM `waterway=canal` Belomor ways as `CenterlineSource[]` into `buildWaterGraph`.  
-2. Model lock chambers as `lock` portals (confirmed passage only).  
-3. Re-run component analysis: `connectedComponents`, `largestComponentKm`, dead ends.
+1. Belomor lock chambers not modeled as `lock` portals.
+2. North segment historically weak in BRouter — graph can still be torn.
+3. Live Overpass required for production-shadow diagnostics outside fixtures.
 
-## AI signal
+## Production
 
-`failureStage=centerline_missing` vs future `graph_disconnected` after partial ingest — distinguishes “no geometry loaded” from “geometry loaded but torn”.
+UNCHANGED. No Belomor routing crutches.

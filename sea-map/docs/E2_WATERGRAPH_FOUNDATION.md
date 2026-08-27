@@ -63,4 +63,4 @@ Seam threshold default **0.45 km** (`WG_LAKE_CONNECT_KM`) — independent of use
 
 ## Recommendation
 
-**E2.1** — ingest Overpass/water-core centerlines into builder for Lower Volga & Belomor; keep shadow until agree% is proven.
+**E2.1 done** — OSM centerline ingest in shadow. Review report before E2.2 (locks / stitching / agree%).

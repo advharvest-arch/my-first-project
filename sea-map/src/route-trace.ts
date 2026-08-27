@@ -124,7 +124,29 @@ export type RouteTraceGraphInfo = {
     agree: boolean;
     graphBetter: boolean;
     graphRejected: boolean;
+    graphNoPath?: boolean;
+    legacyBetter?: boolean;
+    legacyNoPath?: boolean;
+    classification?: string;
   };
+  /** E2.1 edge kind counts */
+  waterwayEdgeCount?: number;
+  canalEdgeCount?: number;
+  maskEdgeCount?: number;
+  fairwayEdgeCount?: number;
+  lockEdgeCount?: number;
+  seamCount?: number;
+  centerlineIngestMs?: number;
+  centerlineSource?: string;
+  sourceFeatureCount?: number;
+  sourceWaterwayIds?: string[];
+  osmFeatureCount?: number;
+  acceptedFeatureCount?: number;
+  rejectedFeatureCount?: number;
+  rejectionReasons?: Record<string, number>;
+  dataTimestampMs?: number;
+  corridorBbox?: [number, number, number, number] | null;
+  provenanceSources?: string[];
 };
 
 export type RouteTraceHydro = {
