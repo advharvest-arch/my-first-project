@@ -287,8 +287,10 @@ export function decideHybridFromShadow(args: {
 
 /**
  * Gather centerlines for the hybrid attempt (general mechanisms only).
- * Relation-aware OSM snapshot is included when the corridor geographically
- * overlaps the Belomor waterway system — not by route name.
+ * When the corridor geographically overlaps known OSM relation geometry,
+ * prefer that relation-aware centreline set alone — merging sparse Overpass
+ * fragments can tear a connected relation graph (Belomor E2.10 lesson).
+ * Otherwise use corridor Overpass ingest + densified lake mask (elsewhere).
  */
 export async function gatherHybridCenterlines(
   a: LngLat,
@@ -301,43 +303,49 @@ export async function gatherHybridCenterlines(
   ingestStats: Awaited<ReturnType<typeof ingestCorridorCenterlines>>['stats'] | null;
 }> {
   const t0 = performance.now();
-  const centerlines: CenterlineSource[] = [];
-  let centerlineSource = 'empty';
-  let ingestFailureCode: 'none' | 'centerline_missing' | 'centerline_empty_after_filter' =
-    'none';
-  let ingestStats: Awaited<
-    ReturnType<typeof ingestCorridorCenterlines>
-  >['stats'] | null = null;
 
   // Geographic relation coverage (OSM relation geometry), not route-name gating.
   if (isBelomorShadowCorridor(a, b)) {
     const rel = belomorRelationAwareCenterlinesForShadow();
-    centerlines.push(...rel);
-    centerlineSource = 'relation_aware_osm';
+    if (rel.length > 0) {
+      return {
+        centerlines: rel,
+        ingestMs: performance.now() - t0,
+        centerlineSource: 'relation_aware_osm',
+        ingestFailureCode: 'none',
+        ingestStats: {
+          osmFeatureCount: rel.length,
+          acceptedFeatureCount: rel.length,
+          rejectedFeatureCount: 0,
+          rejectionReasons: {},
+          sourceFeatureCount: rel.length,
+          sourceWaterwayIds: rel
+            .map((c) => c.sourceId)
+            .filter((x): x is string => !!x)
+            .slice(0, 64),
+          centerlineSource: 'fixture',
+          dataTimestampMs: Date.now(),
+          corridorBbox: [
+            Math.min(a.lon, b.lon) - 0.6,
+            Math.min(a.lat, b.lat) - 0.1,
+            Math.max(a.lon, b.lon) + 0.6,
+            Math.max(a.lat, b.lat) + 0.1,
+          ],
+          ingestMs: performance.now() - t0,
+          longSpanSegmented: false,
+          segmentCount: 1,
+        },
+      };
+    }
   }
 
   const ingest = await ingestCorridorCenterlines(a, b, {});
-  ingestStats = ingest.stats;
-  ingestFailureCode = ingest.failureCode;
-  if (ingest.centerlines.length) {
-    centerlines.push(...ingest.centerlines);
-    centerlineSource =
-      centerlineSource === 'relation_aware_osm'
-        ? 'relation_aware_osm+overpass'
-        : ingest.stats.centerlineSource;
-  } else if (centerlines.length === 0) {
-    ingestFailureCode =
-      ingest.failureCode === 'none'
-        ? 'centerline_missing'
-        : ingest.failureCode;
-  }
-
   return {
-    centerlines,
+    centerlines: ingest.centerlines,
     ingestMs: performance.now() - t0,
-    centerlineSource,
-    ingestFailureCode,
-    ingestStats,
+    centerlineSource: ingest.stats.centerlineSource,
+    ingestFailureCode: ingest.failureCode,
+    ingestStats: ingest.stats,
   };
 }
 

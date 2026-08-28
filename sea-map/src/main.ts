@@ -34,7 +34,6 @@ import {
 import { getLastRouteTrace, replaceLastRouteTrace } from './route-trace';
 import { nowPerfMs } from './route-perf-context';
 import {
-  getRouteFeatureFlags,
   setRouteFeatureFlagsForTests,
 } from './route-feature-flags';
 
