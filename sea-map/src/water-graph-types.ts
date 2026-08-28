@@ -195,6 +195,13 @@ export type WaterGraphShadowResult = {
   edgeKinds: WaterGraphEdgeKind[];
   /** Validated path geometry when pathFound (diagnostic / benchmark). */
   pathGeometry?: import('./geo').LngLat[];
+  /**
+   * E2.12 — raw Dijkstra geometry when a path exists but safety rejected it.
+   * Diagnostic only; never used as production accept evidence.
+   */
+  rawPathGeometry?: import('./geo').LngLat[];
+  /** Raw path length km before safety (set when foundRawPath). */
+  rawPathLengthKm?: number;
   rejectReason: string | null;
   failureStage: WaterGraphFailureStage;
   terminalA: WaterGraphTerminal | null;
