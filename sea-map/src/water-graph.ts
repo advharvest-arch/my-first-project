@@ -44,6 +44,7 @@ import type {
 } from './water-graph-types';
 import { diagnoseWaterGraphTopology } from './water-graph-topology';
 import { buildWaterCorridorEvidence } from './water-corridor-evidence';
+import { buildConnectionEvidence } from './water-graph-connection';
 
 export const WG_MERGE_NODE_KM = 0.05;
 export const WG_DENSIFY_MAX_KM = 2.0;
@@ -999,6 +1000,16 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     centerlines: input.centerlines ?? [],
     lake: input.lake ?? null,
   });
+  // E2.4 — connection model / provenance (never creates edges).
+  const connections = buildConnectionEvidence({
+    a: input.a,
+    b: input.b,
+    topology,
+    graph: g,
+    centerlines: input.centerlines ?? [],
+    lake: input.lake ?? null,
+    corridorReport: corridorEvidence,
+  });
 
   return {
     available: true,
@@ -1010,6 +1021,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     components: g.components ?? null,
     topology,
     corridorEvidence,
+    connections,
     searchMs,
     buildMs,
     timing: {
