@@ -43,6 +43,7 @@ import type {
   WaterGraphShadowResult,
 } from './water-graph-types';
 import { diagnoseWaterGraphTopology } from './water-graph-topology';
+import { buildWaterCorridorEvidence } from './water-corridor-evidence';
 
 export const WG_MERGE_NODE_KM = 0.05;
 export const WG_DENSIFY_MAX_KM = 2.0;
@@ -989,6 +990,15 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     b: input.b,
     lake: input.lake ?? null,
   });
+  // E2.3 — corridor evidence (never creates edges; distance ≠ proof).
+  const corridorEvidence = buildWaterCorridorEvidence({
+    a: input.a,
+    b: input.b,
+    topology,
+    graph: g,
+    centerlines: input.centerlines ?? [],
+    lake: input.lake ?? null,
+  });
 
   return {
     available: true,
@@ -999,6 +1009,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     edgeKindCounts,
     components: g.components ?? null,
     topology,
+    corridorEvidence,
     searchMs,
     buildMs,
     timing: {

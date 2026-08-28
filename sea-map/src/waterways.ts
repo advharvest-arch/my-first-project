@@ -3548,6 +3548,9 @@ async function measureWaterChainInner(
         if (shadow.topology) {
           trace.waterGraphTopology = shadow.topology;
         }
+        if (shadow.corridorEvidence) {
+          trace.waterCorridorEvidence = shadow.corridorEvidence;
+        }
       } catch {
         // Shadow failures must never affect routing.
       } finally {
