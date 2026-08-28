@@ -807,6 +807,18 @@ body {
   color: var(--danger);
 }
 
+/* E2.16 — Hybrid WaterGraph pilot mode hint (user-facing, no diagnostics). */
+.hybrid-mode-hint {
+  margin: 0.65rem 0 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--foam);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .panel-toggle {
   position: absolute;
   z-index: 501;
