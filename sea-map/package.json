@@ -23,6 +23,7 @@
     "bench:e212": "tsx scripts/e212-source-forensics.ts",
     "bench:e213": "tsx scripts/e213-mask-shadow.ts",
     "bench:e214": "tsx scripts/e214-endpoint-binding-diag.ts",
+    "bench:e215": "tsx scripts/e215-hybrid-pilot.ts",
     "preview": "vite preview"
   },
   "devDependencies": {

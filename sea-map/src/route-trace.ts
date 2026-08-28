@@ -180,6 +180,29 @@ export type RouteTraceGraphInfo = {
   provenanceSources?: string[];
 };
 
+/** E2.15 — Hybrid WaterGraph pilot selection (graph-first + BRouter fallback). */
+export type RouteTraceHybridRouter = {
+  routerMode: 'legacy' | 'hybrid_pilot';
+  selectedRouter: 'watergraph' | 'brouter' | 'legacy' | 'none';
+  waterGraphAttempted: boolean;
+  waterGraphResult: string;
+  waterGraphSafetyResult: string;
+  fallbackUsed: boolean;
+  fallbackReason: string | null;
+  pathKm: number | null;
+  timing: {
+    attemptMs: number;
+    ingestMs: number;
+    maskResolveMs: number;
+    buildMs: number;
+    searchMs: number;
+  };
+  centerlineSource: string | null;
+  maskSource: string | null;
+  failureStage: string | null;
+  note: string;
+};
+
 export type RouteTraceHydro = {
   reject: boolean;
   confidence: HydroAcceptDecision['confidence'];
@@ -631,6 +654,11 @@ export type RouteTrace = {
    */
   endpointBindingDiag?: RouteTraceEndpointBindingDiag;
   /**
+   * E2.15 — Hybrid WaterGraph pilot selection (graph-first + BRouter fallback).
+   * Present when measureWaterChain runs; routerMode=legacy when flag off.
+   */
+  hybridRouter?: RouteTraceHybridRouter;
+  /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
    */
@@ -870,6 +898,8 @@ export type RouteTraceBuilder = {
   waterGraphConnections: WaterGraphConnectionsReport | null;
   /** E2.10 — Belomor relation-aware shadow (diagnostic only). */
   relationAwareShadow: RouteTraceRelationAwareShadow | null;
+  /** E2.15 — Hybrid WaterGraph pilot selection. */
+  hybridRouter: RouteTraceHybridRouter | null;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -877,7 +907,7 @@ const DEFAULT_GRAPH: RouteTraceGraphInfo = {
   hybridAvailable: false,
   legacyOverpassUsed: false,
   legacySource: null,
-  note: 'E2.0: WaterGraph shadow available behind USE_WATER_GRAPH; production uses legacy',
+  note: 'E2.15: USE_WATER_GRAPH=false → legacy; true → WaterGraph pilot then BRouter fallback',
 };
 
 export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuilder {
@@ -914,6 +944,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     waterCorridorEvidence: null,
     waterGraphConnections: null,
     relationAwareShadow: null,
+    hybridRouter: null,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
       const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
@@ -993,6 +1024,9 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
       }
       if (builder.relationAwareShadow) {
         trace.relationAwareShadow = builder.relationAwareShadow;
+      }
+      if (builder.hybridRouter) {
+        trace.hybridRouter = builder.hybridRouter;
       }
       if (builder.longSpan) trace.longSpan = builder.longSpan;
       if (builder.segments.length) trace.segments = builder.segments.slice();

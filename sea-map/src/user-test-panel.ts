@@ -18,6 +18,10 @@ import {
   recordUserTestTrace,
   resetUserTestSession,
 } from './user-test-session';
+import {
+  getRouteFeatureFlags,
+  setRouteFeatureFlagsForTests,
+} from './route-feature-flags';
 
 export type UserTestPanelHooks = {
   map: LeafletMap;
@@ -146,7 +150,7 @@ export function mountUserTestPanel(hooks: UserTestPanelHooks): void {
   const hint = el(
     'p',
     'user-test-panel__hint',
-    'Dev only · does not change routing · FAIL is shown as-is',
+    'Dev only · FAIL is shown as-is · ?wg=1 enables WaterGraph pilot',
   );
 
   const aLon = el('input', 'user-test-panel__input') as HTMLInputElement;
@@ -287,11 +291,25 @@ export function mountUserTestPanel(hooks: UserTestPanelHooks): void {
   head.append(title, collapseBtn);
   root.append(head, hint);
 
+  const wgLabel = el('label', 'user-test-panel__row') as HTMLLabelElement;
+  const wgCheck = document.createElement('input');
+  wgCheck.type = 'checkbox';
+  wgCheck.checked = getRouteFeatureFlags().USE_WATER_GRAPH;
+  const wgText = document.createElement('span');
+  wgText.className = 'user-test-panel__label';
+  wgText.textContent = 'USE_WATER_GRAPH (hybrid pilot)';
+  wgLabel.append(wgCheck, wgText);
+  wgCheck.addEventListener('change', () => {
+    setRouteFeatureFlagsForTests(
+      wgCheck.checked ? { USE_WATER_GRAPH: true } : null,
+    );
+  });
+
   const aRow = el('div', 'user-test-panel__row');
   aRow.append(el('span', 'user-test-panel__label', 'A'), aLon, aLat, pickA);
   const bRow = el('div', 'user-test-panel__row');
   bRow.append(el('span', 'user-test-panel__label', 'B'), bLon, bLat, pickB);
-  root.append(aRow, bRow, buildBtn);
+  root.append(aRow, bRow, wgLabel, buildBtn);
 
   const presetBlock = el('div', 'user-test-panel__block');
   presetBlock.append(el('div', 'user-test-panel__label', 'Preset'), presetSelect, runPresetBtn, expectedEl);

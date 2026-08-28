@@ -16,6 +16,7 @@ export type FallbackEventType =
   | 'overpass'
   | 'overpass_batch'
   | 'overpass_fetch_network'
+  | 'watergraph_hybrid'
   | 'final_reject'
   | 'final_ok'
   | 'marker';
