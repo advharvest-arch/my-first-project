@@ -1,0 +1,66 @@
+{
+  "version": "e2.4-connection-model",
+  "note": "Deterministic expected connection classifications. No seams. confirmedCreatesEdges=false.",
+  "policy": {
+    "distanceAloneConfirms": false,
+    "fairwayAloneConfirms": false,
+    "maskAloneConfirms": false,
+    "nameAloneConfirms": false,
+    "knowledgeCooccurrenceAloneConfirms": false
+  },
+  "cases": {
+    "VG-mid": {
+      "description": "Volga ↔ Akhtuba mid Lower Volga",
+      "fixture": "lower-volga-mid.geojson",
+      "expected": {
+        "primaryRelationType": "separate_water_object",
+        "connectionStatus": "rejected",
+        "navigableConnectionEvidence": "NONE",
+        "confirmedCount": 0,
+        "allowConfirmedNavigableEdge": false
+      }
+    },
+    "BELOMOR": {
+      "description": "Belomor north DATA_GAP",
+      "fixture": "belomor.geojson",
+      "expected": {
+        "primaryRelationType": "data_gap",
+        "connectionStatus": "candidate",
+        "evidenceLevel": "STRONG",
+        "navigableConnectionEvidence": "STRONG",
+        "physicalConnectionEvidence": "STRONG",
+        "confirmedCount": 0,
+        "allowConfirmedNavigableEdge": false,
+        "note": "Strong identity; missing mid geometry — candidate for ingest repair, not seam"
+      }
+    },
+    "N06": {
+      "description": "Kuibyshev waterway/fairway → mask",
+      "expected": {
+        "primaryRelationType": "waterway_to_mask",
+        "connectionStatus": "candidate",
+        "navigableConnectionEvidenceMax": "WEAK",
+        "confirmedCount": 0,
+        "allowConfirmedNavigableEdge": false
+      }
+    },
+    "N08": {
+      "description": "Kuibyshev north mask transitions",
+      "expected": {
+        "primaryRelationType": "waterway_to_mask",
+        "connectionStatus": "candidate",
+        "confirmedCount": 0,
+        "allowConfirmedNavigableEdge": false
+      }
+    },
+    "X3": {
+      "description": "Cheboksary → Vetluga — no evidence pairs",
+      "expected": {
+        "confirmedCount": 0,
+        "candidateCountMax": 0,
+        "connectionStatus": null,
+        "allowConfirmedNavigableEdge": false
+      }
+    }
+  }
+}

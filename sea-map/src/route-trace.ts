@@ -30,12 +30,17 @@ import {
 import type { OverpassPreflight } from './overpass-preflight';
 import type { WaterGraphTopology } from './water-graph-topology';
 import type { WaterCorridorEvidenceReport } from './water-corridor-evidence';
+import type { WaterGraphConnectionsReport } from './water-graph-connection';
 
 export type { RouteTraceE2E, RouteLatencySummary, RouteE2EStages } from './route-e2e-latency';
 export type { RouteTraceFallbackDiag, FallbackTimelineEvent, FallbackSummary } from './route-fallback-timeline';
 export type { OverpassPreflight } from './overpass-preflight';
 export type { WaterGraphTopology } from './water-graph-topology';
 export type { WaterCorridorEvidenceReport, WaterCorridorEvidence } from './water-corridor-evidence';
+export type {
+  WaterGraphConnectionsReport,
+  WaterGraphConnectionEvidence,
+} from './water-graph-connection';
 export {
   beginRouteE2E,
   finalizeUiRouteE2E,
@@ -346,6 +351,11 @@ export type RouteTrace = {
    */
   waterCorridorEvidence?: WaterCorridorEvidenceReport;
   /**
+   * E2.4 — connection model (confirmed / candidate / rejected) + provenance.
+   * Diagnostic only; confirmedCreatesEdges is always false in this stage.
+   */
+  waterGraphConnections?: WaterGraphConnectionsReport;
+  /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
    */
@@ -581,6 +591,8 @@ export type RouteTraceBuilder = {
   waterGraphTopology: WaterGraphTopology | null;
   /** E2.3 — corridor evidence (diagnostic only). */
   waterCorridorEvidence: WaterCorridorEvidenceReport | null;
+  /** E2.4 — connection model (diagnostic only). */
+  waterGraphConnections: WaterGraphConnectionsReport | null;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -623,6 +635,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     overpassPreflight: null,
     waterGraphTopology: null,
     waterCorridorEvidence: null,
+    waterGraphConnections: null,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
       const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
@@ -696,6 +709,9 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
       if (builder.waterGraphTopology) trace.waterGraphTopology = builder.waterGraphTopology;
       if (builder.waterCorridorEvidence) {
         trace.waterCorridorEvidence = builder.waterCorridorEvidence;
+      }
+      if (builder.waterGraphConnections) {
+        trace.waterGraphConnections = builder.waterGraphConnections;
       }
       if (builder.longSpan) trace.longSpan = builder.longSpan;
       if (builder.segments.length) trace.segments = builder.segments.slice();

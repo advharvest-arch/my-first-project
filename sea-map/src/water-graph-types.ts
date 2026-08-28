@@ -181,6 +181,8 @@ export type WaterGraphShadowResult = {
   topology?: import('./water-graph-topology').WaterGraphTopology | null;
   /** E2.3 corridor evidence (diagnostic only). */
   corridorEvidence?: import('./water-corridor-evidence').WaterCorridorEvidenceReport | null;
+  /** E2.4 connection model + provenance (no edges). */
+  connections?: import('./water-graph-connection').WaterGraphConnectionsReport | null;
   searchMs: number;
   buildMs: number;
   timing?: WaterGraph['timing'] & {
