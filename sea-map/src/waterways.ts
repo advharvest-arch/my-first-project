@@ -70,6 +70,7 @@ import {
 } from './route-fallback-timeline';
 import { runWaterGraphShadow, type CenterlineSource } from './water-graph';
 import { ingestCorridorCenterlines } from './water-graph-ingest';
+import { buildOverpassPreflight } from './overpass-preflight';
 import { mapPool } from './parallel-candidates';
 
 import {
@@ -3553,6 +3554,31 @@ async function measureWaterChainInner(
     }
     // Tiny finalization bucket so optional stage is present without changing behavior.
     addPerfMs('finalAssemblyMs', 0.001);
+    if (!trace.overpassPreflight) {
+      const candsA = trace.candidates.filter((c) => c.endpoint === 'A').length;
+      const candsB = trace.candidates.filter((c) => c.endpoint === 'B').length;
+      const okPath = path.method !== 'route_not_found' && path.points.length >= 2;
+      trace.overpassPreflight = buildOverpassPreflight({
+        a: originalWaypoints[0]!,
+        b: originalWaypoints[originalWaypoints.length - 1]!,
+        triggered: false,
+        reason: okPath ? 'accepted_before_overpass' : (rejectReason ?? trace.lastRejectReason ?? 'rejected_before_overpass'),
+        triggerCondition: 'Overpass fallback not reached (accepted or rejected earlier)',
+        estimatedFallbackScope: 'not_reached',
+        sharedLakeName: sharedLake?.name ?? null,
+        phaseCRejectReason: trace.phases.C?.rejectReason ?? null,
+        phaseCCandidateCountA: candsA,
+        phaseCCandidateCountB: candsB,
+        brouterHadGeometry: trace.phases.B?.brouterHadGeometry ?? null,
+        getLines: (cx: number, cy: number) => cellCache.get(cellKey(cx, cy)),
+        isCellMissing: (cx: number, cy: number) => {
+          const id = cellKey(cx, cy);
+          if (cellCache.get(id)?.length) return false;
+          const emptyUntil = emptyCellUntil.get(id) ?? 0;
+          return emptyUntil <= Date.now();
+        },
+      });
+    }
     if (path.method === 'route_not_found' || path.points.length < 2) {
       markFallbackEvent('final_reject', 'final', rejectReason ?? trace.lastRejectReason ?? 'route_not_found');
       trace.finish({
@@ -4338,10 +4364,39 @@ async function measureWaterChainInner(
     }
   }
 
+  // E2.2.2 — preflight snapshot of signals known BEFORE Overpass fetch (diag only).
+  const preflightBase = () => {
+    const candsA = trace.candidates.filter((c) => c.endpoint === 'A').length;
+    const candsB = trace.candidates.filter((c) => c.endpoint === 'B').length;
+    return {
+      a: originalWaypoints[0]!,
+      b: originalWaypoints[originalWaypoints.length - 1]!,
+      sharedLakeName: sharedLake?.name ?? null,
+      phaseCRejectReason: trace.phases.C?.rejectReason ?? trace.lastRejectReason,
+      phaseCCandidateCountA: candsA,
+      phaseCCandidateCountB: candsB,
+      brouterHadGeometry: trace.phases.B?.brouterHadGeometry ?? null,
+      getLines: (cx: number, cy: number) => cellCache.get(cellKey(cx, cy)),
+      isCellMissing: (cx: number, cy: number) => {
+        const id = cellKey(cx, cy);
+        if (cellCache.get(id)?.length) return false;
+        const emptyUntil = emptyCellUntil.get(id) ?? 0;
+        return emptyUntil <= Date.now();
+      },
+    };
+  };
+
   // Long inland trips only work via BRouter. Overpass cell crawl cannot connect
   // Seliger→Vokhma and only hangs the UI for minutes before returning empty.
   if (routeSpanKm(originalWaypoints) > 120) {
     // Observability only — records why Overpass fallback was skipped (no threshold change).
+    trace.overpassPreflight = buildOverpassPreflight({
+      ...preflightBase(),
+      triggered: false,
+      reason: 'span_gt_120',
+      triggerCondition: 'routeSpanKm(waypoints) > 120 → skip Overpass fetch',
+      estimatedFallbackScope: 'skipped_span_gt_120',
+    });
     trace.request.longSpanOverpassSkip = true;
     trace.phases.overpass = {
       attempted: false,
@@ -4361,6 +4416,13 @@ async function measureWaterChainInner(
   );
   const fromCache = await routeOnCachedLines(cachedLines);
   if (fromCache) {
+    trace.overpassPreflight = buildOverpassPreflight({
+      ...preflightBase(),
+      triggered: false,
+      reason: 'cache_route_ok',
+      triggerCondition: 'routeOnCachedLines(corridor cellCache) succeeded before fetch',
+      estimatedFallbackScope: 'cache_route_attempt',
+    });
     trace.graph = {
       hybridAvailable: false,
       legacyOverpassUsed: true,
@@ -4378,6 +4440,15 @@ async function measureWaterChainInner(
   }
 
   // 4) Fetch more OSM geometry, then route (may be slower).
+  const spanKm = routeSpanKm(originalWaypoints);
+  trace.overpassPreflight = buildOverpassPreflight({
+    ...preflightBase(),
+    triggered: true,
+    reason: 'fetchWaterNetwork',
+    triggerCondition:
+      'Phase A/B/C failed; span≤120; cache route empty → fetchWaterNetwork (± forceRefresh)',
+    estimatedFallbackScope: spanKm <= 100 ? 'around_query' : 'cell_batch',
+  });
   const run = async (forceRefresh: boolean): Promise<WaterPath | null> => {
     const lines = await fetchWaterNetwork(originalWaypoints, { forceRefresh });
     return routeOnCachedLines(lines);
