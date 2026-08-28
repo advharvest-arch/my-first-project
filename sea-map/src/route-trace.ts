@@ -409,6 +409,47 @@ export type RouteTraceWaterGraphMaskShadow = {
   } | null;
 };
 
+/** E2.14 — endpoint binding diagnostic (never creates graph edges). */
+export type RouteTraceEndpointBindingDiag = {
+  diagnosticOnly: true;
+  route: string;
+  endpoints: {
+    A: {
+      coordinates: RouteTraceLngLat;
+      locationClass: string;
+      nearestMaskKm: number | null;
+      nearestWaterwayKm: number | null;
+      candidateType: string;
+      confidence: string;
+      reason: string;
+    };
+    B: {
+      coordinates: RouteTraceLngLat;
+      locationClass: string;
+      nearestMaskKm: number | null;
+      nearestWaterwayKm: number | null;
+      candidateType: string;
+      confidence: string;
+      reason: string;
+      nearestWaterwayName?: string | null;
+      chainToMask?: {
+        waterwayReachesMask: boolean | null;
+        waterwayName: string | null;
+        note: string;
+      };
+      brouter?: {
+        used: boolean;
+        residualStartKm: number | null;
+        residualFinishKm: number | null;
+        snapKm: number | null;
+        geomEnd: RouteTraceLngLat | null;
+        geomEndToEndpointKm: number | null;
+        note: string;
+      } | null;
+    };
+  };
+};
+
 export type RouteTraceFinal = {
   ok: boolean;
   method: string;
@@ -585,6 +626,10 @@ export type RouteTrace = {
    * E2.13 — lake-mask WaterGraph shadow experiment (diagnostic only).
    */
   waterGraphMaskShadow?: RouteTraceWaterGraphMaskShadow;
+  /**
+   * E2.14 — endpoint binding candidates (diagnostic only; never production edges).
+   */
+  endpointBindingDiag?: RouteTraceEndpointBindingDiag;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
