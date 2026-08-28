@@ -370,6 +370,45 @@ export type RouteTraceWaterGraphForensics = {
   missingEvidence: string[];
 };
 
+/** E2.13 — lake-mask WaterGraph shadow experiment (diagnostic only). */
+export type RouteTraceWaterGraphMaskShadow = {
+  diagnosticOnly: true;
+  corridor: string;
+  maskSource: string | null;
+  maskVerifiedComplete: boolean | null;
+  maskResolveNote: string;
+  maskNodeCount: number;
+  maskEdgeCount: number;
+  waterwayMaskConnections: number;
+  componentCountBefore: number;
+  componentCountAfter: number;
+  pathBefore: boolean;
+  pathAfter: boolean;
+  pathKmBefore: number | null;
+  pathKmAfter: number | null;
+  safetyBefore: boolean;
+  safetyAfter: boolean;
+  legacyCompare: {
+    legacyAccepted: boolean;
+    legacyKm: number | null;
+    legacySource: string;
+    divergenceReason: string;
+  };
+  timing: {
+    currentBuildMs: number;
+    currentSearchMs: number;
+    maskBuildMs: number;
+    maskSearchMs: number;
+  };
+  residualGap: {
+    endpoint: 'A' | 'B' | 'both' | 'unknown' | null;
+    nearestMaskKmA: number | null;
+    nearestMaskKmB: number | null;
+    note: string;
+    additionalDataNeeded: string[];
+  } | null;
+};
+
 export type RouteTraceFinal = {
   ok: boolean;
   method: string;
@@ -542,6 +581,10 @@ export type RouteTrace = {
    * Attached by the E2.12 runner; never changes production accept/reject.
    */
   waterGraphForensics?: RouteTraceWaterGraphForensics;
+  /**
+   * E2.13 — lake-mask WaterGraph shadow experiment (diagnostic only).
+   */
+  waterGraphMaskShadow?: RouteTraceWaterGraphMaskShadow;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
