@@ -87,6 +87,11 @@ function warningLines(trace: RouteTrace | null): string {
       `perf: total=${Math.round(trace.timing.totalMs)}ms br=${trace.timing.brouterMs}ms op=${trace.timing.overpassMs}ms trials=${trace.performance.trialCount}`,
     );
   }
+  if (trace.e2e) {
+    bits.push(
+      `e2e: total=${trace.e2e.totalMs}ms legacy=${trace.e2e.legacyRoutingMs}ms shadow=${trace.e2e.graphShadowMs}ms (ran=${trace.e2e.graphShadowRan}) brCalls=${trace.e2e.counters.brouterCalls} dedup=${trace.e2e.counters.brouterDedupedRequests}`,
+    );
+  }
   if (trace.validator && !trace.validator.ok) {
     bits.push(`validator: ${trace.validator.issues.join(', ') || 'fail'}`);
   }
@@ -244,6 +249,9 @@ export function mountUserTestPanel(hooks: UserTestPanelHooks): void {
       warningLines(trace),
       '',
       `Timing: ${Math.round(trace.timing.durationMs)} ms`,
+      trace.e2e
+        ? `E2E: ${trace.e2e.totalMs} ms (legacy ${trace.e2e.legacyRoutingMs} + shadow ${trace.e2e.graphShadowMs})`
+        : 'E2E: —',
     ].join('\n');
   }
 

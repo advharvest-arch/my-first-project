@@ -19,6 +19,20 @@ import {
   type RouteFailureSignal,
 } from './route-failure-classify';
 import type { RoutePerfCounters } from './route-perf-context';
+import {
+  buildE2EFromTraceParts,
+  type RouteTraceE2E,
+} from './route-e2e-latency';
+
+export type { RouteTraceE2E, RouteLatencySummary, RouteE2EStages } from './route-e2e-latency';
+export {
+  beginRouteE2E,
+  finalizeUiRouteE2E,
+  summarizeRouteLatency,
+  withRouteTraceE2E,
+  rankLatencySources,
+  noteRouteE2ERequestControlMs,
+} from './route-e2e-latency';
 
 /** E1.6 bumps schema; v1 fields remain (durationMs / startedAtMs / endedAtMs). */
 export const ROUTE_TRACE_SCHEMA_VERSION = 2 as const;
@@ -295,6 +309,11 @@ export type RouteTrace = {
   /** E1.6 — classified failure (separate from rejectReason text). */
   failure?: RouteFailureSignal;
   /**
+   * E2.2 PREP — UI/API end-to-end latency baseline.
+   * Diagnostic only; does not affect accept/reject.
+   */
+  e2e?: RouteTraceE2E;
+  /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
    */
@@ -338,6 +357,22 @@ export function getLastRouteTrace(): RouteTrace | null {
 export function emitRouteTrace(trace: RouteTrace): void {
   buffer.push(trace);
   while (buffer.length > ROUTE_TRACE_BUFFER_LIMIT) buffer.shift();
+  if (sink) {
+    try {
+      sink(trace);
+    } catch {
+      // Sink errors must never affect routing.
+    }
+  }
+}
+
+/** Replace the most recent buffer entry (E2.2 UI e2e seal). */
+export function replaceLastRouteTrace(trace: RouteTrace): void {
+  if (buffer.length === 0) {
+    emitRouteTrace(trace);
+    return;
+  }
+  buffer[buffer.length - 1] = trace;
   if (sink) {
     try {
       sink(trace);
@@ -505,6 +540,9 @@ export type RouteTraceBuilder = {
   /** E1.7 long-span diagnostics. */
   longSpan: RouteTraceLongSpan | null;
   segments: RouteTraceSegment[];
+  /** E2.2 — WaterGraph shadow wall (excluded from legacyRoutingMs). */
+  graphShadowMs: number;
+  graphShadowRan: boolean;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -542,6 +580,8 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     perf: null,
     longSpan: null,
     segments: [],
+    graphShadowMs: 0,
+    graphShadowRan: false,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
       const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
@@ -559,6 +599,29 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
           ok: final.ok,
           longSpanOverpassSkip: builder.request.longSpanOverpassSkip,
         }) ?? undefined;
+
+      const e2e = buildE2EFromTraceParts({
+        startedAt: builder.startedAtMs,
+        finishedAt: endedAtMs,
+        source: 'measureWaterChain',
+        endpointBindMs: (timing.bindMs ?? 0) + (timing.candidatesMs ?? 0),
+        phaseAMs: timing.phaseAMs,
+        phaseBMs: timing.phaseBMs,
+        phaseCMs: timing.phaseCMs,
+        overpassMs: timing.overpassMs,
+        validationMs: timing.validationMs,
+        hydroMs: timing.hydroMs,
+        finalizationMs: (timing.knowledgeMs ?? 0) + (timing.finalAssemblyMs ?? 0),
+        brouterCalls: performance.brouterCalls,
+        brouterCacheHits: performance.brouterCacheHits,
+        brouterCacheMisses: performance.brouterCacheMisses,
+        brouterDedupedRequests: performance.dedupedRequests,
+        phaseCTrials: performance.trialCount,
+        overpassCalls: performance.externalCalls.overpass,
+        overpassCacheHits: performance.cacheHits.overpass,
+        graphShadowMs: builder.graphShadowMs,
+        graphShadowRan: builder.graphShadowRan,
+      });
 
       const trace: RouteTrace = {
         schemaVersion: ROUTE_TRACE_SCHEMA_VERSION,
@@ -583,6 +646,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
         },
         performance,
         coverage,
+        e2e,
         // userCorrection intentionally omitted (schema-only in E0)
       };
       if (builder.longSpan) trace.longSpan = builder.longSpan;
