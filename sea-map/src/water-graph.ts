@@ -875,6 +875,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
   let validated = false;
   let foundRawPath = false;
   let pathGeometry: LngLat[] | undefined;
+  let rawPathGeometry: LngLat[] | undefined;
 
   const ingestFail = input.ingest?.failureCode ?? 'none';
   const hasOsmCenterline = (input.centerlines ?? []).some(
@@ -907,6 +908,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
       edgeKinds = search.path.edgeKinds.slice();
       const geom = search.path.geometry;
       if (geom.length >= 2) {
+        rawPathGeometry = geom;
         const v = validateWaterRoute(geom, {
           waypoints: [input.a, input.b],
           lengthKm: pathLengthKm,
@@ -1042,6 +1044,8 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     pathCost: validated ? pathCost : 0,
     edgeKinds: validated ? edgeKinds : [],
     pathGeometry: validated ? pathGeometry : undefined,
+    rawPathGeometry: foundRawPath ? rawPathGeometry : undefined,
+    rawPathLengthKm: foundRawPath ? pathLengthKm : undefined,
     rejectReason,
     failureStage,
     terminalA: termA,

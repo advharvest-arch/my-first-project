@@ -306,6 +306,70 @@ export type RouteTraceWaterGraphBenchmark = {
   };
 };
 
+/** E2.12 — source-by-source forensics (diagnostic only). */
+export type RouteTraceWaterGraphForensics = {
+  diagnosticOnly: true;
+  route: string;
+  verdict: string;
+  legacySources: {
+    method: string;
+    description: string;
+    phaseA: {
+      ok: boolean;
+      openWaterVerified: boolean | null;
+      sharedLake: string | null;
+      rejectReason: string | null;
+    } | null;
+    brouterAttempts: Array<{
+      label: string;
+      hadGeometry: boolean;
+      lengthKm?: number;
+    }>;
+  };
+  graphSources: {
+    centerlineStrategy: string;
+    layers: {
+      centerline: boolean;
+      mask: boolean;
+      fairway: boolean;
+      lock: boolean;
+    };
+    provenanceSources: string[];
+  };
+  osmWays: number;
+  osmRelations: string[];
+  masks: {
+    available: boolean;
+    complete: boolean | null;
+    usedByGraph: boolean;
+    note: string;
+  };
+  fairways: { available: boolean };
+  locks: { available: boolean };
+  components: {
+    count: number;
+    largestComponentKm: number;
+    endpointGapKm: number | null;
+  };
+  graphPath: {
+    validatedKm: number | null;
+    rawKm: number | null;
+    rejectReason: string | null;
+    seamCount: number;
+    chord: {
+      geoKm: number;
+      ratio: number | null;
+      maxEdgeKm: number | null;
+      interpretation: string;
+    } | null;
+  };
+  divergence: {
+    legacyPathKm: number | null;
+    missingEvidence: string[];
+  };
+  missingEvidence: string[];
+};
+
 export type RouteTraceFinal = {
   ok: boolean;
   method: string;
@@ -473,6 +537,11 @@ export type RouteTrace = {
    * Attached by the E2.11 runner; never changes production accept/reject.
    */
   waterGraphBenchmark?: RouteTraceWaterGraphBenchmark;
+  /**
+   * E2.12 — source-by-source forensics (diagnostic only).
+   * Attached by the E2.12 runner; never changes production accept/reject.
+   */
+  waterGraphForensics?: RouteTraceWaterGraphForensics;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
