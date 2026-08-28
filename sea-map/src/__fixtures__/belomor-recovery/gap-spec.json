@@ -1,0 +1,11 @@
+{
+  "version": "e2.5-belomor-gap",
+  "waterId": "ww:беломорско-балтийский канал",
+  "name": "Беломорско-Балтийский канал",
+  "waterway": "canal",
+  "gapStart": { "lon": 34.82, "lat": 63.95 },
+  "gapEnd": { "lon": 34.79, "lat": 64.12 },
+  "lengthKm": 18.959,
+  "bbox": [34.74, 63.9, 34.87, 64.17],
+  "note": "Deterministic fixture DATA_GAP from belomor.geojson topology (E2.2.3/E2.4). Real OSM canal swings west of this chord."
+}
