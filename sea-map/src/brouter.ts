@@ -9,6 +9,10 @@ import {
 } from './provider-cache';
 import { addPerfMs, getRoutePerf, nowPerfMs } from './route-perf-context';
 import {
+  beginFallbackEvent,
+  endFallbackEvent,
+} from './route-fallback-timeline';
+import {
   DUBNA_LOCK,
   DUBNA_LOCK_LOWER,
   DUBNA_LOCK_UPPER,
@@ -402,11 +406,32 @@ async function brouterOnceNetwork(waypoints: LngLat[]): Promise<BrouterResult | 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), brouterTimeoutMs(span));
   const t0 = nowPerfMs();
+  const evId = beginFallbackEvent('brouter', 'brouter-http', {
+    meta: {
+      attemptKind: 'network',
+      spanKm: span,
+      waypointCount: waypoints.length,
+    },
+  });
   try {
     const res = await fetch(url, { signal: controller.signal });
     const text = await res.text();
-    return parseBrouterPayload(text);
-  } catch {
+    const parsed = parseBrouterPayload(text);
+    const ok = Boolean(parsed && parsed.points.length >= 2 && parsed.lengthKm > 0);
+    endFallbackEvent(evId, ok ? 'ok' : 'empty_or_parse_fail', {
+      httpOk: res.ok,
+      cache: 'miss',
+      deduped: false,
+      actualHttp: true,
+    });
+    return parsed;
+  } catch (err) {
+    endFallbackEvent(evId, 'error_or_abort', {
+      cache: 'miss',
+      deduped: false,
+      actualHttp: true,
+      error: err instanceof Error ? err.message : 'error',
+    });
     return null;
   } finally {
     clearTimeout(timer);
@@ -431,6 +456,14 @@ async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
       if (cached.hit) {
         const perf = getRoutePerf();
         if (perf) perf.brouterCacheHits += 1;
+        const evId = beginFallbackEvent('brouter', 'brouter-cache', {
+          meta: { attemptKind: 'cache', cache: 'hit', actualHttp: false },
+        });
+        endFallbackEvent(evId, cached.value ? 'cache_hit_success' : 'cache_hit_negative', {
+          cache: 'hit',
+          deduped: false,
+          actualHttp: false,
+        });
         return cached.value;
       }
       const perfMiss = getRoutePerf();

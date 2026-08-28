@@ -3,6 +3,7 @@
  */
 
 import { getRoutePerf } from './route-perf-context';
+import { markFallbackEvent } from './route-fallback-timeline';
 
 export type ProviderCacheKind = 'success' | 'negative';
 
@@ -144,6 +145,9 @@ export async function withBrouterRequestDedup<T>(
     sessionStats.hit += 1;
     const perf = getRoutePerf();
     if (perf) perf.dedupedRequests += 1;
+    markFallbackEvent('brouter', 'brouter-dedup-resolved', 'deduped_resolved', {
+      meta: { cache: 'resolved', deduped: true, actualHttp: false, key },
+    });
     return requestScope.resolved.get(key) as T | null;
   }
   const existing = requestScope.inflight.get(key);
@@ -151,6 +155,9 @@ export async function withBrouterRequestDedup<T>(
     sessionStats.deduped += 1;
     const perf = getRoutePerf();
     if (perf) perf.dedupedRequests += 1;
+    markFallbackEvent('brouter', 'brouter-dedup-inflight', 'deduped_inflight', {
+      meta: { cache: 'inflight', deduped: true, actualHttp: false, key },
+    });
     return (await existing) as T | null;
   }
   const p = factory().then((v) => {

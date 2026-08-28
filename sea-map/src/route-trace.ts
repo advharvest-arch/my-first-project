@@ -23,8 +23,13 @@ import {
   buildE2EFromTraceParts,
   type RouteTraceE2E,
 } from './route-e2e-latency';
+import {
+  snapshotFallbackDiag,
+  type RouteTraceFallbackDiag,
+} from './route-fallback-timeline';
 
 export type { RouteTraceE2E, RouteLatencySummary, RouteE2EStages } from './route-e2e-latency';
+export type { RouteTraceFallbackDiag, FallbackTimelineEvent, FallbackSummary } from './route-fallback-timeline';
 export {
   beginRouteE2E,
   finalizeUiRouteE2E,
@@ -33,6 +38,7 @@ export {
   rankLatencySources,
   noteRouteE2ERequestControlMs,
 } from './route-e2e-latency';
+export { formatFallbackTimelineTable } from './route-fallback-timeline';
 
 /** E1.6 bumps schema; v1 fields remain (durationMs / startedAtMs / endedAtMs). */
 export const ROUTE_TRACE_SCHEMA_VERSION = 2 as const;
@@ -313,6 +319,11 @@ export type RouteTrace = {
    * Diagnostic only; does not affect accept/reject.
    */
   e2e?: RouteTraceE2E;
+  /**
+   * E2.2.1 — chronological fallback timeline (Overpass/BRouter/Phase C).
+   * Diagnostic only.
+   */
+  fallbackTimeline?: RouteTraceFallbackDiag;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
@@ -649,6 +660,8 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
         e2e,
         // userCorrection intentionally omitted (schema-only in E0)
       };
+      const fallback = snapshotFallbackDiag(timing.totalMs);
+      if (fallback) trace.fallbackTimeline = fallback;
       if (builder.longSpan) trace.longSpan = builder.longSpan;
       if (builder.segments.length) trace.segments = builder.segments.slice();
       if (failure && !final.ok) trace.failure = failure;
