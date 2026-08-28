@@ -36,6 +36,11 @@ import { nowPerfMs } from './route-perf-context';
 import {
   setRouteFeatureFlagsForTests,
 } from './route-feature-flags';
+import {
+  hybridEnabledFromSearchParams,
+  isHybridWaterGraphEnabled,
+  statusWithRouterSource,
+} from './hybrid-router-ui';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -279,6 +284,26 @@ function escapeHtml(s: string): string {
 function setStatus(message: string, isError = false): void {
   statusEl.textContent = message;
   statusEl.classList.toggle('error', isError);
+}
+
+/** E2.16 — persistent Hybrid mode hint (no diagnostics). */
+function syncHybridModeHint(): void {
+  let hint = document.getElementById('hybrid-mode-hint');
+  if (!isHybridWaterGraphEnabled()) {
+    if (hint) hint.remove();
+    document.body.classList.remove('hybrid-wg-on');
+    return;
+  }
+  document.body.classList.add('hybrid-wg-on');
+  if (!hint) {
+    hint = document.createElement('p');
+    hint.id = 'hybrid-mode-hint';
+    hint.className = 'hybrid-mode-hint';
+    hint.setAttribute('role', 'status');
+    statusEl.insertAdjacentElement('beforebegin', hint);
+  }
+  hint.textContent =
+    'Режим: Hybrid WaterGraph (пилот) · выкл: уберите ?wg=1 или снимите переключатель';
 }
 
 function clearStats(): void {
@@ -1295,7 +1320,14 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       hideRouteDesc();
       redrawWaypoints();
       renderWaypointList();
-      setStatus('Водный маршрут не найден', true);
+      setStatus(
+        statusWithRouterSource(
+          'Водный маршрут не найден',
+          getLastRouteTrace()?.hybridRouter,
+          false,
+        ),
+        true,
+      );
       sealE2E();
       return;
     }
@@ -1347,11 +1379,21 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
 
     if (path.seaUnavailable && prefer === 'sea') {
       setStatus(
-        `Точки далеко от моря — оставлен речной маршрут (${netLabel}). Для моря кликните порт или берег.`,
+        statusWithRouterSource(
+          `Точки далеко от моря — оставлен речной маршрут (${netLabel}). Для моря кликните порт или берег.`,
+          getLastRouteTrace()?.hybridRouter,
+          true,
+        ),
         true,
       );
     } else {
-      setStatus(`Готово: ${waypoints.length} точ.${parallelNote}`);
+      setStatus(
+        statusWithRouterSource(
+          `Готово: ${waypoints.length} точ.${parallelNote}`,
+          getLastRouteTrace()?.hybridRouter,
+          true,
+        ),
+      );
     }
     sealE2E();
     if (fit && lastRoutePath.length >= 2) {
@@ -1758,11 +1800,12 @@ gpxExportBtn.addEventListener('click', () => {
 });
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
-  // E2.15 pilot: ?wg=1 enables Hybrid WaterGraph (WaterGraph → BRouter fallback).
+  // E2.15/E2.16 pilot: ?wg=1 enables Hybrid WaterGraph (WaterGraph → BRouter fallback).
   // Default remains USE_WATER_GRAPH=false.
-  if (params.get('wg') === '1' || params.get('useWaterGraph') === '1') {
+  if (hybridEnabledFromSearchParams(params)) {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
   }
+  syncHybridModeHint();
   const qMode = params.get('mode');
   if (qMode === 'ruler') setMode('ruler');
   else if (qMode === 'water' || qMode === 'sea' || qMode === 'inland') setMode('water');
@@ -1863,6 +1906,9 @@ if (import.meta.env.DEV) {
           map.setView([midLat, midLon], Math.max(map.getZoom(), 7));
         }
         await computeWaterRoute({ fit: true });
+      },
+      onHybridToggle: () => {
+        syncHybridModeHint();
       },
       clearRoute: () => {
         resetRouteRequestState('user-test-clear');

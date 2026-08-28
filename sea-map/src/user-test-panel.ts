@@ -22,6 +22,10 @@ import {
   getRouteFeatureFlags,
   setRouteFeatureFlagsForTests,
 } from './route-feature-flags';
+import {
+  userRouterSourceFromHybrid,
+  userRouterSourceLabelEn,
+} from './hybrid-router-ui';
 
 export type UserTestPanelHooks = {
   map: LeafletMap;
@@ -31,6 +35,8 @@ export type UserTestPanelHooks = {
   clearRoute?: () => void;
   /** Suppress normal map click → waypoint while picking A/B. */
   setSuppressMapClick?: (next: boolean) => void;
+  /** E2.16 — notify app when Hybrid WaterGraph toggle changes. */
+  onHybridToggle?: (enabled: boolean) => void;
 };
 
 type PickTarget = 'A' | 'B' | null;
@@ -57,63 +63,6 @@ function parseCoord(raw: string): number | null {
 
 function fmtCoord(n: number): string {
   return n.toFixed(5);
-}
-
-function knowledgeLines(trace: RouteTrace | null): string {
-  if (!trace?.knowledge || trace.knowledge.factsMatched === 0) {
-    return 'none';
-  }
-  const k = trace.knowledge;
-  const lines = [`${k.factsMatched} facts / ${k.advisories.length} advisory`];
-  for (const a of k.advisories.slice(0, 6)) {
-    lines.push(
-      `• ${a.type} · ${a.severity} · ${a.source} · ${a.affectsRoute ? 'affectsRoute' : 'context'} (advisory only)`,
-    );
-  }
-  if (k.advisories.length > 6) lines.push(`… +${k.advisories.length - 6} more`);
-  return lines.join('\n');
-}
-
-function warningLines(trace: RouteTrace | null): string {
-  if (!trace) return '—';
-  const bits: string[] = [];
-  if (!trace.final.ok && trace.final.rejectReason) {
-    bits.push(`reject: ${trace.final.rejectReason}`);
-  }
-  if (trace.request.longSpanOverpassSkip) {
-    bits.push('long-span: Overpass fallback skipped (span_gt_120)');
-  }
-  if (trace.failure) {
-    bits.push(`failure: ${trace.failure.category}/${trace.failure.code} @ ${trace.failure.stage}`);
-  }
-  if (trace.performance) {
-    bits.push(
-      `perf: total=${Math.round(trace.timing.totalMs)}ms br=${trace.timing.brouterMs}ms op=${trace.timing.overpassMs}ms trials=${trace.performance.trialCount}`,
-    );
-  }
-  if (trace.e2e) {
-    bits.push(
-      `e2e: total=${trace.e2e.totalMs}ms legacy=${trace.e2e.legacyRoutingMs}ms shadow=${trace.e2e.graphShadowMs}ms (ran=${trace.e2e.graphShadowRan}) brCalls=${trace.e2e.counters.brouterCalls} dedup=${trace.e2e.counters.brouterDedupedRequests}`,
-    );
-  }
-  if (trace.validator && !trace.validator.ok) {
-    bits.push(`validator: ${trace.validator.issues.join(', ') || 'fail'}`);
-  }
-  if (trace.hydro?.reject) {
-    bits.push(`hydro: ${trace.hydro.reason}`);
-  }
-  if (trace.knowledge?.disagreements?.length) {
-    bits.push(
-      `disagreement signals: ${trace.knowledge.disagreements.length} (not auto-reject)`,
-    );
-  }
-  const gapPhase = [trace.phases.A, trace.phases.B, trace.phases.C, trace.phases.overpass].find(
-    (p) => p && !p.ok && p.rejectReason,
-  );
-  if (gapPhase?.rejectReason && !bits.some((b) => b.includes(gapPhase.rejectReason!))) {
-    bits.push(`phase: ${gapPhase.rejectReason}`);
-  }
-  return bits.length ? bits.join('\n') : 'none';
 }
 
 function downloadJson(filename: string, data: unknown): void {
@@ -150,7 +99,7 @@ export function mountUserTestPanel(hooks: UserTestPanelHooks): void {
   const hint = el(
     'p',
     'user-test-panel__hint',
-    'Dev only · FAIL is shown as-is · ?wg=1 enables WaterGraph pilot',
+    'Dev trial · Hybrid: checkbox or ?wg=1 · off = normal BRouter',
   );
 
   const aLon = el('input', 'user-test-panel__input') as HTMLInputElement;
@@ -238,25 +187,24 @@ export function mountUserTestPanel(hooks: UserTestPanelHooks): void {
       resultEl.textContent = 'Result: —';
       return;
     }
-    const ok = trace.final.ok ? 'OK' : 'ROUTE NOT FOUND';
+    const ok = trace.final.ok;
+    const source = userRouterSourceFromHybrid(trace.hybridRouter, ok);
+    const routerLine = userRouterSourceLabelEn(source);
     resultEl.textContent = [
-      `Result: ${ok}`,
-      `Method: ${trace.final.method}`,
+      `Result: ${ok ? 'OK' : 'ROUTE NOT FOUND'}`,
+      `Router: ${routerLine}`,
       `Length: ${trace.final.lengthKm.toFixed(1)} km`,
       `Water: ${trace.final.waterName ?? '—'}`,
       `Preset: ${activePresetId ?? '—'}`,
-      '',
-      'Knowledge:',
-      knowledgeLines(trace),
-      '',
-      'Warnings:',
-      warningLines(trace),
-      '',
-      `Timing: ${Math.round(trace.timing.durationMs)} ms`,
-      trace.e2e
-        ? `E2E: ${trace.e2e.totalMs} ms (legacy ${trace.e2e.legacyRoutingMs} + shadow ${trace.e2e.graphShadowMs})`
-        : 'E2E: —',
     ].join('\n');
+  }
+
+  function syncWgQuery(enabled: boolean): void {
+    const url = new URL(window.location.href);
+    if (enabled) url.searchParams.set('wg', '1');
+    else url.searchParams.delete('wg');
+    url.searchParams.delete('useWaterGraph');
+    window.history.replaceState({}, '', url.toString());
   }
 
   async function build(meta?: { presetId?: string }): Promise<void> {
@@ -297,12 +245,13 @@ export function mountUserTestPanel(hooks: UserTestPanelHooks): void {
   wgCheck.checked = getRouteFeatureFlags().USE_WATER_GRAPH;
   const wgText = document.createElement('span');
   wgText.className = 'user-test-panel__label';
-  wgText.textContent = 'USE_WATER_GRAPH (hybrid pilot)';
+  wgText.textContent = 'Hybrid WaterGraph (пилот)';
   wgLabel.append(wgCheck, wgText);
   wgCheck.addEventListener('change', () => {
-    setRouteFeatureFlagsForTests(
-      wgCheck.checked ? { USE_WATER_GRAPH: true } : null,
-    );
+    const on = wgCheck.checked;
+    setRouteFeatureFlagsForTests(on ? { USE_WATER_GRAPH: true } : null);
+    syncWgQuery(on);
+    hooks.onHybridToggle?.(on);
   });
 
   const aRow = el('div', 'user-test-panel__row');
