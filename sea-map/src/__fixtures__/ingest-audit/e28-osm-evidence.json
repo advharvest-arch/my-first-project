@@ -1,0 +1,130 @@
+{
+  "version": "e2.8-osm-evidence",
+  "retrievedAt": "2026-08-28T07:45:00Z",
+  "diagnosticOnly": true,
+  "corridors": {
+    "Belomor": {
+      "relationId": 9909116,
+      "relationName": "Беломорканал",
+      "memberWayCount": 29,
+      "mainStreamCount": 29,
+      "geometryCoverageKm": 216.361,
+      "notes": [
+        "E2.7 FULL relation snapshot committed",
+        "CURRENT fixture tear ~18.96km is INGEST_ARTIFACT"
+      ],
+      "widerBboxHelps": true,
+      "relationAwareHelps": true,
+      "osmGeometryFound": true
+    },
+    "VG-mid": {
+      "volga": {
+        "relationId": 1730417,
+        "name": "Волга",
+        "sampleWayId": 26213889
+      },
+      "akhtuba": {
+        "relationId": 1230074,
+        "name": "Ахтуба",
+        "wayMemberCount": 34,
+        "sampleWayIds": [
+          53365918,
+          210559723
+        ]
+      },
+      "sharedNavigableRelation": false,
+      "notes": [
+        "Separate OSM waterway relations",
+        "No evidence of navigable join in mid corridor",
+        "Do not sew Volga↔Akhtuba"
+      ],
+      "widerBboxHelps": false,
+      "relationAwareHelps": false,
+      "osmGeometryFound": true,
+      "osmGeometryFoundForGapJoin": false
+    },
+    "VG-D": {
+      "volga": {
+        "relationId": 1730417,
+        "name": "Волга"
+      },
+      "akhtuba": {
+        "relationId": 1230074,
+        "name": "Ахтуба"
+      },
+      "notes": [
+        "Fixture includes both Volga stem and Akhtuba branch",
+        "Akhtuba remains separate water object",
+        "Stem Volga OSM exists; fixture is simplified but continuous enough for 1 primary Volga component in densified graph"
+      ],
+      "widerBboxHelps": "UNKNOWN",
+      "relationAwareHelps": "partial_for_fidelity",
+      "osmGeometryFound": true
+    },
+    "X3": {
+      "vetluga": {
+        "relationId": 382593,
+        "name": "Ветлуга",
+        "wayMemberCount": 35,
+        "roles": {
+          "main_stream": 33,
+          "side_stream": 2
+        },
+        "sampleWayIds": [
+          142441406,
+          48102336,
+          26988688,
+          142441078,
+          48102363,
+          142440987,
+          48100085,
+          142440980
+        ]
+      },
+      "notes": [
+        "Vetluga OSM relation+ways exist",
+        "CURRENT WaterGraph centerline empty / water-core has 0 Vetluga",
+        "Cheboksary mask incomplete per E1"
+      ],
+      "widerBboxHelps": true,
+      "relationAwareHelps": true,
+      "osmGeometryFound": true
+    },
+    "N06": {
+      "overpassWaterwayWaysInBbox": 96,
+      "overpassRelationsInBbox": 1,
+      "notes": [
+        "OSM waterway ways present in Kuibyshev south mid bbox",
+        "CURRENT centerline-only graph empty; production Phase A uses bundled Kuibyshev mask",
+        "fairway↔mask is layer transition not missing lake OSM"
+      ],
+      "widerBboxHelps": true,
+      "relationAwareHelps": "UNKNOWN",
+      "osmGeometryFound": true
+    },
+    "N08": {
+      "overpassWaterwayWaysInBbox": 80,
+      "overpassRelationsInBbox": 1,
+      "notes": [
+        "Same Kuibyshev family as N06 (north / Kazan approach)",
+        "Mask-first success path; OSM waterway ways exist in regional corridor",
+        "fairway↔mask is layer transition not missing lake OSM"
+      ],
+      "widerBboxHelps": true,
+      "relationAwareHelps": "UNKNOWN",
+      "osmGeometryFound": true
+    },
+    "L2": {
+      "overpassWaterwayWaysInBbox": 70,
+      "overpassRelationsInBbox": 1,
+      "notes": [
+        "Kuibyshev mid-pool; complete bundled mask (E1)",
+        "OSM waterway ways exist; CURRENT shadow centerline under-ingest",
+        "Not a Belomor-style tear — Phase A mask path often OK"
+      ],
+      "widerBboxHelps": true,
+      "relationAwareHelps": "UNKNOWN",
+      "osmGeometryFound": true
+    }
+  }
+}
