@@ -22,6 +22,7 @@
     "bench:e211": "tsx scripts/e211-watergraph-vs-legacy-bench.ts",
     "bench:e212": "tsx scripts/e212-source-forensics.ts",
     "bench:e213": "tsx scripts/e213-mask-shadow.ts",
+    "bench:e214": "tsx scripts/e214-endpoint-binding-diag.ts",
     "preview": "vite preview"
   },
   "devDependencies": {
