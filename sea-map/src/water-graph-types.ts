@@ -193,6 +193,8 @@ export type WaterGraphShadowResult = {
   pathLengthKm: number;
   pathCost: number;
   edgeKinds: WaterGraphEdgeKind[];
+  /** Validated path geometry when pathFound (diagnostic / benchmark). */
+  pathGeometry?: import('./geo').LngLat[];
   rejectReason: string | null;
   failureStage: WaterGraphFailureStage;
   terminalA: WaterGraphTerminal | null;
