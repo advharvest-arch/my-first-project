@@ -18,6 +18,7 @@
     "test": "vitest run",
     "bench:e16": "tsx scripts/e16-benchmark.ts",
     "bench:e17": "tsx scripts/e17-benchmark.ts",
+    "bench:e22": "tsx scripts/e22-e2e-baseline.ts",
     "preview": "vite preview"
   },
   "devDependencies": {

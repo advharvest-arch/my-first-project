@@ -26,6 +26,13 @@ import {
 import { maxWaterSnapKm } from './water-snap';
 import { RouteAsyncGeneration } from './route-async-generation';
 import { RouteRequestControl } from './route-request-control';
+import {
+  beginRouteE2E,
+  finalizeUiRouteE2E,
+  noteRouteE2ERequestControlMs,
+} from './route-e2e-latency';
+import { getLastRouteTrace, replaceLastRouteTrace } from './route-trace';
+import { nowPerfMs } from './route-perf-context';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -1244,11 +1251,20 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     routeRequestControl.noteBusyCollapse('computeWaterRoute');
     return;
   }
+  // E2.2 PREP — UI E2E start (BUILD ROUTE / Проложить). Diagnostic only.
+  beginRouteE2E('ui');
+  const tControl0 = nowPerfMs();
   const requestToken = routeRequestControl.begin('computeWaterRoute');
+  noteRouteE2ERequestControlMs(nowPerfMs() - tControl0);
   routeBtn.disabled = true;
   const prefer = routePrefer();
   setStatus('Построение маршрута...');
   let requestFailed = false;
+
+  const sealE2E = (): void => {
+    const sealed = finalizeUiRouteE2E(getLastRouteTrace());
+    if (sealed) replaceLastRouteTrace(sealed);
+  };
 
   try {
     const path = await measureHybridChain(waypoints, {
@@ -1259,7 +1275,10 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     });
 
     // Clear/Reset invalidated this request — do not rewrite status/geometry.
-    if (!routeRequestControl.isCurrent(requestToken)) return;
+    if (!routeRequestControl.isCurrent(requestToken)) {
+      sealE2E();
+      return;
+    }
 
     if (path.method === 'route_not_found' || path.points.length < 2) {
       // Invalidate in-flight polish from a prior success so it cannot restore
@@ -1274,6 +1293,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       redrawWaypoints();
       renderWaypointList();
       setStatus('Водный маршрут не найден', true);
+      sealE2E();
       return;
     }
 
@@ -1330,6 +1350,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
     } else {
       setStatus(`Готово: ${waypoints.length} точ.${parallelNote}`);
     }
+    sealE2E();
     if (fit && lastRoutePath.length >= 2) {
       fitRouteBounds(lastRoutePath);
     }
@@ -1362,7 +1383,10 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
   } catch (err) {
     requestFailed = true;
     console.error(err);
-    if (!routeRequestControl.isCurrent(requestToken)) return;
+    if (!routeRequestControl.isCurrent(requestToken)) {
+      sealE2E();
+      return;
+    }
     // Keep the previous successful route visible instead of wiping it.
     if (lastRoutePath && lastRoutePath.length >= 2) {
       redrawWaypoints(lastRoutePath);
@@ -1377,6 +1401,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       hideRouteDesc();
       setStatus('Ошибка запроса маршрута. Подождите и нажмите «Проложить» ещё раз.', true);
     }
+    sealE2E();
   } finally {
     const { shouldRebuild } = routeRequestControl.end(requestToken, {
       error: requestFailed,

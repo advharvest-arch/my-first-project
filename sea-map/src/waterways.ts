@@ -3292,7 +3292,9 @@ async function measureWaterChainInner(
   const emitDone = async (path: WaterPath, rejectReason?: string | null): Promise<WaterPath> => {
     attachKnowledge(path);
     // E2.0/E2.1 — WaterGraph shadow (diagnostic only; never changes returned path).
+    // Shadow wall is timed separately and excluded from legacyRoutingMs in e2e.
     if (getRouteFeatureFlags().USE_WATER_GRAPH) {
+      const tShadow0 = nowPerfMs();
       try {
         const aPt = originalWaypoints[0]!;
         const bPt = originalWaypoints[originalWaypoints.length - 1]!;
@@ -3416,8 +3418,13 @@ async function measureWaterChainInner(
         };
       } catch {
         // Shadow failures must never affect routing.
+      } finally {
+        trace.graphShadowRan = true;
+        trace.graphShadowMs = nowPerfMs() - tShadow0;
       }
     }
+    // Tiny finalization bucket so optional stage is present without changing behavior.
+    addPerfMs('finalAssemblyMs', 0.001);
     if (path.method === 'route_not_found' || path.points.length < 2) {
       trace.finish({
         ok: false,
