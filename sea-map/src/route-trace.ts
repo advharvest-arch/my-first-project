@@ -229,6 +229,83 @@ export type RouteTraceRelationAwareShadow = {
   };
 };
 
+/** E2.11 — shadow WaterGraph vs legacy corridor benchmark (diagnostic only). */
+export type RouteTraceWaterGraphBenchmark = {
+  corridor: string;
+  role: 'positive' | 'negative_control';
+  cacheMode: 'cold' | 'warm' | 'cold_cleared';
+  verdict: string;
+  diagnosticOnly: true;
+  legacy: {
+    found: boolean;
+    accepted: boolean;
+    rejectReason: string | null;
+    routeKm: number;
+    method: string;
+    brouterCalls: number;
+    e2eMs: number;
+    phaseAMs: number;
+    phaseBMs: number;
+    phaseCMs: number;
+  };
+  graph: {
+    graphBuilt: boolean;
+    nodeCount: number;
+    edgeCount: number;
+    componentCount: number;
+    largestComponentKm: number;
+    pathFound: boolean;
+    pathKm: number | null;
+    graphBuildMs: number;
+    graphSearchMs: number;
+    safetyAccepted: boolean;
+    rejectReason: string | null;
+    layers: {
+      centerline: boolean;
+      mask: boolean;
+      fairway: boolean;
+      lock: boolean;
+    };
+    edgeKinds: {
+      centerlineEdges: number;
+      maskEdges: number;
+      fairwayEdges: number;
+      seamEdges: number;
+      lockEdges: number;
+    };
+    dataGap: boolean;
+  };
+  comparison: {
+    both_ok: boolean;
+    both_reject: boolean;
+    legacy_only: boolean;
+    graph_only: boolean;
+    both_ok_length_delta_km: number | null;
+    both_ok_length_delta_percent: number | null;
+    graph_vs_legacy_method: string;
+    topology_divergence_reason: string;
+  };
+  topology: {
+    componentCount: number;
+    divergenceReason: string;
+    seamEdges: number;
+  };
+  safety: {
+    graphSafetyAccepted: boolean;
+    graphRejectReason: string | null;
+    chordOrShoreSuspect: boolean;
+    knownBarrierHit: boolean;
+  };
+  timing: {
+    legacyE2eMs: number;
+    graphBuildMs: number;
+    graphSearchMs: number;
+    graphIngestMs: number;
+    graphShadowWallMs: number;
+    note: string;
+  };
+};
+
 export type RouteTraceFinal = {
   ok: boolean;
   method: string;
@@ -391,6 +468,11 @@ export type RouteTrace = {
    * Never replaces legacy production result. Present only when shadow ran.
    */
   relationAwareShadow?: RouteTraceRelationAwareShadow;
+  /**
+   * E2.11 — WaterGraph vs legacy corridor benchmark (diagnostic only).
+   * Attached by the E2.11 runner; never changes production accept/reject.
+   */
+  waterGraphBenchmark?: RouteTraceWaterGraphBenchmark;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.

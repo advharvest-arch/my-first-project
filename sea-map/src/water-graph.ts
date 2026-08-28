@@ -874,6 +874,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
   let searchMs = 0;
   let validated = false;
   let foundRawPath = false;
+  let pathGeometry: LngLat[] | undefined;
 
   const ingestFail = input.ingest?.failureCode ?? 'none';
   const hasOsmCenterline = (input.centerlines ?? []).some(
@@ -921,6 +922,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
             rejectReason = hydro.reason;
           } else {
             validated = true;
+            pathGeometry = geom;
           }
         }
       }
@@ -1039,6 +1041,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     pathLengthKm: validated ? pathLengthKm : 0,
     pathCost: validated ? pathCost : 0,
     edgeKinds: validated ? edgeKinds : [],
+    pathGeometry: validated ? pathGeometry : undefined,
     rejectReason,
     failureStage,
     terminalA: termA,
