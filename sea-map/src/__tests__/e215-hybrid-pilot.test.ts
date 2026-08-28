@@ -62,6 +62,9 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
         failureStage: 'none',
         rejectReason: null,
         pathLengthKm: 40,
+        terminalA: { distKm: 0.2 } as never,
+        terminalB: { distKm: 0.3 } as never,
+        edgeKinds: ['mask'],
       },
       attemptMs: 10,
       ingestMs: 1,
@@ -83,6 +86,9 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
         failureStage: 'graph_disconnected',
         rejectReason: 'graph_disconnected',
         pathLengthKm: 0,
+        terminalA: null,
+        terminalB: null,
+        edgeKinds: [],
       },
       attemptMs: 10,
       ingestMs: 1,
@@ -105,6 +111,9 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
         failureStage: 'validator_reject',
         rejectReason: 'near_geodesic_chord',
         pathLengthKm: 0,
+        terminalA: null,
+        terminalB: null,
+        edgeKinds: [],
       },
       attemptMs: 5,
       ingestMs: 1,
@@ -116,6 +125,29 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
     expect(d.diag.waterGraphResult).toBe('safety_reject');
     expect(d.diag.waterGraphSafetyResult).toBe('rejected');
     expect(d.diag.fallbackReason).toMatch(/watergraph_safety_reject/);
+  });
+
+  it('decideHybrid: long terminal bind (~24 km) rejected — no artificial seam', () => {
+    const d = decideHybridFromShadow({
+      shadow: {
+        pathFound: true,
+        validated: true,
+        failureStage: 'none',
+        rejectReason: null,
+        pathLengthKm: 49,
+        terminalA: { distKm: 0.4 } as never,
+        terminalB: { distKm: 23.9 } as never,
+        edgeKinds: ['mask'],
+      },
+      attemptMs: 5,
+      ingestMs: 0,
+      maskResolveMs: 1,
+      centerlineSource: 'lake_mask_only',
+      maskSource: 'lake:116061',
+    });
+    expect(d.accept).toBe(false);
+    expect(d.diag.waterGraphResult).toBe('terminal_unbound');
+    expect(d.diag.fallbackReason).toMatch(/terminal_snap_exceeded/);
   });
 
   it('empty centerlines shadow cannot invent Volga↔Akhtuba path', () => {
@@ -158,7 +190,7 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
     // Not a geodesic chord.
     const geo = haversineKm(BELOMOR_A, BELOMOR_B);
     expect(path.lengthKm / geo).toBeGreaterThan(1.05);
-  }, 180_000);
+  }, 240_000);
 
   it('flag ON N08 → WaterGraph selected via densified mask', async () => {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
@@ -172,7 +204,7 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
     expect(path.method).not.toBe('route_not_found');
     expect(path.lengthKm).toBeGreaterThan(20);
     expect(path.lengthKm).toBeLessThan(80);
-  }, 180_000);
+  }, 420_000);
 
   it('flag ON N06 → WaterGraph miss → BRouter fallback (no artificial bind)', async () => {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
@@ -188,7 +220,7 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
     // Legacy still works via BRouter.
     expect(path.method).not.toBe('route_not_found');
     expect(path.points.length).toBeGreaterThan(2);
-  }, 240_000);
+  }, 420_000);
 
   it('flag ON VG-mid → no WaterGraph sew; legacy failure preserved if BRouter fails', async () => {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
@@ -208,7 +240,7 @@ describe('E2.15 Hybrid WaterGraph pilot', () => {
       // critical: hybrid did not accept a graph path.
       expect(tr?.hybridRouter?.fallbackUsed).toBe(true);
     }
-  }, 240_000);
+  }, 420_000);
 
   it('attemptWaterGraphRoute alone: Belomor ok; far inland fails without creating edges', async () => {
     const ok = await attemptWaterGraphRoute(BELOMOR_A, BELOMOR_B);

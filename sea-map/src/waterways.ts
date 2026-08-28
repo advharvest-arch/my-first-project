@@ -71,10 +71,6 @@ import {
 import { buildOverpassPreflight } from './overpass-preflight';
 import { mapPool } from './parallel-candidates';
 import {
-  isBelomorShadowCorridor,
-  runBelomorRelationAwareShadow,
-} from './relation-aware-shadow';
-import {
   attemptWaterGraphRoute,
   applyShadowToGraphInfo,
   legacyHybridDiag,
@@ -3433,48 +3429,6 @@ async function measureWaterChainInner(
     accepted: boolean;
   } | null = null;
 
-  const mapBelomorShadow = (
-    cmp: ReturnType<typeof runBelomorRelationAwareShadow>,
-    path: WaterPath,
-    legacyRoutingMs: number,
-    graphShadowMs: number,
-  ) => {
-    const legacyOk = path.method !== 'route_not_found' && path.points.length >= 2;
-    return {
-      source: 'relation_aware' as const,
-      relationId: cmp.relationId,
-      relationWayCount: cmp.relationWayCount,
-      nodeCount: cmp.relationAware.nodeCount,
-      edgeCount: cmp.relationAware.edgeCount,
-      componentCount: cmp.relationAware.componentCount,
-      gapCount: cmp.relationAware.gapCount,
-      recoveredGeometryKm: cmp.recoveredGeometryKm,
-      buildMs: cmp.relationAware.graphBuildMs,
-      searchMs: cmp.relationAware.graphSearchMs,
-      pathKm: cmp.relationAware.pathLengthKm,
-      pathFound: cmp.relationAware.pathFound,
-      safetyResult: {
-        accepted: cmp.relationAware.graphSafetyAccepted,
-        rejectReason: cmp.relationAware.graphSafetyRejectReason,
-      },
-      currentGapCount: cmp.current.gapCount,
-      currentArtificialGapKm: cmp.current.artificialFixtureGapKm,
-      artificialGapEliminated: cmp.artificialGapEliminated,
-      diagnosticOnly: true as const,
-      legacyCompare: {
-        legacyResult: legacyOk ? `OK ${path.lengthKm.toFixed(1)}km` : 'FAIL',
-        graphResult: cmp.relationAware.pathFound
-          ? `OK ${cmp.relationAware.pathLengthKm}km safety=${cmp.relationAware.graphSafetyAccepted}`
-          : `FAIL ${cmp.relationAware.failureStage}`,
-        divergenceReason: cmp.legacyCompare.divergenceReason,
-        e2eTotalMs:
-          Math.round((legacyRoutingMs + graphShadowMs) * 1000) / 1000,
-        legacyRoutingMs,
-        graphShadowMs,
-      },
-    };
-  };
-
   const emitDone = async (path: WaterPath, rejectReason?: string | null): Promise<WaterPath> => {
     attachKnowledge(path);
 
@@ -3543,35 +3497,6 @@ async function measureWaterChainInner(
       trace.hybridRouter = hybridPilot.diag;
     } else {
       trace.hybridRouter = legacyHybridDiag();
-    }
-
-    if (
-      getRouteFeatureFlags().USE_WATER_GRAPH &&
-      hybridPilot &&
-      isBelomorShadowCorridor(
-        originalWaypoints[0]!,
-        originalWaypoints[originalWaypoints.length - 1]!,
-      )
-    ) {
-      try {
-        const legacyRoutingMs =
-          Math.round((nowPerfMs() - trace.startedAtMs) * 1000) / 1000;
-        const cmp = runBelomorRelationAwareShadow({
-          legacyOk: path.method !== 'route_not_found' && path.points.length >= 2,
-          legacyLengthKm: path.lengthKm,
-          legacyRejectReason: rejectReason ?? trace.lastRejectReason,
-          legacyRoutingMs,
-          brouterCalls: perf.brouterCalls ?? null,
-        });
-        trace.relationAwareShadow = mapBelomorShadow(
-          cmp,
-          path,
-          legacyRoutingMs,
-          hybridPilot.diag.timing.attemptMs,
-        );
-      } catch {
-        // diagnostic only
-      }
     }
 
     if (!trace.overpassPreflight) {

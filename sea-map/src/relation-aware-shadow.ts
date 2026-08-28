@@ -200,8 +200,6 @@ export function runBelomorRelationAwareShadow(opts?: {
         dataTimestampMs: Date.now(),
         corridorBbox: currentVariant.metrics.bbox,
         ingestMs: 0,
-        longSpanSegmented: false,
-        segmentCount: 1,
       },
     },
   });
@@ -230,8 +228,6 @@ export function runBelomorRelationAwareShadow(opts?: {
           Math.max(BELOMOR_A.lat, BELOMOR_B.lat) + 0.1,
         ],
         ingestMs: tIngest1 - t0,
-        longSpanSegmented: false,
-        segmentCount: 1,
       },
     },
   });

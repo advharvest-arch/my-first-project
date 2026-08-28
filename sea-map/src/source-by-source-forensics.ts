@@ -538,7 +538,7 @@ export async function runE212Corridor(
   const openWater = openWaterBetween(c.a, c.b, maskInfo.lake);
 
   let phaseAMaskRouteKm: number | null = null;
-  if (c.id === 'N06' || c.id === 'N08' || c.id === 'L2') {
+  if (c.id === 'N06' || c.id === 'N08') {
     try {
       const lr = await routeAcrossOpenLake([c.a, c.b]);
       phaseAMaskRouteKm = lr ? Math.round(lr.lengthKm * 1000) / 1000 : null;

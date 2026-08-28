@@ -29,9 +29,10 @@ import {
   type LakeMask,
 } from './open-lake';
 import {
-  belomorRelationAwareCenterlinesForShadow,
-  isBelomorShadowCorridor,
-} from './relation-aware-shadow';
+  hybridBelomorRelationCenterlines,
+  isHybridBelomorCorridor,
+} from './hybrid-belomor-centerlines';
+import { endpointSnapKmForAccept } from './water-snap';
 import type { WaterPath } from './waterways';
 import type { WaterGraphFailureStage } from './water-graph-types';
 
@@ -198,11 +199,20 @@ function fallbackReasonFrom(
 /**
  * Decide selection from a finished shadow result (pure; for unit tests).
  * Never invents edges — only classifies existing shadow outcome.
+ * Also rejects long terminal binds (> legacy endpoint snap) so mask mesh
+ * cannot quietly sew a 24 km shore gap (N06).
  */
 export function decideHybridFromShadow(args: {
   shadow: Pick<
     WaterGraphShadowResult,
-    'pathFound' | 'validated' | 'failureStage' | 'rejectReason' | 'pathLengthKm'
+    | 'pathFound'
+    | 'validated'
+    | 'failureStage'
+    | 'rejectReason'
+    | 'pathLengthKm'
+    | 'terminalA'
+    | 'terminalB'
+    | 'edgeKinds'
   >;
   attemptMs: number;
   ingestMs: number;
@@ -216,19 +226,18 @@ export function decideHybridFromShadow(args: {
   };
 } {
   const { shadow } = args;
-  const wgResult = mapFailureToResult(
-    shadow.failureStage,
-    shadow.validated,
-    shadow.pathFound,
+  const usesMask = (shadow.edgeKinds ?? []).includes('mask');
+  const usesWay = (shadow.edgeKinds ?? []).some(
+    (k) => k === 'waterway' || k === 'canal' || k === 'fairway',
   );
-  const safety: HybridSafetyResult = shadow.validated
-    ? 'accepted'
-    : shadow.failureStage === 'validator_reject' ||
-        shadow.failureStage === 'hydro_reject'
-      ? 'rejected'
-      : 'n/a';
+  const method = usesMask && !usesWay ? 'lake' : 'waterway';
+  const maxSnap = endpointSnapKmForAccept(method, usesMask);
+  const termA = shadow.terminalA?.distKm ?? null;
+  const termB = shadow.terminalB?.distKm ?? null;
+  const terminalTooFar =
+    (termA != null && termA > maxSnap) || (termB != null && termB > maxSnap);
 
-  if (shadow.pathFound && shadow.validated) {
+  if (shadow.pathFound && shadow.validated && !terminalTooFar) {
     return {
       accept: true,
       diag: {
@@ -255,6 +264,27 @@ export function decideHybridFromShadow(args: {
     };
   }
 
+  let wgResult = mapFailureToResult(
+    shadow.failureStage,
+    shadow.validated,
+    shadow.pathFound,
+  );
+  let safety: HybridSafetyResult = shadow.validated
+    ? 'accepted'
+    : shadow.failureStage === 'validator_reject' ||
+        shadow.failureStage === 'hydro_reject'
+      ? 'rejected'
+      : 'n/a';
+  let rejectReason = shadow.rejectReason;
+  let stage: WaterGraphFailureStage | null = shadow.failureStage;
+
+  if (terminalTooFar) {
+    wgResult = 'terminal_unbound';
+    safety = 'rejected';
+    stage = 'terminal_unbound';
+    rejectReason = `terminal_snap_exceeded A=${termA?.toFixed(3)} B=${termB?.toFixed(3)}>${maxSnap}`;
+  }
+
   return {
     accept: false,
     diag: {
@@ -264,11 +294,7 @@ export function decideHybridFromShadow(args: {
       waterGraphResult: wgResult,
       waterGraphSafetyResult: safety,
       fallbackUsed: true,
-      fallbackReason: fallbackReasonFrom(
-        wgResult,
-        shadow.rejectReason,
-        shadow.failureStage,
-      ),
+      fallbackReason: fallbackReasonFrom(wgResult, rejectReason, stage),
       pathKm: null,
       timing: {
         attemptMs: args.attemptMs,
@@ -279,8 +305,10 @@ export function decideHybridFromShadow(args: {
       },
       centerlineSource: args.centerlineSource,
       maskSource: args.maskSource,
-      failureStage: shadow.failureStage,
-      note: 'WaterGraph unsafe/unavailable — legacy BRouter fallback',
+      failureStage: stage,
+      note: terminalTooFar
+        ? `Terminal bind exceeds legacy snap (${maxSnap} km) — no artificial long shore seam`
+        : 'WaterGraph unsafe/unavailable — legacy BRouter fallback',
     },
   };
 }
@@ -305,8 +333,8 @@ export async function gatherHybridCenterlines(
   const t0 = performance.now();
 
   // Geographic relation coverage (OSM relation geometry), not route-name gating.
-  if (isBelomorShadowCorridor(a, b)) {
-    const rel = belomorRelationAwareCenterlinesForShadow();
+  if (isHybridBelomorCorridor(a, b)) {
+    const rel = hybridBelomorRelationCenterlines();
     if (rel.length > 0) {
       return {
         centerlines: rel,
@@ -375,6 +403,11 @@ function shadowToWaterPath(
 /**
  * Attempt a WaterGraph route for A→B. Does not call BRouter.
  * Caller falls back to legacy measureWaterChain phases on failure.
+ *
+ * Order (general mechanisms, no route-name gates):
+ *  1. Geographic relation-aware OSM (when corridor overlaps)
+ *  2. Densified shared-lake mask alone (fast; no Overpass)
+ *  3. Overpass centerlines + densified mask
  */
 export async function attemptWaterGraphRoute(
   a: LngLat,
@@ -382,86 +415,192 @@ export async function attemptWaterGraphRoute(
 ): Promise<HybridAttemptResult> {
   const t0 = performance.now();
   try {
-    const gathered = await gatherHybridCenterlines(a, b);
     const tMask0 = performance.now();
     const maskResolved = await resolveHybridLakeMask(a, b);
     const maskResolveMs = performance.now() - tMask0;
 
-    const shadow = runWaterGraphShadow({
-      a,
-      b,
-      legacyLengthKm: 0,
-      legacyOk: false,
-      centerlines: gathered.centerlines,
-      lake: maskResolved.lake,
-      lakeComplete: maskResolved.complete ?? false,
-      ingest: {
-        failureCode: gathered.ingestFailureCode,
-        stats: gathered.ingestStats
-          ? {
-              centerlineSource: gathered.centerlineSource,
-              sourceFeatureCount: gathered.ingestStats.sourceFeatureCount,
-              sourceWaterwayIds: gathered.ingestStats.sourceWaterwayIds,
-              osmFeatureCount: gathered.ingestStats.osmFeatureCount,
-              acceptedFeatureCount: gathered.ingestStats.acceptedFeatureCount,
-              rejectedFeatureCount: gathered.ingestStats.rejectedFeatureCount,
-              rejectionReasons: gathered.ingestStats.rejectionReasons,
-              dataTimestampMs: gathered.ingestStats.dataTimestampMs,
-              corridorBbox: gathered.ingestStats.corridorBbox,
-              ingestMs: gathered.ingestMs,
-            }
-          : {
-              centerlineSource: gathered.centerlineSource,
-              sourceFeatureCount: gathered.centerlines.length,
-              sourceWaterwayIds: gathered.centerlines
-                .map((c) => c.sourceId)
-                .filter((x): x is string => !!x)
-                .slice(0, 64),
-              osmFeatureCount: gathered.centerlines.length,
-              acceptedFeatureCount: gathered.centerlines.length,
-              rejectedFeatureCount: 0,
-              rejectionReasons: {},
-              dataTimestampMs: Date.now(),
-              corridorBbox: [
-                Math.min(a.lon, b.lon),
-                Math.min(a.lat, b.lat),
-                Math.max(a.lon, b.lon),
-                Math.max(a.lat, b.lat),
-              ],
-              ingestMs: gathered.ingestMs,
-            },
-      },
-    });
+    type Cand = {
+      centerlines: CenterlineSource[];
+      centerlineSource: string;
+      ingestMs: number;
+      ingestFailureCode: 'none' | 'centerline_missing' | 'centerline_empty_after_filter';
+      ingestStats: Awaited<ReturnType<typeof ingestCorridorCenterlines>>['stats'] | null;
+    };
+    const candidates: Cand[] = [];
 
-    const attemptMs = performance.now() - t0;
-    const decision = decideHybridFromShadow({
-      shadow,
-      attemptMs,
-      ingestMs: gathered.ingestMs,
-      maskResolveMs,
-      centerlineSource: gathered.centerlineSource,
-      maskSource: maskResolved.sharedName
-        ? `lake:${maskResolved.sharedOsmId ?? '?'}:${maskResolved.sharedName}`
-        : null,
-    });
-    decision.diag.timing.buildMs = shadow.buildMs;
-    decision.diag.timing.searchMs = shadow.searchMs;
-    decision.diag.timing.attemptMs = attemptMs;
+    if (isHybridBelomorCorridor(a, b)) {
+      const rel = hybridBelomorRelationCenterlines();
+      if (rel.length) {
+        candidates.push({
+          centerlines: rel,
+          centerlineSource: 'relation_aware_osm',
+          ingestMs: 0,
+          ingestFailureCode: 'none',
+          ingestStats: null,
+        });
+      }
+    }
 
-    if (decision.accept && shadow.pathGeometry && shadow.pathGeometry.length >= 2) {
+    // Mask-only: proven for Kuibyshev corridors when endpoints bind to open water.
+    if (maskResolved.lake) {
+      candidates.push({
+        centerlines: [],
+        centerlineSource: 'lake_mask_only',
+        ingestMs: 0,
+        ingestFailureCode: 'none',
+        ingestStats: null,
+      });
+    }
+
+    let lastFail: HybridAttemptFail | null = null;
+
+    const tryCand = (cand: Cand): HybridAttemptOk | HybridAttemptFail => {
+      const shadow = runWaterGraphShadow({
+        a,
+        b,
+        legacyLengthKm: 0,
+        legacyOk: false,
+        centerlines: cand.centerlines,
+        lake: maskResolved.lake,
+        lakeComplete: maskResolved.complete ?? false,
+        ingest: {
+          failureCode: cand.ingestFailureCode,
+          stats: cand.ingestStats
+            ? {
+                centerlineSource: cand.centerlineSource,
+                sourceFeatureCount: cand.ingestStats.sourceFeatureCount,
+                sourceWaterwayIds: cand.ingestStats.sourceWaterwayIds,
+                osmFeatureCount: cand.ingestStats.osmFeatureCount,
+                acceptedFeatureCount: cand.ingestStats.acceptedFeatureCount,
+                rejectedFeatureCount: cand.ingestStats.rejectedFeatureCount,
+                rejectionReasons: cand.ingestStats.rejectionReasons,
+                dataTimestampMs: cand.ingestStats.dataTimestampMs,
+                corridorBbox: cand.ingestStats.corridorBbox,
+                ingestMs: cand.ingestMs,
+              }
+            : {
+                centerlineSource: cand.centerlineSource,
+                sourceFeatureCount: cand.centerlines.length,
+                sourceWaterwayIds: cand.centerlines
+                  .map((c) => c.sourceId)
+                  .filter((x): x is string => !!x)
+                  .slice(0, 64),
+                osmFeatureCount: cand.centerlines.length,
+                acceptedFeatureCount: cand.centerlines.length,
+                rejectedFeatureCount: 0,
+                rejectionReasons: {},
+                dataTimestampMs: Date.now(),
+                corridorBbox: [
+                  Math.min(a.lon, b.lon),
+                  Math.min(a.lat, b.lat),
+                  Math.max(a.lon, b.lon),
+                  Math.max(a.lat, b.lat),
+                ],
+                ingestMs: cand.ingestMs,
+              },
+        },
+      });
+
+      const attemptMs = performance.now() - t0;
+      const decision = decideHybridFromShadow({
+        shadow,
+        attemptMs,
+        ingestMs: cand.ingestMs,
+        maskResolveMs,
+        centerlineSource: cand.centerlineSource,
+        maskSource: maskResolved.sharedName
+          ? `lake:${maskResolved.sharedOsmId ?? '?'}:${maskResolved.sharedName}`
+          : null,
+      });
+      decision.diag.timing.buildMs = shadow.buildMs;
+      decision.diag.timing.searchMs = shadow.searchMs;
+      decision.diag.timing.attemptMs = attemptMs;
+
+      if (
+        decision.accept &&
+        shadow.pathGeometry &&
+        shadow.pathGeometry.length >= 2
+      ) {
+        return {
+          ok: true,
+          path: shadowToWaterPath(shadow, a, b),
+          diag: decision.diag,
+          shadow,
+        };
+      }
       return {
-        ok: true,
-        path: shadowToWaterPath(shadow, a, b),
+        ok: false,
+        path: null,
         diag: decision.diag,
         shadow,
       };
+    };
+
+    // Fast candidates first (no Overpass).
+    for (const cand of candidates) {
+      const result = tryCand(cand);
+      if (result.ok) return result;
+      lastFail = result;
     }
+
+    // If mask mesh already connected A–B but a terminal exceeds legacy snap,
+    // Overpass will not shrink that shore gap (N06 lesson) — skip slow fetch.
+    if (
+      lastFail &&
+      lastFail.diag.waterGraphResult === 'terminal_unbound' &&
+      maskResolved.lake
+    ) {
+      return lastFail;
+    }
+
+    // Overpass last — can be slow / rate-limited.
+    const gathered = await gatherHybridCenterlines(a, b);
+    if (gathered.centerlines.length) {
+      const alreadyRelation =
+        gathered.centerlineSource === 'relation_aware_osm' &&
+        candidates.some((c) => c.centerlineSource === 'relation_aware_osm');
+      if (!alreadyRelation) {
+        const result = tryCand({
+          centerlines: gathered.centerlines,
+          centerlineSource: gathered.centerlineSource,
+          ingestMs: gathered.ingestMs,
+          ingestFailureCode: gathered.ingestFailureCode,
+          ingestStats: gathered.ingestStats,
+        });
+        if (result.ok) return result;
+        lastFail = result;
+      }
+    }
+
+    if (lastFail) return lastFail;
 
     return {
       ok: false,
       path: null,
-      diag: decision.diag,
-      shadow,
+      diag: {
+        routerMode: 'hybrid_pilot',
+        selectedRouter: 'brouter',
+        waterGraphAttempted: true,
+        waterGraphResult: 'insufficient_data',
+        waterGraphSafetyResult: 'n/a',
+        fallbackUsed: true,
+        fallbackReason: 'watergraph_insufficient_data:no_candidates',
+        pathKm: null,
+        timing: {
+          attemptMs: performance.now() - t0,
+          ingestMs: 0,
+          maskResolveMs,
+          buildMs: 0,
+          searchMs: 0,
+        },
+        centerlineSource: null,
+        maskSource: maskResolved.sharedName
+          ? `lake:${maskResolved.sharedOsmId ?? '?'}:${maskResolved.sharedName}`
+          : null,
+        failureStage: 'centerline_missing',
+        note: 'No WaterGraph candidate data — legacy fallback',
+      },
+      shadow: null,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
