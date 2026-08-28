@@ -72,6 +72,11 @@ import { runWaterGraphShadow, type CenterlineSource } from './water-graph';
 import { ingestCorridorCenterlines } from './water-graph-ingest';
 import { buildOverpassPreflight } from './overpass-preflight';
 import { mapPool } from './parallel-candidates';
+import {
+  belomorRelationAwareCenterlinesForShadow,
+  isBelomorShadowCorridor,
+  runBelomorRelationAwareShadow,
+} from './relation-aware-shadow';
 
 import {
   ensureGvrIndex,
@@ -3428,39 +3433,83 @@ async function measureWaterChainInner(
         const aPt = originalWaypoints[0]!;
         const bPt = originalWaypoints[originalWaypoints.length - 1]!;
         const centerlines: CenterlineSource[] = [];
+        const belomorCorridor = isBelomorShadowCorridor(aPt, bPt);
+        let ingestFailureCode: 'none' | 'centerline_missing' | 'centerline_empty_after_filter' =
+          'none';
+        let ingestStats: {
+          osmFeatureCount: number;
+          acceptedFeatureCount: number;
+          rejectedFeatureCount: number;
+          rejectionReasons: Record<string, number>;
+          sourceFeatureCount: number;
+          sourceWaterwayIds: string[];
+          centerlineSource: 'overpass' | 'fixture' | 'water-core' | 'mixed' | 'empty';
+          dataTimestampMs: number;
+          corridorBbox: [number, number, number, number];
+          ingestMs: number;
+          longSpanSegmented: boolean;
+          segmentCount: number;
+        } | null = null;
 
-        // E2.1 — ingest real OSM/Overpass (or empty if offline) before legacy fallback.
-        const ingest = await ingestCorridorCenterlines(aPt, bPt, {
-          // Prefer live Overpass; fixtures are for unit tests only.
-        });
-        centerlines.push(...ingest.centerlines);
-
-        const geom =
-          path.routingGeometry && path.routingGeometry.length >= 2
-            ? path.routingGeometry
-            : path.points;
-        // BRouter/legacy geometry is fallback provider only — not source of truth.
-        if (
-          centerlines.length === 0 &&
-          geom.length >= 2 &&
-          path.method !== 'route_not_found'
-        ) {
-          centerlines.push({
-            id: 'legacy-route',
-            kind: 'brouter',
-            coords: geom,
-            waterId: 'cl:legacy',
-            source: 'legacy-measureWaterChain',
-            sourceId: path.method,
-          });
+        // E2.10 — Belomor shadow uses relation-aware OSM snapshot (not fixture chord).
+        // Diagnostic-only; never replaces the returned legacy path.
+        if (belomorCorridor) {
+          centerlines.push(...belomorRelationAwareCenterlinesForShadow());
+          ingestStats = {
+            osmFeatureCount: centerlines.length,
+            acceptedFeatureCount: centerlines.length,
+            rejectedFeatureCount: 0,
+            rejectionReasons: {},
+            sourceFeatureCount: centerlines.length,
+            sourceWaterwayIds: centerlines
+              .map((c) => c.sourceId)
+              .filter((x): x is string => !!x)
+              .slice(0, 64),
+            centerlineSource: 'fixture',
+            dataTimestampMs: Date.now(),
+            corridorBbox: [
+              Math.min(aPt.lon, bPt.lon) - 0.6,
+              Math.min(aPt.lat, bPt.lat) - 0.1,
+              Math.max(aPt.lon, bPt.lon) + 0.6,
+              Math.max(aPt.lat, bPt.lat) + 0.1,
+            ],
+            ingestMs: 0,
+            longSpanSegmented: false,
+            segmentCount: 1,
+          };
+        } else {
+          const ingest = await ingestCorridorCenterlines(aPt, bPt, {});
+          centerlines.push(...ingest.centerlines);
+          ingestFailureCode = ingest.failureCode;
+          ingestStats = ingest.stats;
+          const geom =
+            path.routingGeometry && path.routingGeometry.length >= 2
+              ? path.routingGeometry
+              : path.points;
+          if (
+            centerlines.length === 0 &&
+            geom.length >= 2 &&
+            path.method !== 'route_not_found'
+          ) {
+            centerlines.push({
+              id: 'legacy-route',
+              kind: 'brouter',
+              coords: geom,
+              waterId: 'cl:legacy',
+              source: 'legacy-measureWaterChain',
+              sourceId: path.method,
+            });
+          }
         }
+
         const shared = findSharedOpenLake(originalWaypoints);
         const lake = shared ? cachedLakeMaskAlongPath(originalWaypoints) : null;
+        const legacyOk = path.method !== 'route_not_found' && path.points.length >= 2;
         const shadow = runWaterGraphShadow({
           a: aPt,
           b: bPt,
           legacyLengthKm: path.lengthKm,
-          legacyOk: path.method !== 'route_not_found' && path.points.length >= 2,
+          legacyOk,
           candidates: trace.candidates.map((c) => ({
             endpoint: c.endpoint,
             point: { lon: c.point.lon, lat: c.point.lat },
@@ -3474,8 +3523,8 @@ async function measureWaterChainInner(
           lake,
           lakeComplete: lake ? isLakeMaskComplete(lake) : false,
           ingest: {
-            failureCode: ingest.failureCode,
-            stats: ingest.stats,
+            failureCode: ingestFailureCode,
+            stats: ingestStats ?? undefined,
           },
         });
         const comps = shadow.components;
@@ -3504,7 +3553,7 @@ async function measureWaterChainInner(
           seamCount: ek.seamCount,
           graphBuildMs: shadow.buildMs,
           centerlineMs: timing?.centerlineMs,
-          centerlineIngestMs: timing?.centerlineIngestMs ?? ingest.stats.ingestMs,
+          centerlineIngestMs: timing?.centerlineIngestMs ?? ingestStats?.ingestMs,
           maskMs: timing?.maskMs,
           seamMs: timing?.seamMs,
           fairwayMs: timing?.fairwayMs,
@@ -3533,7 +3582,9 @@ async function measureWaterChainInner(
             : null,
           expandedNodes: shadow.expandedNodes,
           legacyCompare: shadow.legacyCompare,
-          centerlineSource: shadow.provenance.centerlineSource,
+          centerlineSource: belomorCorridor
+            ? 'relation_aware_snapshot'
+            : shadow.provenance.centerlineSource,
           sourceFeatureCount: shadow.provenance.sourceFeatureCount,
           sourceWaterwayIds: shadow.provenance.sourceWaterwayIds,
           osmFeatureCount: shadow.provenance.osmFeatureCount,
@@ -3543,7 +3594,9 @@ async function measureWaterChainInner(
           dataTimestampMs: shadow.provenance.dataTimestampMs,
           corridorBbox: shadow.provenance.corridorBbox,
           provenanceSources: shadow.provenance.sources,
-          note: 'E2.1 WaterGraph shadow + OSM centerline ingest — production result remains legacy',
+          note: belomorCorridor
+            ? 'E2.10 Belomor relation-aware WaterGraph shadow — production result remains legacy'
+            : 'E2.1 WaterGraph shadow + OSM centerline ingest — production result remains legacy',
         };
         if (shadow.topology) {
           trace.waterGraphTopology = shadow.topology;
@@ -3553,6 +3606,52 @@ async function measureWaterChainInner(
         }
         if (shadow.connections) {
           trace.waterGraphConnections = shadow.connections;
+        }
+        if (belomorCorridor) {
+          // Legacy wall up to shadow start (excludes graph shadow; not parallel-summed).
+          const legacyRoutingMs =
+            Math.round((tShadow0 - trace.startedAtMs) * 1000) / 1000;
+          const cmp = runBelomorRelationAwareShadow({
+            legacyOk,
+            legacyLengthKm: path.lengthKm,
+            legacyRejectReason: rejectReason ?? trace.lastRejectReason,
+            legacyRoutingMs,
+            brouterCalls: perf.brouterCalls ?? null,
+          });
+          const graphShadowPartialMs = Math.round((nowPerfMs() - tShadow0) * 1000) / 1000;
+          trace.relationAwareShadow = {
+            source: 'relation_aware',
+            relationId: cmp.relationId,
+            relationWayCount: cmp.relationWayCount,
+            nodeCount: cmp.relationAware.nodeCount,
+            edgeCount: cmp.relationAware.edgeCount,
+            componentCount: cmp.relationAware.componentCount,
+            gapCount: cmp.relationAware.gapCount,
+            recoveredGeometryKm: cmp.recoveredGeometryKm,
+            buildMs: cmp.relationAware.graphBuildMs,
+            searchMs: cmp.relationAware.graphSearchMs,
+            pathKm: cmp.relationAware.pathLengthKm,
+            pathFound: cmp.relationAware.pathFound,
+            safetyResult: {
+              accepted: cmp.relationAware.graphSafetyAccepted,
+              rejectReason: cmp.relationAware.graphSafetyRejectReason,
+            },
+            currentGapCount: cmp.current.gapCount,
+            currentArtificialGapKm: cmp.current.artificialFixtureGapKm,
+            artificialGapEliminated: cmp.artificialGapEliminated,
+            diagnosticOnly: true,
+            legacyCompare: {
+              legacyResult: legacyOk ? `OK ${path.lengthKm.toFixed(1)}km` : 'FAIL',
+              graphResult: cmp.relationAware.pathFound
+                ? `OK ${cmp.relationAware.pathLengthKm}km safety=${cmp.relationAware.graphSafetyAccepted}`
+                : `FAIL ${cmp.relationAware.failureStage}`,
+              divergenceReason: cmp.legacyCompare.divergenceReason,
+              e2eTotalMs:
+                Math.round((legacyRoutingMs + graphShadowPartialMs) * 1000) / 1000,
+              legacyRoutingMs,
+              graphShadowMs: cmp.legacyCompare.graphShadowMs,
+            },
+          };
         }
       } catch {
         // Shadow failures must never affect routing.

@@ -198,6 +198,37 @@ export type RouteTraceUserCorrection = {
   note?: string;
 };
 
+export type RouteTraceRelationAwareShadow = {
+  source: 'relation_aware';
+  relationId: number;
+  relationWayCount: number;
+  nodeCount: number;
+  edgeCount: number;
+  componentCount: number;
+  gapCount: number;
+  recoveredGeometryKm: number;
+  buildMs: number;
+  searchMs: number;
+  pathKm: number | null;
+  pathFound: boolean;
+  safetyResult: {
+    accepted: boolean;
+    rejectReason: string | null;
+  };
+  currentGapCount: number;
+  currentArtificialGapKm: number | null;
+  artificialGapEliminated: boolean;
+  diagnosticOnly: true;
+  legacyCompare: {
+    legacyResult: string;
+    graphResult: string;
+    divergenceReason: string;
+    e2eTotalMs: number | null;
+    legacyRoutingMs: number | null;
+    graphShadowMs: number;
+  };
+};
+
 export type RouteTraceFinal = {
   ok: boolean;
   method: string;
@@ -355,6 +386,11 @@ export type RouteTrace = {
    * Diagnostic only; confirmedCreatesEdges is always false in this stage.
    */
   waterGraphConnections?: WaterGraphConnectionsReport;
+  /**
+   * E2.10 — Belomor relation-aware WaterGraph shadow compare (diagnostic only).
+   * Never replaces legacy production result. Present only when shadow ran.
+   */
+  relationAwareShadow?: RouteTraceRelationAwareShadow;
   /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
@@ -593,6 +629,8 @@ export type RouteTraceBuilder = {
   waterCorridorEvidence: WaterCorridorEvidenceReport | null;
   /** E2.4 — connection model (diagnostic only). */
   waterGraphConnections: WaterGraphConnectionsReport | null;
+  /** E2.10 — Belomor relation-aware shadow (diagnostic only). */
+  relationAwareShadow: RouteTraceRelationAwareShadow | null;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -636,6 +674,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     waterGraphTopology: null,
     waterCorridorEvidence: null,
     waterGraphConnections: null,
+    relationAwareShadow: null,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
       const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
@@ -712,6 +751,9 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
       }
       if (builder.waterGraphConnections) {
         trace.waterGraphConnections = builder.waterGraphConnections;
+      }
+      if (builder.relationAwareShadow) {
+        trace.relationAwareShadow = builder.relationAwareShadow;
       }
       if (builder.longSpan) trace.longSpan = builder.longSpan;
       if (builder.segments.length) trace.segments = builder.segments.slice();
