@@ -33,6 +33,9 @@ import {
 } from './route-e2e-latency';
 import { getLastRouteTrace, replaceLastRouteTrace } from './route-trace';
 import { nowPerfMs } from './route-perf-context';
+import {
+  setRouteFeatureFlagsForTests,
+} from './route-feature-flags';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -1755,6 +1758,11 @@ gpxExportBtn.addEventListener('click', () => {
 });
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
+  // E2.15 pilot: ?wg=1 enables Hybrid WaterGraph (WaterGraph → BRouter fallback).
+  // Default remains USE_WATER_GRAPH=false.
+  if (params.get('wg') === '1' || params.get('useWaterGraph') === '1') {
+    setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
+  }
   const qMode = params.get('mode');
   if (qMode === 'ruler') setMode('ruler');
   else if (qMode === 'water' || qMode === 'sea' || qMode === 'inland') setMode('water');

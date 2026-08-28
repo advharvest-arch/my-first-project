@@ -109,16 +109,15 @@ describe('E2.10 relation-aware WaterGraph shadow', () => {
     expect(a.method === 'route_not_found' || a.points.length >= 2).toBe(true);
   });
 
-  it('with USE_WATER_GRAPH test flag, Belomor attaches relationAwareShadow without changing final legacy ok', async () => {
+  it('with USE_WATER_GRAPH=true, Belomor hybrid selects WaterGraph (relation-aware)', async () => {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
     const path = await measureWaterChain([BELOMOR_A, BELOMOR_B]);
     const tr = getLastRouteTrace();
-    expect(tr?.relationAwareShadow?.source).toBe('relation_aware');
-    expect(tr?.relationAwareShadow?.relationId).toBe(9909116);
-    expect(tr?.relationAwareShadow?.diagnosticOnly).toBe(true);
-    expect(tr?.relationAwareShadow?.artificialGapEliminated).toBe(true);
-    expect(tr?.graph.centerlineSource).toBe('relation_aware_snapshot');
-    // Final remains legacy (shadow must not force ok).
-    expect(tr?.final.ok).toBe(path.method !== 'route_not_found' && path.points.length >= 2);
+    expect(tr?.hybridRouter?.selectedRouter).toBe('watergraph');
+    expect(tr?.hybridRouter?.fallbackUsed).toBe(false);
+    expect(tr?.hybridRouter?.centerlineSource).toMatch(/relation_aware/);
+    expect(path.method).not.toBe('route_not_found');
+    expect(tr?.final.ok).toBe(true);
+    expect(path.lengthKm).toBeGreaterThan(150);
   });
 });

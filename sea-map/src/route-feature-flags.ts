@@ -36,8 +36,9 @@ export type RouteFeatureFlags = {
    */
   PHASE_C_MAX_PAIRS_OVERRIDE: number | null;
   /**
-   * E2.0 — Hybrid WaterGraph shadow mode.
-   * When true: build/search graph for RouteTrace only; legacy path remains production result.
+   * E2.0/E2.15 — Hybrid WaterGraph.
+   * Default false → legacy Phase A/B/C only (production identity).
+   * When true → pilot: try WaterGraph first (validated); else BRouter fallback.
    */
   USE_WATER_GRAPH: boolean;
 };

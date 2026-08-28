@@ -1,6 +1,6 @@
 import { closestOnSegment, haversineKm, type LngLat } from './geo';
 import { routeWithBrouterAdaptive, routeSpanKm } from './brouter';
-import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath, openLakePinsToward, isLakeMaskComplete } from './open-lake';
+import { findSharedOpenLake, routeAcrossOpenLake, straightenOpenWaterSpans, chooseSafeDisplayGeometry, cachedLakeMaskAlongPath, densifyOpenWaterPath, openLakePinsToward } from './open-lake';
 import { dualGeometry } from './route-geometry';
 import { validateWaterRoute } from './validate-water-route';
 import { evaluateHydroAcceptGate } from './hydro-gate';
@@ -68,15 +68,14 @@ import {
   markFallbackEvent,
   nextFallbackParallelGroup,
 } from './route-fallback-timeline';
-import { runWaterGraphShadow, type CenterlineSource } from './water-graph';
-import { ingestCorridorCenterlines } from './water-graph-ingest';
 import { buildOverpassPreflight } from './overpass-preflight';
 import { mapPool } from './parallel-candidates';
 import {
-  belomorRelationAwareCenterlinesForShadow,
-  isBelomorShadowCorridor,
-  runBelomorRelationAwareShadow,
-} from './relation-aware-shadow';
+  attemptWaterGraphRoute,
+  applyShadowToGraphInfo,
+  legacyHybridDiag,
+  type RouteTraceHybridRouter,
+} from './watergraph-hybrid-router';
 
 import {
   ensureGvrIndex,
@@ -3423,257 +3422,98 @@ async function measureWaterChainInner(
     }
   };
 
+  /** E2.15 hybrid pilot state (set when USE_WATER_GRAPH and attempt ran). */
+  let hybridPilot: {
+    diag: RouteTraceHybridRouter;
+    shadow: import('./water-graph').WaterGraphShadowResult | null;
+    accepted: boolean;
+  } | null = null;
+
   const emitDone = async (path: WaterPath, rejectReason?: string | null): Promise<WaterPath> => {
     attachKnowledge(path);
-    // E2.0/E2.1 — WaterGraph shadow (diagnostic only; never changes returned path).
-    // Shadow wall is timed separately and excluded from legacyRoutingMs in e2e.
-    if (getRouteFeatureFlags().USE_WATER_GRAPH) {
-      const tShadow0 = nowPerfMs();
-      try {
-        const aPt = originalWaypoints[0]!;
-        const bPt = originalWaypoints[originalWaypoints.length - 1]!;
-        const centerlines: CenterlineSource[] = [];
-        const belomorCorridor = isBelomorShadowCorridor(aPt, bPt);
-        let ingestFailureCode: 'none' | 'centerline_missing' | 'centerline_empty_after_filter' =
-          'none';
-        let ingestStats: {
-          osmFeatureCount: number;
-          acceptedFeatureCount: number;
-          rejectedFeatureCount: number;
-          rejectionReasons: Record<string, number>;
-          sourceFeatureCount: number;
-          sourceWaterwayIds: string[];
-          centerlineSource: 'overpass' | 'fixture' | 'water-core' | 'mixed' | 'empty';
-          dataTimestampMs: number;
-          corridorBbox: [number, number, number, number];
-          ingestMs: number;
-          longSpanSegmented: boolean;
-          segmentCount: number;
-        } | null = null;
 
-        // E2.10 — Belomor shadow uses relation-aware OSM snapshot (not fixture chord).
-        // Diagnostic-only; never replaces the returned legacy path.
-        if (belomorCorridor) {
-          centerlines.push(...belomorRelationAwareCenterlinesForShadow());
-          ingestStats = {
-            osmFeatureCount: centerlines.length,
-            acceptedFeatureCount: centerlines.length,
-            rejectedFeatureCount: 0,
-            rejectionReasons: {},
-            sourceFeatureCount: centerlines.length,
-            sourceWaterwayIds: centerlines
-              .map((c) => c.sourceId)
-              .filter((x): x is string => !!x)
-              .slice(0, 64),
-            centerlineSource: 'fixture',
-            dataTimestampMs: Date.now(),
-            corridorBbox: [
-              Math.min(aPt.lon, bPt.lon) - 0.6,
-              Math.min(aPt.lat, bPt.lat) - 0.1,
-              Math.max(aPt.lon, bPt.lon) + 0.6,
-              Math.max(aPt.lat, bPt.lat) + 0.1,
-            ],
-            ingestMs: 0,
-            longSpanSegmented: false,
-            segmentCount: 1,
-          };
-        } else {
-          const ingest = await ingestCorridorCenterlines(aPt, bPt, {});
-          centerlines.push(...ingest.centerlines);
-          ingestFailureCode = ingest.failureCode;
-          ingestStats = ingest.stats;
-          const geom =
-            path.routingGeometry && path.routingGeometry.length >= 2
-              ? path.routingGeometry
-              : path.points;
-          if (
-            centerlines.length === 0 &&
-            geom.length >= 2 &&
-            path.method !== 'route_not_found'
-          ) {
-            centerlines.push({
-              id: 'legacy-route',
-              kind: 'brouter',
-              coords: geom,
-              waterId: 'cl:legacy',
-              source: 'legacy-measureWaterChain',
-              sourceId: path.method,
-            });
-          }
-        }
-
-        const shared = findSharedOpenLake(originalWaypoints);
-        const lake = shared ? cachedLakeMaskAlongPath(originalWaypoints) : null;
-        const legacyOk = path.method !== 'route_not_found' && path.points.length >= 2;
-        const shadow = runWaterGraphShadow({
-          a: aPt,
-          b: bPt,
-          legacyLengthKm: path.lengthKm,
-          legacyOk,
-          candidates: trace.candidates.map((c) => ({
-            endpoint: c.endpoint,
-            point: { lon: c.point.lon, lat: c.point.lat },
-            source: c.source,
-            distKm: c.distKm,
-            classPenalty: c.classPenalty,
-            stemPenalty: c.stemPenalty,
-            rank: c.rank,
-          })),
-          centerlines,
-          lake,
-          lakeComplete: lake ? isLakeMaskComplete(lake) : false,
-          ingest: {
-            failureCode: ingestFailureCode,
-            stats: ingestStats ?? undefined,
-          },
+    // Finalize hybrid selection after legacy fallback (if WaterGraph missed).
+    if (hybridPilot && hybridPilot.diag.fallbackUsed) {
+      const selected: RouteTraceHybridRouter['selectedRouter'] =
+        path.method === 'route_not_found' ? 'none' : 'brouter';
+      hybridPilot.diag = {
+        ...hybridPilot.diag,
+        selectedRouter: selected,
+        pathKm: path.method === 'route_not_found' ? null : path.lengthKm,
+        note:
+          selected === 'none'
+            ? `WaterGraph failed (${hybridPilot.diag.fallbackReason}); legacy also failed`
+            : `WaterGraph failed (${hybridPilot.diag.fallbackReason}); legacy BRouter used`,
+      };
+      if (hybridPilot.shadow) {
+        const g = applyShadowToGraphInfo(hybridPilot.shadow, {
+          centerlineSource: hybridPilot.diag.centerlineSource ?? undefined,
+          note: 'E2.15 Hybrid pilot — WaterGraph attempted; production result is legacy fallback',
         });
-        const comps = shadow.components;
-        const timing = shadow.timing;
-        const ek = shadow.edgeKindCounts;
+        const legacyOk = path.method !== 'route_not_found' && path.points.length >= 2;
         trace.graph = {
           ...trace.graph,
-          hybridAvailable: true,
-          built: shadow.built,
-          nodeCount: shadow.nodeCount,
-          edgeCount: shadow.edgeCount,
-          layers: shadow.layers,
-          componentCount: comps?.connectedComponents,
-          largestComponentKm: comps?.largestComponentKm,
-          isolatedNodes: comps?.isolatedNodes,
-          deadEnds: comps?.deadEnds,
-          portalCount: comps?.portalCount,
-          lockCount: comps?.lockCount,
-          maskNodeCount: comps?.maskNodeCount,
-          waterwayNodeCount: comps?.waterwayNodeCount,
-          waterwayEdgeCount: ek.waterwayEdgeCount,
-          canalEdgeCount: ek.canalEdgeCount,
-          maskEdgeCount: ek.maskEdgeCount,
-          fairwayEdgeCount: ek.fairwayEdgeCount,
-          lockEdgeCount: ek.lockEdgeCount,
-          seamCount: ek.seamCount,
-          graphBuildMs: shadow.buildMs,
-          centerlineMs: timing?.centerlineMs,
-          centerlineIngestMs: timing?.centerlineIngestMs ?? ingestStats?.ingestMs,
-          maskMs: timing?.maskMs,
-          seamMs: timing?.seamMs,
-          fairwayMs: timing?.fairwayMs,
-          searchMs: shadow.searchMs,
-          buildMs: shadow.buildMs,
-          totalGraphMs: timing?.totalGraphMs ?? shadow.buildMs + shadow.searchMs,
-          pathFound: shadow.pathFound,
-          pathLengthKm: shadow.pathLengthKm,
-          pathCost: shadow.pathCost,
-          edgeKinds: shadow.edgeKinds,
-          rejectReason: shadow.rejectReason,
-          failureStage: shadow.failureStage,
-          terminalA: shadow.terminalA
-            ? {
-                source: shadow.terminalA.source,
-                distKm: shadow.terminalA.distKm,
-                nodeId: shadow.terminalA.nodeId,
-              }
-            : null,
-          terminalB: shadow.terminalB
-            ? {
-                source: shadow.terminalB.source,
-                distKm: shadow.terminalB.distKm,
-                nodeId: shadow.terminalB.nodeId,
-              }
-            : null,
-          expandedNodes: shadow.expandedNodes,
-          legacyCompare: shadow.legacyCompare,
-          centerlineSource: belomorCorridor
-            ? 'relation_aware_snapshot'
-            : shadow.provenance.centerlineSource,
-          sourceFeatureCount: shadow.provenance.sourceFeatureCount,
-          sourceWaterwayIds: shadow.provenance.sourceWaterwayIds,
-          osmFeatureCount: shadow.provenance.osmFeatureCount,
-          acceptedFeatureCount: shadow.provenance.acceptedFeatureCount,
-          rejectedFeatureCount: shadow.provenance.rejectedFeatureCount,
-          rejectionReasons: shadow.provenance.rejectionReasons,
-          dataTimestampMs: shadow.provenance.dataTimestampMs,
-          corridorBbox: shadow.provenance.corridorBbox,
-          provenanceSources: shadow.provenance.sources,
-          note: belomorCorridor
-            ? 'E2.10 Belomor relation-aware WaterGraph shadow — production result remains legacy'
-            : 'E2.1 WaterGraph shadow + OSM centerline ingest — production result remains legacy',
-        };
-        if (shadow.topology) {
-          trace.waterGraphTopology = shadow.topology;
-        }
-        if (shadow.corridorEvidence) {
-          trace.waterCorridorEvidence = shadow.corridorEvidence;
-        }
-        if (shadow.connections) {
-          trace.waterGraphConnections = shadow.connections;
-        }
-        if (belomorCorridor) {
-          // Legacy wall up to shadow start (excludes graph shadow; not parallel-summed).
-          const legacyRoutingMs =
-            Math.round((tShadow0 - trace.startedAtMs) * 1000) / 1000;
-          const cmp = runBelomorRelationAwareShadow({
-            legacyOk,
+          ...g,
+          legacyCompare: {
             legacyLengthKm: path.lengthKm,
-            legacyRejectReason: rejectReason ?? trace.lastRejectReason,
-            legacyRoutingMs,
-            brouterCalls: perf.brouterCalls ?? null,
-          });
-          const graphShadowPartialMs = Math.round((nowPerfMs() - tShadow0) * 1000) / 1000;
-          trace.relationAwareShadow = {
-            source: 'relation_aware',
-            relationId: cmp.relationId,
-            relationWayCount: cmp.relationWayCount,
-            nodeCount: cmp.relationAware.nodeCount,
-            edgeCount: cmp.relationAware.edgeCount,
-            componentCount: cmp.relationAware.componentCount,
-            gapCount: cmp.relationAware.gapCount,
-            recoveredGeometryKm: cmp.recoveredGeometryKm,
-            buildMs: cmp.relationAware.graphBuildMs,
-            searchMs: cmp.relationAware.graphSearchMs,
-            pathKm: cmp.relationAware.pathLengthKm,
-            pathFound: cmp.relationAware.pathFound,
-            safetyResult: {
-              accepted: cmp.relationAware.graphSafetyAccepted,
-              rejectReason: cmp.relationAware.graphSafetyRejectReason,
-            },
-            currentGapCount: cmp.current.gapCount,
-            currentArtificialGapKm: cmp.current.artificialFixtureGapKm,
-            artificialGapEliminated: cmp.artificialGapEliminated,
-            diagnosticOnly: true,
-            legacyCompare: {
-              legacyResult: legacyOk ? `OK ${path.lengthKm.toFixed(1)}km` : 'FAIL',
-              graphResult: cmp.relationAware.pathFound
-                ? `OK ${cmp.relationAware.pathLengthKm}km safety=${cmp.relationAware.graphSafetyAccepted}`
-                : `FAIL ${cmp.relationAware.failureStage}`,
-              divergenceReason: cmp.legacyCompare.divergenceReason,
-              e2eTotalMs:
-                Math.round((legacyRoutingMs + graphShadowPartialMs) * 1000) / 1000,
-              legacyRoutingMs,
-              graphShadowMs: cmp.legacyCompare.graphShadowMs,
-            },
-          };
-        }
-      } catch {
-        // Shadow failures must never affect routing.
-      } finally {
-        trace.graphShadowRan = true;
-        trace.graphShadowMs = nowPerfMs() - tShadow0;
+            graphLengthKm: hybridPilot.shadow.pathFound
+              ? hybridPilot.shadow.pathLengthKm
+              : 0,
+            deltaKm:
+              (hybridPilot.shadow.pathFound
+                ? hybridPilot.shadow.pathLengthKm
+                : 0) - path.lengthKm,
+            deltaPct: 0,
+            agree: false,
+            graphBetter: false,
+            graphRejected: hybridPilot.diag.waterGraphResult === 'safety_reject',
+            graphNoPath: !hybridPilot.shadow.pathFound,
+            legacyBetter: legacyOk,
+            legacyNoPath: !legacyOk,
+            classification: legacyOk ? 'legacyBetter' : 'bothFail',
+          },
+        } as typeof trace.graph;
+      }
+    } else if (hybridPilot && hybridPilot.accepted && hybridPilot.shadow) {
+      const g = applyShadowToGraphInfo(hybridPilot.shadow, {
+        centerlineSource: hybridPilot.diag.centerlineSource ?? undefined,
+        note: 'E2.15 Hybrid pilot — WaterGraph selected (validator+hydro accepted)',
+      });
+      trace.graph = { ...trace.graph, ...g } as typeof trace.graph;
+      trace.graphShadowRan = true;
+      trace.graphShadowMs = hybridPilot.diag.timing.attemptMs;
+      if (hybridPilot.shadow.topology) {
+        trace.waterGraphTopology = hybridPilot.shadow.topology;
+      }
+      if (hybridPilot.shadow.corridorEvidence) {
+        trace.waterCorridorEvidence = hybridPilot.shadow.corridorEvidence;
+      }
+      if (hybridPilot.shadow.connections) {
+        trace.waterGraphConnections = hybridPilot.shadow.connections;
       }
     }
-    // Tiny finalization bucket so optional stage is present without changing behavior.
-    addPerfMs('finalAssemblyMs', 0.001);
+
+    if (hybridPilot) {
+      trace.hybridRouter = hybridPilot.diag;
+    } else {
+      trace.hybridRouter = legacyHybridDiag();
+    }
+
     if (!trace.overpassPreflight) {
       const candsA = trace.candidates.filter((c) => c.endpoint === 'A').length;
       const candsB = trace.candidates.filter((c) => c.endpoint === 'B').length;
       const okPath = path.method !== 'route_not_found' && path.points.length >= 2;
+      const sharedLakeName = findSharedOpenLake(originalWaypoints)?.name ?? null;
       trace.overpassPreflight = buildOverpassPreflight({
         a: originalWaypoints[0]!,
         b: originalWaypoints[originalWaypoints.length - 1]!,
         triggered: false,
-        reason: okPath ? 'accepted_before_overpass' : (rejectReason ?? trace.lastRejectReason ?? 'rejected_before_overpass'),
+        reason: okPath
+          ? 'accepted_before_overpass'
+          : (rejectReason ?? trace.lastRejectReason ?? 'rejected_before_overpass'),
         triggerCondition: 'Overpass fallback not reached (accepted or rejected earlier)',
         estimatedFallbackScope: 'not_reached',
-        sharedLakeName: sharedLake?.name ?? null,
+        sharedLakeName,
         phaseCRejectReason: trace.phases.C?.rejectReason ?? null,
         phaseCCandidateCountA: candsA,
         phaseCCandidateCountB: candsB,
@@ -3687,8 +3527,14 @@ async function measureWaterChainInner(
         },
       });
     }
+
+    addPerfMs('finalAssemblyMs', 0.001);
     if (path.method === 'route_not_found' || path.points.length < 2) {
-      markFallbackEvent('final_reject', 'final', rejectReason ?? trace.lastRejectReason ?? 'route_not_found');
+      markFallbackEvent(
+        'final_reject',
+        'final',
+        rejectReason ?? trace.lastRejectReason ?? 'route_not_found',
+      );
       trace.finish({
         ok: false,
         method: 'route_not_found',
@@ -3708,7 +3554,6 @@ async function measureWaterChainInner(
     }
     return path;
   };
-
   const acceptPath = async (
     routing: LngLat[],
     display: LngLat[],
@@ -4242,6 +4087,53 @@ async function measureWaterChainInner(
       method,
     });
   };
+
+  // 0) E2.15 Hybrid WaterGraph pilot — try validated graph before Phase A/B/C.
+  // No route-name special cases. No synthetic seams. Fall back to legacy on miss.
+  if (
+    getRouteFeatureFlags().USE_WATER_GRAPH &&
+    originalWaypoints.length === 2
+  ) {
+    const aPt = originalWaypoints[0]!;
+    const bPt = originalWaypoints[1]!;
+    const hybridId = beginFallbackEvent('watergraph_hybrid', 'waterGraph');
+    try {
+      const attempt = await attemptWaterGraphRoute(aPt, bPt);
+      hybridPilot = {
+        diag: attempt.diag,
+        shadow: attempt.shadow,
+        accepted: attempt.ok,
+      };
+      if (attempt.ok) {
+        endFallbackEvent(hybridId, 'ok', {
+          selectedRouter: 'watergraph',
+          pathKm: attempt.path.lengthKm,
+        });
+        return await emitDone(attempt.path);
+      }
+      endFallbackEvent(hybridId, attempt.diag.fallbackReason ?? 'watergraph_miss', {
+        waterGraphResult: attempt.diag.waterGraphResult,
+      });
+      // Fall through to Phase A/B/C (BRouter) — unchanged.
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      hybridPilot = {
+        diag: {
+          ...legacyHybridDiag(),
+          routerMode: 'hybrid_pilot',
+          selectedRouter: 'brouter',
+          waterGraphAttempted: true,
+          waterGraphResult: 'error',
+          fallbackUsed: true,
+          fallbackReason: `watergraph_error:${msg}`,
+          note: `WaterGraph attempt threw — legacy fallback (${msg})`,
+        },
+        shadow: null,
+        accepted: false,
+      };
+      endFallbackEvent(hybridId, `watergraph_error:${msg}`);
+    }
+  }
 
   // 1) Pure open-water legs (lake or reservoir): straight chords that only
   // bend around islands / peninsulas. BRouter river fairways hug the shore
