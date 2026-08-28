@@ -42,6 +42,7 @@ import type {
   WaterGraphFailureStage,
   WaterGraphShadowResult,
 } from './water-graph-types';
+import { diagnoseWaterGraphTopology } from './water-graph-topology';
 
 export const WG_MERGE_NODE_KM = 0.05;
 export const WG_DENSIFY_MAX_KM = 2.0;
@@ -982,6 +983,13 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
 
   const totalGraphMs = buildMs + searchMs + (ingestStats?.ingestMs ?? 0);
 
+  // E2.2.3 — topology diagnostics only (never adds seams / never changes search).
+  const topology = diagnoseWaterGraphTopology(g, {
+    a: input.a,
+    b: input.b,
+    lake: input.lake ?? null,
+  });
+
   return {
     available: true,
     built: g.nodes.size > 0,
@@ -990,6 +998,7 @@ export function runWaterGraphShadow(input: ShadowRunInput): WaterGraphShadowResu
     layers: { ...g.layers },
     edgeKindCounts,
     components: g.components ?? null,
+    topology,
     searchMs,
     buildMs,
     timing: {

@@ -177,6 +177,8 @@ export type WaterGraphShadowResult = {
   layers: WaterGraphLayers;
   edgeKindCounts: WaterGraphEdgeKindCounts;
   components: WaterGraphComponents | null;
+  /** E2.2.3 topology diagnostics (no seams added). */
+  topology?: import('./water-graph-topology').WaterGraphTopology | null;
   searchMs: number;
   buildMs: number;
   timing?: WaterGraph['timing'] & {
