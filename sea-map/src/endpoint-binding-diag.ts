@@ -201,13 +201,47 @@ function nearestMaskVertex(
 }
 
 async function loadWaysAroundEndpoint(p: LngLat): Promise<CenterlineSource[]> {
-  const pad = 0.2;
+  const pad = 0.25;
   const ingest = await ingestCorridorCenterlines(
     { lon: p.lon - pad, lat: p.lat - pad },
     { lon: p.lon + pad, lat: p.lat + pad },
-    { padDeg: 0.02, fetchAllSegments: true },
+    { padDeg: 0.05, fetchAllSegments: true },
   );
   return ingest.centerlines;
+}
+
+/** One Overpass fan-out for both endpoints (diagnosticOnly). */
+async function loadWaysForCorridor(
+  a: LngLat,
+  b: LngLat,
+): Promise<CenterlineSource[]> {
+  const pad = 0.3;
+  const ingest = await ingestCorridorCenterlines(
+    {
+      lon: Math.min(a.lon, b.lon) - pad,
+      lat: Math.min(a.lat, b.lat) - pad,
+    },
+    {
+      lon: Math.max(a.lon, b.lon) + pad,
+      lat: Math.max(a.lat, b.lat) + pad,
+    },
+    { padDeg: 0.05, fetchAllSegments: true },
+  );
+  if (ingest.centerlines.length > 0) return ingest.centerlines;
+  // Retry once after brief pause — Overpass mirrors sometimes return empty 200s.
+  await new Promise((r) => setTimeout(r, 1500));
+  const retry = await ingestCorridorCenterlines(
+    {
+      lon: Math.min(a.lon, b.lon) - pad,
+      lat: Math.min(a.lat, b.lat) - pad,
+    },
+    {
+      lon: Math.max(a.lon, b.lon) + pad,
+      lat: Math.max(a.lat, b.lat) + pad,
+    },
+    { padDeg: 0.05, fetchAllSegments: true },
+  );
+  return retry.centerlines;
 }
 
 function nearestWaterway(
@@ -284,7 +318,7 @@ function waterwayReachesMask(
         inMask = true;
         minKm = 0;
       } else {
-        const near = nearestOpenWater(q, lake, 5);
+        const near = nearestOpenWater(q, lake, 30);
         if (near) minKm = Math.min(minKm, haversineKm(q, near));
       }
     }
@@ -308,8 +342,8 @@ function waterwayReachesMask(
     minKmToOpenWater: minKm < Infinity ? Math.round(minKm * 1000) / 1000 : null,
     note:
       minKm < Infinity
-        ? `Waterway approaches mask to ${Math.round(minKm * 1000) / 1000} km but does not enter / seam-connect`
-        : 'Waterway stays outside nearestOpenWater search (5 km) of mask',
+        ? `Waterway approaches mask to ${Math.round(minKm * 1000) / 1000} km but does not enter / seam-connect (threshold ${WG_LAKE_CONNECT_KM} km)`
+        : 'Waterway stays outside nearestOpenWater search (30 km) of mask',
   };
 }
 
@@ -443,6 +477,8 @@ async function diagnoseEndpoint(args: {
   lake: LakeMask | null;
   lakeName: string | null;
   brouter: EndpointBindingEvidence['brouter'];
+  /** Shared corridor ingest (preferred over per-endpoint Overpass). */
+  corridorWays?: CenterlineSource[];
 }): Promise<EndpointBindingEvidence> {
   const { point, lake } = args;
   await warmWaterNear(point).catch(() => undefined);
@@ -458,38 +494,72 @@ async function diagnoseEndpoint(args: {
         ? 0
         : null;
 
-  const ways = await loadWaysAroundEndpoint(point);
-  const way = nearestWaterway(point, ways);
+  let ways =
+    args.corridorWays && args.corridorWays.length
+      ? args.corridorWays
+      : await loadWaysAroundEndpoint(point);
+  let way = nearestWaterway(point, ways);
   const snap = snapClickToWater(point, 30);
+  if (!way && snap?.kind === 'waterway' && snap.distKm <= 30) {
+    // Focused retry around this endpoint if shared corridor ingest missed it.
+    const local = await loadWaysAroundEndpoint(point);
+    if (local.length) {
+      ways = local;
+      way = nearestWaterway(point, ways);
+    }
+  }
+
+  const nearestWayKm =
+    way?.km ??
+    (snap?.kind === 'waterway' || snap?.kind === 'lake'
+      ? Math.round(snap.distKm * 1000) / 1000
+      : null);
+  const nearestWayName = way?.name ?? snap?.name ?? null;
+  const nearestWayPoint = way?.point ?? snap?.point ?? null;
+  const nearestWaySourceId = way?.sourceId ?? null;
+  const nearestWayKind = way?.kind ?? snap?.kind ?? null;
+  const nearestWayWaterId = way?.waterId ?? null;
+  const nearestWayProvenance = way
+    ? 'water_graph_ingest'
+    : snap
+      ? 'legacy_water_cell_snap'
+      : null;
 
   const chain = waterwayReachesMask(
     ways,
-    way?.name ?? null,
-    way?.sourceId ?? null,
+    nearestWayName,
+    nearestWaySourceId,
     lake,
   );
 
-  // Also test named Uren specifically for N06-B if present in ways under other ids
   let chainNote = chain.note;
   let chainReaches = chain.reaches;
-  if (args.route === 'N06' && args.endpoint === 'B' && way?.name) {
-    const urenChain = waterwayReachesMask(ways, way.name, way.sourceId, lake);
-    chainReaches = urenChain.reaches;
-    chainNote = urenChain.note;
+  if (!ways.length && nearestWayName) {
+    chainNote = `Snap found "${nearestWayName}" at ${nearestWayKm} km but endpoint-local ingest returned no geometry — chain to mask unproven (Overpass empty/rate-limit).`;
+    chainReaches = false;
+  } else if (nearestWayName) {
+    const namedChain = waterwayReachesMask(
+      ways,
+      nearestWayName,
+      nearestWaySourceId,
+      lake,
+    );
+    chainReaches = namedChain.reaches;
+    chainNote = namedChain.note;
   }
 
   const locationClass = classifyLocation({
     inMask,
     nearestMaskKm: maskNear?.km ?? null,
-    nearestWayKm: way?.km ?? snap?.distKm ?? null,
+    nearestWayKm,
   });
 
   const candidate = buildCandidate({
     route: args.route,
     locationClass,
     nearestMaskKm: maskNear?.km ?? null,
-    nearestWayKm: way?.km ?? null,
-    nearestWayName: way?.name ?? null,
+    nearestWayKm,
+    nearestWayName,
     chainReachesMask: lake ? chainReaches : null,
   });
 
@@ -502,11 +572,13 @@ async function diagnoseEndpoint(args: {
       diagnosticOnly: true,
     });
   }
-  if (way) {
+  if (nearestWayKm != null && nearestWayProvenance) {
     provenance.push({
       sourceType: 'osm_waterway',
-      sourceId: `way/${way.sourceId}`,
-      sourceDetail: `${way.name ?? 'unnamed'} kind=${way.kind} distKm=${way.km}`,
+      sourceId: nearestWaySourceId
+        ? `way/${nearestWaySourceId}`
+        : `snap:${nearestWayName ?? 'unnamed'}`,
+      sourceDetail: `${nearestWayName ?? 'unnamed'} kind=${nearestWayKind} distKm=${nearestWayKm} via=${nearestWayProvenance}`,
       diagnosticOnly: true,
     });
   }
@@ -520,16 +592,17 @@ async function diagnoseEndpoint(args: {
     nearestMaskPoint: maskNear?.point ?? null,
     nearestOpenWaterKm: openKm,
     nearestOpenWaterPoint: openNear,
-    nearestWaterwayKm: way?.km ?? null,
-    nearestWaterway: way
-      ? {
-          sourceId: way.sourceId,
-          name: way.name,
-          kind: way.kind,
-          waterId: way.waterId,
-          point: way.point,
-        }
-      : null,
+    nearestWaterwayKm: nearestWayKm,
+    nearestWaterway:
+      nearestWayKm != null && nearestWayPoint
+        ? {
+            sourceId: nearestWaySourceId ?? 'snap',
+            name: nearestWayName,
+            kind: nearestWayKind ?? 'waterway',
+            waterId: nearestWayWaterId,
+            point: nearestWayPoint,
+          }
+        : null,
     nearestWaterPolygonKm: openKm,
     nearestWaterPolygonNote: lake
       ? 'Using verified lake-mask open-water polygon (no separate water-polygon index in-repo)'
@@ -538,11 +611,12 @@ async function diagnoseEndpoint(args: {
     portPierHarbourNote:
       'No port/pier/harbour OSM binding layer in current codebase',
     lockKm: null,
-    lockNote: 'Lock portals are graph-global (Dubna/Rybinsk); not endpoint-local indexed here',
+    lockNote:
+      'Lock portals are graph-global (Dubna/Rybinsk); not endpoint-local indexed here',
     candidate,
     chainToMask: {
       waterwayReachesMask: lake ? chainReaches : null,
-      waterwayName: way?.name ?? null,
+      waterwayName: nearestWayName,
       note: chainNote,
     },
     brouter: args.brouter,
@@ -598,6 +672,29 @@ export async function runE214Corridor(
   clearWaterwayCellCacheForTests();
   clearRouteTraces();
 
+  // Diagnose OSM/mask binding BEFORE heavy legacy BRouter — avoids Overpass
+  // rate-limits wiping endpoint-local waterway ingest for N06 B (Урень).
+  const resolved = await resolveLakeMaskForShadow(c.a, c.b);
+  const corridorWays = await loadWaysForCorridor(c.a, c.b);
+  const evidenceA0 = await diagnoseEndpoint({
+    route: id,
+    endpoint: 'A',
+    point: c.a,
+    lake: resolved.lake,
+    lakeName: resolved.sharedName,
+    brouter: null,
+    corridorWays,
+  });
+  const evidenceB0 = await diagnoseEndpoint({
+    route: id,
+    endpoint: 'B',
+    point: c.b,
+    lake: resolved.lake,
+    lakeName: resolved.sharedName,
+    brouter: null,
+    corridorWays,
+  });
+
   const path = await measureWaterChain([c.a, c.b]);
   const tr = getLastRouteTrace();
   const geom =
@@ -605,24 +702,14 @@ export async function runE214Corridor(
       ? path.routingGeometry
       : path.points;
 
-  const resolved = await resolveLakeMaskForShadow(c.a, c.b);
-
-  const evidenceA = await diagnoseEndpoint({
-    route: id,
-    endpoint: 'A',
-    point: c.a,
-    lake: resolved.lake,
-    lakeName: resolved.sharedName,
+  const evidenceA: EndpointBindingEvidence = {
+    ...evidenceA0,
     brouter: brouterForEndpoint(tr, 'A', c.a, geom),
-  });
-  const evidenceB = await diagnoseEndpoint({
-    route: id,
-    endpoint: 'B',
-    point: c.b,
-    lake: resolved.lake,
-    lakeName: resolved.sharedName,
+  };
+  const evidenceB: EndpointBindingEvidence = {
+    ...evidenceB0,
     brouter: brouterForEndpoint(tr, 'B', c.b, geom),
-  });
+  };
 
   const report: E214CorridorReport = {
     route: id,
@@ -677,7 +764,6 @@ export async function runE214Suite(opts?: {
   }
 
   const n06 = corridors.find((c) => c.route === 'N06');
-  const n08 = corridors.find((c) => c.route === 'N08');
   const vg = corridors.find((c) => c.route === 'VG-mid');
 
   const table: E214SuiteReport['table'] = [];
@@ -715,7 +801,7 @@ export async function runE214Suite(opts?: {
         ? `Nearest OSM waterway: ${b.nearestWaterway?.name ?? 'unnamed'} way/${b.nearestWaterway?.sourceId ?? '?'} at ${b.nearestWaterwayKm} km. Chain to mask: reaches=${b.chainToMask.waterwayReachesMask} (${b.chainToMask.note}). No port/pier layer. Do NOT treat the ${b.nearestMaskKm} km mask gap as fillable.`
         : 'UNKNOWN',
       whatBrouterUses: b?.brouter?.used
-        ? `Legacy N06 uses Phase B BRouter (method=lake). BRouter geometry ends ${b.brouter.geomEndToEndpointKm} km from B (finish residual ${b.brouter.residualFinishKm} km, snapKm=${b.brouter.snapKm}). Geom tip ≈ nearest Урень centerline — BRouter follows water network that includes this tributary approach; WaterGraph mask mesh does not cover that approach and Урень does not seam-connect into the mask in our ingest.`
+        ? `Legacy N06 uses Phase B BRouter (method=lake). BRouter geometry ends ${b.brouter.geomEndToEndpointKm} km from B (finish residual ${b.brouter.residualFinishKm} km, snapKm=${b.brouter.snapKm}). Geom tip near nearest waterway "${b.nearestWaterway?.name ?? 'unknown'}" (${b.nearestWaterwayKm} km from B) — BRouter follows water network that includes this tributary approach; WaterGraph mask mesh does not cover that approach and the waterway does not seam-connect into the mask in our ingest.`
         : 'UNKNOWN — no BRouter geometry captured',
       canSafelyBindB: b
         ? b.candidate.type === 'short_shore_snap_to_waterway' &&

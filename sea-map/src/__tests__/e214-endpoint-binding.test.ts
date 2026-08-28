@@ -53,7 +53,7 @@ describe('E2.14 endpoint binding diagnostic', () => {
     );
   });
 
-  it('N06 endpoint B: far from mask; candidate is not a safe long seam', async () => {
+  it('N06 endpoint B: far from mask; Урень near but chain unproven', async () => {
     const row = await runE214Corridor('N06');
     const b = row.endpoints.B;
     expect(b.coordinates).toEqual({ lon: 49.1, lat: 54.35 });
@@ -61,12 +61,11 @@ describe('E2.14 endpoint binding diagnostic', () => {
     expect(b.candidate.wouldCreateGraphEdge).toBe(false);
     expect(b.nearestMaskKm).not.toBeNull();
     expect(b.nearestMaskKm!).toBeGreaterThan(15);
-    expect([
-      'waterway_chain_to_mask_unproven',
-      'unsafe_long_gap',
-      'none',
-    ]).toContain(b.candidate.type);
-    expect(b.candidate.type).not.toBe('short_shore_snap_to_mask');
+    expect(b.nearestWaterwayKm).not.toBeNull();
+    expect(b.nearestWaterwayKm!).toBeLessThan(8);
+    expect(b.nearestWaterway?.name ?? '').toMatch(/Урень|Uren/i);
+    expect(b.candidate.type).toBe('waterway_chain_to_mask_unproven');
+    expect(b.chainToMask.waterwayReachesMask).toBe(false);
     expect(getLastRouteTrace()?.endpointBindingDiag?.route).toBe('N06');
     expect(
       getLastRouteTrace()?.endpointBindingDiag?.endpoints.B.nearestMaskKm,

@@ -26,8 +26,8 @@ For each control corridor endpoint:
 1. Record exact coordinates.
 2. Resolve shared lake mask (same densified path as E2.13).
 3. Measure nearest mask vertex / open-water distance.
-4. Ingest OSM waterways in a local pad around the endpoint.
-5. Measure nearest waterway distance + name/provenance.
+4. Ingest OSM waterways once for the corridor (named streams included).
+5. Measure nearest waterway distance + name/provenance (snap fallback if Overpass empty).
 6. Test whether that waterway geometry enters or seam-connects (`WG_LAKE_CONNECT_KM = 0.45`) to the mask.
 7. Classify location + emit a **diagnostic-only** candidate (never a graph edge).
 8. Attach BRouter residual forensics from the legacy `measureWaterChain` RouteTrace.
@@ -38,15 +38,18 @@ Controls: **N06** (target), **N08** (mask-positive), **BELOMOR** (relation-aware
 
 ## Results table
 
+Measured run (`npm run bench:e214` / N06 corridor probe):
+
 | route | endpoint | nearest mask | nearest waterway | nearest water polygon | candidate | confidence | reason |
 | --- | --- | ---: | ---: | ---: | --- | --- | --- |
-| N06 | A | *(suite)* | *(suite)* | *(suite)* | *(suite)* | *(suite)* | *(suite)* |
-| N06 | B | ~23.4–23.9 km | ~3.56 km (Урень) | ~23.9 km (mask open water) | `waterway_chain_to_mask_unproven` | LOW | Waterway close; chain to mask not proven |
-| N08 | A/B | near / on mask | *(suite)* | near / on mask | `already_on_mask` / short snap | HIGH | Positive mask control |
-| BELOMOR | A/B | — (no shared lake) | relation waterways | — | `none` / local | — | Relation-aware control |
-| VG-mid | A/B | — | present locally | — | `negative_control_no_cross_body` | HIGH | Refuse Volga↔Akhtuba sew |
-
-*(Run `npm run bench:e214` to refresh measured numbers into `/tmp/e214-endpoint-binding.json`.)*
+| N06 | A | 4.272 km | 2.304 km | 0 (on mask) | `already_on_mask` | HIGH | Inside verified Kuibyshev mask |
+| N06 | B | **23.423 km** | **3.564 km** (Урень `way/178554106`) | 23.62 km | `waterway_chain_to_mask_unproven` | LOW | Урень close; approaches mask to **8.422 km** — no enter/seam (0.45 km) |
+| N08 | A | 1.794 km | 0.194 km | 0 (on mask) | `already_on_mask` | HIGH | Positive mask control |
+| N08 | B | 0.233 km | 0.832 km | 0 (on mask) | `already_on_mask` | HIGH | Positive mask control |
+| BELOMOR | A | — | ~1.06 km | — | `none` | NONE | Relation-aware; no shared lake mask |
+| BELOMOR | B | — | ~0.68 km | — | `none` | NONE | Relation-aware; no shared lake mask |
+| VG-mid | A | — | local | — | `negative_control_no_cross_body` | HIGH | Refuse Volga↔Akhtuba sew |
+| VG-mid | B | — | local | — | `negative_control_no_cross_body` | HIGH | Refuse Volga↔Akhtuba sew |
 
 ---
 
@@ -54,21 +57,22 @@ Controls: **N06** (target), **N08** (mask-positive), **BELOMOR** (relation-aware
 
 ### 1. Why is N06 endpoint B ~23.9 km from the mask?
 
-Preset B `{lon: 49.1, lat: 54.35}` lies **outside** the verified Kuibyshev lake-mask polygon. Shared-lake catalog detection still fires (bbox / densified corridor), so WaterGraph tries the Kuibyshev mask — but B is not on open water. Nearest mask ring vertex is ~23–24 km away (shore tip near ~`{48.83, 54.49}`). A is much closer / on-water.
+Preset B `{lon: 49.1, lat: 54.35}` lies **outside** the verified Kuibyshev lake-mask polygon (`locationClass=shore_near_waterway`). Shared-lake catalog detection still fires (bbox / densified corridor), so WaterGraph tries the Kuibyshev mask — but B is not on open water. Nearest mask ring vertex ≈ **23.423 km**. Endpoint A is inside / near the mask.
 
 ### 2. Are there real water data between B and the mask?
 
-Yes, **near B**: OSM waterway **Урень** (`way/178554106` and related) at ~3.56 km — same tip BRouter residual lands on.  
-No proven geometric chain in endpoint-local ingest from Урень into the Kuibyshev mask (does not enter open water; does not come within the 0.45 km seam threshold). Separate named ways (e.g. Майна) can sit *in* the mask without proving Урень→mask connectivity.  
-No in-repo port/pier/harbour or lock layer binds this endpoint.
+**Near B, yes:** OSM waterway **Урень** (`way/178554106`, `ww:урень`) at **3.564 km** — same tip as BRouter geometry end.  
+**Chain to mask: no.** Ingested Урень geometry approaches open water to **8.422 km** but does **not** enter the mask and does **not** come within the 0.45 km waterway↔mask seam threshold.  
+No in-repo port/pier/harbour or lock layer binds this endpoint.  
+Do **not** treat the 23.4 km mask gap as fillable.
 
 ### 3. What allows BRouter to build N06?
 
-Legacy Phase B **BRouter** (`method=lake`). Geometry ends within the water snap budget of B (`finishKm ≈ 3.56`, `snapKm = 5.5`). BRouter follows a water routing network that includes this tributary approach; our WaterGraph mask mesh does not cover that approach, and Урень does not seam-connect into the mask under current ingest. We are **not** copying BRouter here.
+Legacy Phase B **BRouter** (`method=lake`). Geometry ends within the water snap budget of B (`finishKm ≈ 3.564`, `snapKm = 5.5`). Geom tip coincides with Урень centerline. BRouter follows a water routing network that includes this tributary approach; our WaterGraph mask mesh does not cover that approach, and Урень does not seam-connect into the mask under current ingest. We are **not** copying BRouter here.
 
 ### 4. Can we safely bind B to the existing water network?
 
-**Not as a mask auto-bind today.** Candidate type `waterway_chain_to_mask_unproven` (or `unsafe_long_gap` if waterway ingest fails). Confidence LOW/NONE. A short shore snap to Урень alone does **not** create a safe path to the reservoir without a proven chain.
+**Not as a mask auto-bind today.** Candidate type `waterway_chain_to_mask_unproven`, confidence **LOW**, `wouldCreateGraphEdge=false`. A short shore snap to Урень alone does **not** create a safe path to the reservoir without a proven chain (8.4 km remaining gap from waterway tip to mask ≫ 0.45 km).
 
 ### 5. If not — what data do we need?
 
