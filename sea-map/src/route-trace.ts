@@ -28,10 +28,12 @@ import {
   type RouteTraceFallbackDiag,
 } from './route-fallback-timeline';
 import type { OverpassPreflight } from './overpass-preflight';
+import type { WaterGraphTopology } from './water-graph-topology';
 
 export type { RouteTraceE2E, RouteLatencySummary, RouteE2EStages } from './route-e2e-latency';
 export type { RouteTraceFallbackDiag, FallbackTimelineEvent, FallbackSummary } from './route-fallback-timeline';
 export type { OverpassPreflight } from './overpass-preflight';
+export type { WaterGraphTopology } from './water-graph-topology';
 export {
   beginRouteE2E,
   finalizeUiRouteE2E,
@@ -332,6 +334,11 @@ export type RouteTrace = {
    */
   overpassPreflight?: OverpassPreflight;
   /**
+   * E2.2.3 — WaterGraph topology snapshot (components / gaps / candidates).
+   * Diagnostic only; never adds seams or changes routing.
+   */
+  waterGraphTopology?: WaterGraphTopology;
+  /**
    * E2 — Open Russian Knowledge Layer matches (advisory only).
    * Omitted when no facts matched / knowledge disabled.
    */
@@ -563,6 +570,8 @@ export type RouteTraceBuilder = {
   graphShadowRan: boolean;
   /** E2.2.2 — Overpass preflight (set before/at Overpass decision). */
   overpassPreflight: OverpassPreflight | null;
+  /** E2.2.3 — WaterGraph topology (diagnostic only). */
+  waterGraphTopology: WaterGraphTopology | null;
   finish: (final: RouteTraceFinal) => RouteTrace;
 };
 
@@ -603,6 +612,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
     graphShadowMs: 0,
     graphShadowRan: false,
     overpassPreflight: null,
+    waterGraphTopology: null,
     finish(final: RouteTraceFinal): RouteTrace {
       const endedAtMs = nowMs();
       const rejectReason = final.ok ? null : final.rejectReason ?? builder.lastRejectReason;
@@ -673,6 +683,7 @@ export function beginRouteTrace(waypoints: LngLat[], geoKm = 0): RouteTraceBuild
       const fallback = snapshotFallbackDiag(timing.totalMs);
       if (fallback) trace.fallbackTimeline = fallback;
       if (builder.overpassPreflight) trace.overpassPreflight = builder.overpassPreflight;
+      if (builder.waterGraphTopology) trace.waterGraphTopology = builder.waterGraphTopology;
       if (builder.longSpan) trace.longSpan = builder.longSpan;
       if (builder.segments.length) trace.segments = builder.segments.slice();
       if (failure && !final.ok) trace.failure = failure;

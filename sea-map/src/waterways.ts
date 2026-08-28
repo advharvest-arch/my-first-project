@@ -3545,6 +3545,9 @@ async function measureWaterChainInner(
           provenanceSources: shadow.provenance.sources,
           note: 'E2.1 WaterGraph shadow + OSM centerline ingest — production result remains legacy',
         };
+        if (shadow.topology) {
+          trace.waterGraphTopology = shadow.topology;
+        }
       } catch {
         // Shadow failures must never affect routing.
       } finally {
