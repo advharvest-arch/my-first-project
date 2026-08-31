@@ -65,6 +65,14 @@ Missing-member classification (PBF presence evidence):
 - `internal_missing` — id in PBF but not in `water.objects`
 - `mixed` — both
 
+## Multi-extract architecture (E3.6)
+
+See [`../docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md`](../docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md).
+
+```bash
+python3 ingest/poc_multi_extract_merge.py   # TEMP-table PoC; no durable writes
+```
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
