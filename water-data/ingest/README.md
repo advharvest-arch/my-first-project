@@ -137,6 +137,15 @@ python3 e314_vb_geometry_recon_audit.py --omit-members-stdout \
 
 See [`../docs/E3_14_VB_GEOMETRY_RECON_AUDIT.md`](../docs/E3_14_VB_GEOMETRY_RECON_AUDIT.md).
 
+## Topology audit (E3.15)
+
+```bash
+python3 e315_topology_audit.py --relation 16738852
+python3 e315_topology_audit.py --relation 9909116 --json-out ../data/e315_belomor.json
+```
+
+See [`../docs/E3_15_TOPOLOGY_AUDIT.md`](../docs/E3_15_TOPOLOGY_AUDIT.md).
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
