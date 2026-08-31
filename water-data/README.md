@@ -189,6 +189,22 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e312_volga_baltic_coverage.sql
 ```
 
+## Vologda coverage merge (E3.13)
+
+Targeted staging→merge for Volga–Baltic completeness. See [`docs/E3_13_VOLOGDA_VOLGA_BALTIC.md`](docs/E3_13_VOLOGDA_VOLGA_BALTIC.md).
+
+```bash
+./ingest/download_vologda.sh
+python3 ingest/import_osm.py data/vologda_oblast-latest.osm.pbf \
+  --to-staging --batch-key e313-vologda-oblast \
+  --source-version osm-vologda-oblast-e313
+python3 ingest/merge_staging.py --batch-id <id>
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e313_vologda_volga_baltic.sql
+```
+
+**Result:** relation `16738852` **106/106**. PBF not committed.
+
 ## Остановка БД
 
 ```bash
@@ -205,8 +221,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.13** (предложение): staging import Vologda oblast (or OSM API `relation/16738852/full`) → merge → re-measure completeness — без WaterGraph
-- позже — osm_version/timestamp; routing-relevance VIEW; опциональная сборка WaterGraph
+- **E3.14** (предложение): optional rebuild of complete-relation geometry from members **или** review of Vologda geometry conflicts — без Yaroslavl/WaterGraph unless a new corridor needs it
+- позже — osm_version/timestamp; routing-relevance VIEW; WaterGraph
 
 ## Важно
 
