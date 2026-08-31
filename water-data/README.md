@@ -1,147 +1,109 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.2)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.3)
 
 ## Зачем это
 
 Каталог `water-data/` — **изолированный фундамент** для будущей локальной базы водных данных AquaRoute (PostgreSQL + PostGIS).
 
-Сейчас: контейнер БД + минимальная схема хранения исходных водных объектов.  
-Маршрутизация, WaterGraph, BRouter, Hybrid Router, Safety Validator, frontend и OSM/Overpass **не подключены** и не меняются. Импорта данных пока нет.
+Сейчас: контейнер БД + схема хранения исходных OSM water-объектов + **offline import** тестового набора Беломорканала.  
+Маршрутизация, WaterGraph, BRouter, Hybrid Router, Safety Validator, frontend и Overpass **не подключены**.
 
 ## Что есть сейчас
 
-- Docker Compose с официальным образом `postgis/postgis`
-- БД `aquaroute_water`, пользователь `aquaroute`
-- Порт хоста **5433** → 5432 в контейнере
+- Docker Compose (`postgis/postgis`), БД `aquaroute_water`, порт хоста **5433**
 - Схема `water`
-- Таблица метаданных `water.data_sources` (E3.1)
-- Таблица исходных объектов `water.objects` (E3.2)
-- Пароль только через `.env` (см. `.env.example`)
+- `water.data_sources` — метаданные загрузок (E3.1)
+- `water.objects` — исходные OSM объекты (E3.2)
+- `water.object_members` — состав OSM relations (E3.3)
+- `water-data/ingest/` — download + pyosmium importer (E3.3)
+- Пароль через `.env` (см. `.env.example`)
 
-Таблиц графа (`water_edges` и т.п.), synthetic connections и пайплайна импорта **пока нет**.
+Таблиц графа (`water_edges`), synthetic connections и подключения к роутеру **нет**.
 
 ## Таблица `water.objects` (E3.2)
 
-Хранит **исходный OSM water object** так, чтобы позже можно было проверить происхождение любой геометрии и не потерять полезные tags.
+Хранит **исходный OSM water object** (node/way/relation): `osm_type`+`osm_id`, `tags` (JSONB), `geometry` (EPSG:4326), `water_type` (нормализация, не замена tags), `source` / `source_version`.
+
+Уникальность: `UNIQUE (osm_type, osm_id)`.
+
+## Таблица `water.object_members` (E3.3)
+
+Зачем: сохранить **исходный состав** OSM relation отдельно от tags, чтобы SQL умел:
+
+- какие members входят в relation;
+- в какие relations входит конкретный way;
+- порядок members (`seq`);
+- role (`main_stream`, …).
 
 | Поле | Смысл |
 |------|--------|
-| `id` | Внутренний ключ БД |
-| `osm_type` | Тип элемента OSM: `node` / `way` / `relation` |
-| `osm_id` | Исходный OSM id (вместе с `osm_type` — уникальная личность объекта) |
-| `name` | Название, если есть |
-| `water_type` | **Наше** нормализованное представление (`river`, `canal`, `lake`, …) — **не** замена tags |
-| `geometry` | Геометрия исходного объекта, **EPSG:4326** (WGS84) |
-| `tags` | Полный набор исходных OSM tags (`JSONB`) — источник правды для аудита |
-| `source` / `source_version` | Происхождение набора (например `osm` + дата/версия выгрузки) |
-| `imported_at` | Когда строка попала в БД |
+| `parent_osm_type` / `parent_osm_id` | Родитель (сейчас всегда `relation` + его OSM id) |
+| `seq` | Порядок member в списке relation (0-based), как в OSM |
+| `member_osm_type` / `member_osm_id` | Сам member |
+| `member_role` | Роль OSM (например `main_stream`) |
 
-Уникальность: один OSM-объект = одна строка (`UNIQUE (osm_type, osm_id)`).
+**Отличие от `tags`:** `tags` на `water.objects` — только исходные OSM key/value объекта. Состав relation туда не кладётся.
 
-Индексы: GIST по `geometry`, btree по `water_type`, GIN по `tags` (удобно для `tags @> …`).
+**FK нет:** обычный SQL `FOREIGN KEY` на `water.objects` ненадёжен при частичном OSM extract и порядке импорта (member может быть упомянут без отдельной строки объекта). Связь логическая по парам `(osm_type, osm_id)`.
 
-### Почему SRID 4326
+**Provenance / geometry:** relation в `water.objects` может иметь `MultiLineString`, собранный из **реальных** геометрий member ways (без `LineMerge` и без дорисованных стыков). Разрывы между ways **не** сшиваются. Это не synthetic seam. Состав при этом остаётся в `object_members`.
 
-OSM отдаёт координаты в WGS84 (lon/lat). Одна колонка `geometry(Geometry, 4326)` хранит Point / LineString / Polygon / Multi* без лишних преобразований при импорте. Для расстояний и «ближайших» объектов позже можно использовать `::geography` или проекцию в запросе — отдельная projected-колонка пока не нужна.
+Индексы: `(parent_osm_type, parent_osm_id)` и `(member_osm_type, member_osm_id)`.  
+Уникальность позиции: `UNIQUE (parent_osm_type, parent_osm_id, seq)`.
 
 ## Запуск БД
 
-Из каталога `water-data/`:
-
 ```bash
+cd water-data
 cp .env.example .env
-# при необходимости отредактируйте POSTGRES_PASSWORD в .env
-
-docker compose config   # проверка конфигурации
+docker compose config
 docker compose up -d
 ```
 
-Первый старт выполняет SQL из `db/init/` по порядку (`001` → `002` → `003`).
-
-Если volume уже был создан на E3.1 **без** `003_objects.sql`, примените миграцию вручную:
+Первый старт выполняет `db/init/` (`001`…`004`). На старом volume без `004`:
 
 ```bash
 docker compose exec -T db \
-  psql -U aquaroute -d aquaroute_water < db/init/003_objects.sql
+  psql -U aquaroute -d aquaroute_water < db/init/004_object_members.sql
 ```
 
-Либо пересоздайте volume: `docker compose down -v && docker compose up -d`.
+Полный сброс: `docker compose down -v && docker compose up -d`.
+
+## Offline import Беломорканала (E3.3)
+
+См. подробности в [`ingest/README.md`](ingest/README.md).
+
+```bash
+./ingest/download_belomor.sh          # OSM API relation/9909116/full → data/*.osm (gitignored)
+export POSTGRES_PASSWORD=...          # из .env
+python3 -m pip install -r ingest/requirements.txt
+python3 ingest/import_osm.py
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e33_belomor_validate.sql
+```
+
+Повторный import — upsert по `(osm_type, osm_id)`; members relation перезаписываются без дублей.
 
 ## Остановка БД
 
 ```bash
-cd water-data
 docker compose down
+# с удалением volume: docker compose down -v
 ```
 
-Данные в named volume `aquaroute_water_pgdata` сохраняются. Чтобы удалить и volume:
+## Проверка PostGIS / E3.2 smoke
 
 ```bash
-docker compose down -v
+docker compose exec db psql -U aquaroute -d aquaroute_water -c "SELECT PostGIS_Version();"
+docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_objects_smoke.sql
 ```
-
-## Проверка подключения
-
-```bash
-cd water-data
-docker compose exec db \
-  psql -U aquaroute -d aquaroute_water -c '\conninfo'
-```
-
-С хоста (если установлен клиент `psql`):
-
-```bash
-psql "postgresql://aquaroute:<PASSWORD>@127.0.0.1:5433/aquaroute_water" -c 'SELECT 1;'
-```
-
-## Проверка PostGIS и схемы
-
-```bash
-docker compose exec db psql -U aquaroute -d aquaroute_water -c \
-  "SELECT PostGIS_Version();"
-
-docker compose exec db psql -U aquaroute -d aquaroute_water -c \
-  "\dn water"
-
-docker compose exec db psql -U aquaroute -d aquaroute_water -c \
-  "\d water.data_sources"
-
-docker compose exec db psql -U aquaroute -d aquaroute_water -c \
-  "\d water.objects"
-```
-
-## Smoke test E3.2 (без реальных OSM-данных)
-
-Проверяет наличие таблицы, SRID 4326, UNIQUE `(osm_type, osm_id)`, типы `geometry`/`jsonb` и индексы. Вставляет временную строку и удаляет её.
-
-```bash
-cd water-data
-docker compose exec -T db \
-  psql -U aquaroute -d aquaroute_water < db/smoke/e32_objects_smoke.sql
-```
-
-После успешного прогона в `water.objects` не должно остаться smoke-записей.
-
-## E3.3 status (blocked on schema)
-
-Offline import was **not** started: `water.objects` cannot store OSM relation **members** without either polluting `tags` or extending the schema.
-
-See: [`docs/E3_3_RELATION_MEMBERS_SCHEMA_NEEDED.md`](docs/E3_3_RELATION_MEMBERS_SCHEMA_NEEDED.md)  
-(tool comparison, Belomor probe `9909116`, proposed `water.object_members`).
-
-Awaiting approval of that minimal extension before implementing `water-data/ingest/`.
 
 ## Что дальше (не выполняется здесь)
 
-Предположительно:
-
-- **E3.3 (resume)** — schema for members → offline import of a small Belomor extract → `water.objects` + `data_sources`
-- **E3.4+** — larger extracts / coverage diagnostics (still without wiring the router)
-- ещё позже — опциональная сборка WaterGraph из БД (отдельные этапы, feature flags)
-
-Production AquaRoute до тех пор остаётся прежним.
+- **E3.4** (предложение): расширить offline extract / coverage diagnostics по коридору, всё ещё без графа и без роутера
+- позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно
 
-- Не коммитьте файл `.env` с реальным паролем.
-- Не подключайте эту БД к frontend/API/ORM без отдельного согласованного этапа.
-- Повторный `docker compose up` на уже инициализированном volume **не** перезапускает скрипты из `db/init/`. Для чистой переинициализации: `docker compose down -v` и снова `up -d`.
+- Не коммитьте `.env`, `data/*.osm`, PBF и database volumes.
+- Не подключайте БД к frontend/API/ORM без отдельного этапа.
+- Повторный `docker compose up` на уже инициализированном volume не перезапускает `db/init/`.
