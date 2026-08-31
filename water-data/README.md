@@ -1,20 +1,18 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.3)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.4)
 
 ## Зачем это
 
 Каталог `water-data/` — **изолированный фундамент** для будущей локальной базы водных данных AquaRoute (PostgreSQL + PostGIS).
 
-Сейчас: контейнер БД + схема хранения исходных OSM water-объектов + **offline import** тестового набора Беломорканала.  
+Сейчас: контейнер БД + схема + **offline import** (Беломор relation и extract Карелии) + SQL coverage diagnostics.  
 Маршрутизация, WaterGraph, BRouter, Hybrid Router, Safety Validator, frontend и Overpass **не подключены**.
 
 ## Что есть сейчас
 
 - Docker Compose (`postgis/postgis`), БД `aquaroute_water`, порт хоста **5433**
-- Схема `water`
-- `water.data_sources` — метаданные загрузок (E3.1)
-- `water.objects` — исходные OSM объекты (E3.2)
-- `water.object_members` — состав OSM relations (E3.3)
-- `water-data/ingest/` — download + pyosmium importer (E3.3)
+- Схема `water`: `data_sources`, `objects`, `object_members`
+- `water-data/ingest/` — download scripts + pyosmium importer (E3.3–E3.4)
+- `db/smoke/e34_coverage_diag.sql` — диагностика покрытия
 - Пароль через `.env` (см. `.env.example`)
 
 Таблиц графа (`water_edges`), synthetic connections и подключения к роутеру **нет**.
@@ -68,20 +66,26 @@ docker compose exec -T db \
 
 Полный сброс: `docker compose down -v && docker compose up -d`.
 
-## Offline import Беломорканала (E3.3)
+## Offline import (E3.3–E3.4)
 
-См. подробности в [`ingest/README.md`](ingest/README.md).
+См. [`ingest/README.md`](ingest/README.md).
 
 ```bash
-./ingest/download_belomor.sh          # OSM API relation/9909116/full → data/*.osm (gitignored)
-export POSTGRES_PASSWORD=...          # из .env
+# E3.4 — Республика Карелия (~102MB PBF, включает Беломор + окрестную водную сеть)
+./ingest/download_karelia.sh
+export POSTGRES_PASSWORD=...   # из .env
 python3 -m pip install -r ingest/requirements.txt
-python3 ingest/import_osm.py
+python3 ingest/import_osm.py data/karelia_republic-latest.osm.pbf
 docker compose exec -T db \
-  psql -U aquaroute -d aquaroute_water < db/smoke/e33_belomor_validate.sql
+  psql -U aquaroute -d aquaroute_water < db/smoke/e34_coverage_diag.sql
+
+# E3.3 — только relation 9909116 (~105KB)
+./ingest/download_belomor.sh
+python3 ingest/import_osm.py data/belomor-relation-9909116-full.osm
 ```
 
-Повторный import — upsert по `(osm_type, osm_id)`; members relation перезаписываются без дублей.
+Повторный import — upsert по `(osm_type, osm_id)`; members relation перезаписываются без дублей.  
+Неполные relations на границе extract **не** «чинятся» автоматически — см. `e34_coverage_diag.sql`.
 
 ## Остановка БД
 
@@ -99,7 +103,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.4** (предложение): расширить offline extract / coverage diagnostics по коридору, всё ещё без графа и без роутера
+- **E3.5** (предложение): coverage QA / выбор следующего региона или water-only filter pipeline — всё ещё без графа и без роутера
 - позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно

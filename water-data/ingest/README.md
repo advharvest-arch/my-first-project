@@ -1,57 +1,53 @@
-# water-data/ingest — offline OSM import (AquaRoute E3.3)
+# Offline OSM ingest (AquaRoute E3.3–E3.4)
 
-Offline only. No Overpass, no AquaRoute/WaterGraph/BRouter wiring.
+No Overpass. No AquaRoute/WaterGraph/BRouter wiring. No graph construction.
+
+## Datasets
+
+| Dataset | Script | Typical size | Notes |
+|---------|--------|--------------|--------|
+| Belomor relation `9909116` full | `./download_belomor.sh` | ~105 KB | E3.3 smoke |
+| **Karelia republic PBF (E3.4)** | `./download_karelia.sh` | ~102 MB | Belomor + surrounding water network |
+
+PBF/OSM files land in `water-data/data/` and are **gitignored**.
+
+### Why Karelia for E3.4
+
+- Source: [download.openstreetmap.fr](https://download.openstreetmap.fr/extracts/russia/northwestern_federal_district/) `karelia_republic-latest.osm.pbf`
+- Real OSM extract (not hand-drawn)
+- Covers Republic of Karelia → includes Belomor corridor and nearby lakes/rivers/canals
+- ~100MB class: much larger than relation-only, far smaller than Geofabrik Northwestern (~620MB) or all-Russia
 
 ## Setup
 
 ```bash
 cd water-data
 python3 -m pip install -r ingest/requirements.txt
-cp .env.example .env   # if needed
+cp -n .env.example .env
 docker compose up -d
 ```
 
-Load schema (fresh volume runs `db/init/*` automatically). On an existing E3.2 volume:
+## Download + import (E3.4)
+
+```bash
+./ingest/download_karelia.sh          # or --force
+export POSTGRES_PASSWORD="$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)"
+python3 ingest/import_osm.py data/karelia_republic-latest.osm.pbf \
+  --source-version "osm-karelia-republic-manual"
+```
+
+Importer is **two-pass** (index water features → materialize geometries) so regional PBFs stay memory-safe.
+
+**Upsert:** `ON CONFLICT (osm_type, osm_id) DO UPDATE`.  
+**Members:** deleted+reinserted per imported relation (no duplicates).
+
+## Diagnostics
 
 ```bash
 docker compose exec -T db \
-  psql -U aquaroute -d aquaroute_water < db/init/004_object_members.sql
+  psql -U aquaroute -d aquaroute_water < db/smoke/e34_coverage_diag.sql
 ```
 
-## Download Belomor test extract
+## Idempotency
 
-Official OSM API (not Overpass):
-
-```bash
-./ingest/download_belomor.sh
-# overwrite: ./ingest/download_belomor.sh --force
-```
-
-Writes (gitignored):
-
-`water-data/data/belomor-relation-9909116-full.osm`
-
-## Import
-
-```bash
-export POSTGRES_PASSWORD="$(grep POSTGRES_PASSWORD .env | cut -d= -f2-)"
-python3 ingest/import_osm.py
-# or: python3 ingest/import_osm.py data/belomor-relation-9909116-full.osm
-```
-
-**Upsert strategy:** `ON CONFLICT (osm_type, osm_id) DO UPDATE` on `water.objects`.  
-For each imported relation, members are **replaced** (`DELETE` by parent + `INSERT`) so `seq`/`role` stay exact without duplicates.
-
-## Validate
-
-```bash
-docker compose exec -T db \
-  psql -U aquaroute -d aquaroute_water < db/smoke/e33_belomor_validate.sql
-```
-
-## Idempotency check
-
-```bash
-python3 ingest/import_osm.py   # first
-python3 ingest/import_osm.py   # second — object/member counts must not grow via duplicates
-```
+Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
