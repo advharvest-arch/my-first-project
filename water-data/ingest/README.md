@@ -114,6 +114,18 @@ Read-only forensics (no new PBF download). See [`../docs/E3_12_VOLGA_BALTIC_COVE
 python3 ingest/e312_volga_baltic_coverage.py --json-out data/e312_volga_baltic_coverage.json
 ```
 
+## Vologda staging merge (E3.13)
+
+```bash
+./download_vologda.sh
+python3 import_osm.py ../data/vologda_oblast-latest.osm.pbf \
+  --to-staging --batch-key e313-vologda-oblast \
+  --source-version osm-vologda-oblast-e313
+python3 merge_staging.py --batch-id N
+```
+
+See [`../docs/E3_13_VOLOGDA_VOLGA_BALTIC.md`](../docs/E3_13_VOLOGDA_VOLGA_BALTIC.md).
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
