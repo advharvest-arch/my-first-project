@@ -165,6 +165,18 @@ python3 ingest/poc_e310_occurrence_merge.py   # TEMP PoC; no canonical writes
 
 `resolution` = merge recommendation; `status` = human review (`open|accepted|rejected|deferred`). Review never applies geometry.
 
+## Water-data composition analysis (E3.11)
+
+Read-only inventory of the current DB for a future Russia-wide water store. **No** new PBF, **no** canonical changes, **no** WaterGraph.
+
+See [`docs/E3_11_WATER_DATA_COMPOSITION.md`](docs/E3_11_WATER_DATA_COMPOSITION.md).
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e311_water_data_inventory.sql
+python3 ingest/e311_inventory.py --json-out data/e311_inventory.json
+```
+
 ## Остановка БД
 
 ```bash
@@ -181,8 +193,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.11** (предложение): optional explicit one-conflict `apply-recommendation` (transactional) **или** third overlapping extract — без WaterGraph
-- позже — per-object OSM version/timestamp; опциональная сборка WaterGraph из БД
+- **E3.12** (предложение): read-only routing-relevance VIEW / HIGH-subset inventory **или** measured overlapping extract for Volga–Baltic — без WaterGraph
+- позже — osm_version/timestamp; опциональная сборка WaterGraph из БД
 
 ## Важно
 
