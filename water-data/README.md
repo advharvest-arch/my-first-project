@@ -132,6 +132,24 @@ docker compose exec -T db \
 
 **Rollback note:** deleting an `import_batches` row cascades staging/conflicts/links for that batch, but does **not** remove canonical objects/members already merged. Full batch rollback is not implemented.
 
+## Merge anomaly QA (E3.9)
+
+Read-only. Does **not** mutate canonical objects/members or auto-resolve conflicts.
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e39_merge_anomaly_qa.sql
+
+python3 ingest/e39_conflict_review.py --summary --top 10
+python3 ingest/e39_conflict_review.py --open-geometry --sort size
+python3 ingest/e39_conflict_review.py --dup-membership 14000871 \
+  --json-out data/e39_conflict_qa.json
+```
+
+Conflicts remain `status=open` with recorded `resolution` (audit of what merge did). Manual review later — do not bulk-resolve for DB cleanliness.
+
+**Schema limit:** extract-level `source_version` only; no per-object OSM `version`/`timestamp` → not enough for deterministic freshness ordering.
+
 ## Остановка БД
 
 ```bash
@@ -148,7 +166,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.9** (предложение): QA duplicate memberships + conflict review tooling; optional third overlapping extract — без WaterGraph
+- **E3.10** (предложение): optional third overlapping extract for Volga–Baltic member completion **или** conflict-review workflow (manual accept/reject) — без WaterGraph
 - позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно
