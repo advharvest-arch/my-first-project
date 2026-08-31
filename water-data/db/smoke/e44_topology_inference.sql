@@ -12,7 +12,7 @@ SELECT count(*) AS endpoint_rows FROM (
 ) u;
 
 \echo '=== B. exact endpoint clusters ==='
-CREATE TEMP TABLE e44_smoke_ep ON COMMIT DROP AS
+CREATE TEMP TABLE e44_smoke_ep AS
 SELECT
   (osm_type || ':' || osm_id::text || ':' || part_index::text) AS seg_key,
   geom,
