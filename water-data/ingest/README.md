@@ -126,6 +126,17 @@ python3 merge_staging.py --batch-id N
 
 See [`../docs/E3_13_VOLOGDA_VOLGA_BALTIC.md`](../docs/E3_13_VOLOGDA_VOLGA_BALTIC.md).
 
+## Geometry recon audit (E3.14)
+
+Read-only diagnostic Collect/LineMerge — does not write canonical.
+
+```bash
+python3 e314_vb_geometry_recon_audit.py --omit-members-stdout \
+  --json-out ../data/e314_vb_geometry_recon_audit.json
+```
+
+See [`../docs/E3_14_VB_GEOMETRY_RECON_AUDIT.md`](../docs/E3_14_VB_GEOMETRY_RECON_AUDIT.md).
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
