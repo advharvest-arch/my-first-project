@@ -1,4 +1,4 @@
-# Offline OSM ingest (AquaRoute E3.3–E3.4)
+# Offline OSM ingest (AquaRoute E3.3–E3.5)
 
 No Overpass. No AquaRoute/WaterGraph/BRouter wiring. No graph construction.
 
@@ -47,6 +47,23 @@ Importer is **two-pass** (index water features → materialize geometries) so re
 docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e34_coverage_diag.sql
 ```
+
+## Incomplete relation QA (E3.5)
+
+Uses the **existing** Karelia import + local PBF. No new downloads. No mass OSM API. No auto-fixes.
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e35_relation_qa.sql
+
+python3 ingest/qa_incomplete_relations.py \
+  --json-out data/e35_relation_qa_report.json
+```
+
+Missing-member classification (PBF presence evidence):
+- `extract_boundary` — id not in local PBF
+- `internal_missing` — id in PBF but not in `water.objects`
+- `mixed` — both
 
 ## Idempotency
 

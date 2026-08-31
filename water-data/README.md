@@ -87,6 +87,23 @@ python3 ingest/import_osm.py data/belomor-relation-9909116-full.osm
 Повторный import — upsert по `(osm_type, osm_id)`; members relation перезаписываются без дублей.  
 Неполные relations на границе extract **не** «чинятся» автоматически — см. `e34_coverage_diag.sql`.
 
+## Incomplete relation QA (E3.5)
+
+Read-only. Использует уже импортированную Карелию + локальный PBF (без новых download / без OSM API mass queries).
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e35_relation_qa.sql
+
+python3 ingest/qa_incomplete_relations.py \
+  --json-out data/e35_relation_qa_report.json   # gitignored under data/
+```
+
+Классификация missing members:
+- **extract_boundary** — id отсутствует в локальном PBF
+- **internal_missing** — id есть в PBF, но нет в `water.objects`
+- **mixed** — часть missing in-PBF, часть нет
+
 ## Остановка БД
 
 ```bash
