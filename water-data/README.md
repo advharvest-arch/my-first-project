@@ -216,6 +216,18 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e314_vb_geometry_recon_audit.sql
 ```
 
+## Topology audit (E3.15)
+
+Read-only member-chain continuity. See [`docs/E3_15_TOPOLOGY_AUDIT.md`](docs/E3_15_TOPOLOGY_AUDIT.md).
+
+```bash
+python3 ingest/e315_topology_audit.py --relation 16738852
+python3 ingest/e315_topology_audit.py --relation 9909116
+python3 ingest/e315_topology_audit.py --relation 21149039
+```
+
+Members = source of truth; `relation.geometry` is cached/derived.
+
 ## Остановка БД
 
 ```bash
@@ -232,7 +244,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.15** (предложение): explicit optional relation-geometry rebuild from complete members (with reverse + gap report) **or** treat member ways as source of truth for a later graph builder — без WaterGraph / новых регионов
+- **E3.16** (предложение): optional waterway relation geometry rebuild from members (orient + gap report) **or** keep members as SoT for later WaterGraph — без новых регионов / без graph tables unless requested
 - позже — osm_version/timestamp; routing-relevance VIEW; WaterGraph
 
 ## Важно
