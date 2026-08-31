@@ -104,6 +104,18 @@ python3 ingest/qa_incomplete_relations.py \
 - **internal_missing** — id есть в PBF, но нет в `water.objects`
 - **mixed** — часть missing in-PBF, часть нет
 
+## Multi-extract architecture (E3.6)
+
+Документ: [`docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md`](docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md).
+
+Выбрана стратегия **staging → merge → canonical**. Текущий replace-all members **небезопасен** для второго региона.
+
+Локальный PoC (TEMP tables, реальные members Беломора, без новых PBF / без записи в permanent tables):
+
+```bash
+python3 ingest/poc_multi_extract_merge.py
+```
+
 ## Остановка БД
 
 ```bash
