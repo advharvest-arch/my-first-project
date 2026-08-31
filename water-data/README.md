@@ -205,6 +205,17 @@ docker compose exec -T db \
 
 **Result:** relation `16738852` **106/106**. PBF not committed.
 
+## Geometry reconstruction audit (E3.14)
+
+Read-only. See [`docs/E3_14_VB_GEOMETRY_RECON_AUDIT.md`](docs/E3_14_VB_GEOMETRY_RECON_AUDIT.md).
+
+```bash
+python3 ingest/e314_vb_geometry_recon_audit.py --omit-members-stdout \
+  --json-out data/e314_vb_geometry_recon_audit.json
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e314_vb_geometry_recon_audit.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -221,7 +232,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.14** (предложение): optional rebuild of complete-relation geometry from members **или** review of Vologda geometry conflicts — без Yaroslavl/WaterGraph unless a new corridor needs it
+- **E3.15** (предложение): explicit optional relation-geometry rebuild from complete members (with reverse + gap report) **or** treat member ways as source of truth for a later graph builder — без WaterGraph / новых регионов
 - позже — osm_version/timestamp; routing-relevance VIEW; WaterGraph
 
 ## Важно
