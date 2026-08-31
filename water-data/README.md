@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.4)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.6)
 
 ## Зачем это
 
@@ -104,6 +104,18 @@ python3 ingest/qa_incomplete_relations.py \
 - **internal_missing** — id есть в PBF, но нет в `water.objects`
 - **mixed** — часть missing in-PBF, часть нет
 
+## Multi-extract architecture (E3.6)
+
+Документ: [`docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md`](docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md).
+
+Выбрана стратегия **staging → merge → canonical**. Текущий replace-all members **небезопасен** для второго региона.
+
+Локальный PoC (TEMP tables, реальные members Беломора, без новых PBF / без записи в permanent tables):
+
+```bash
+python3 ingest/poc_multi_extract_merge.py
+```
+
 ## Остановка БД
 
 ```bash
@@ -120,7 +132,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.5** (предложение): coverage QA / выбор следующего региона или water-only filter pipeline — всё ещё без графа и без роутера
+- **E3.7** (предложение): staging DDL + merge job по политике E3.6 (без нового большого региона / без графа)
 - позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно
