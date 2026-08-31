@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.3)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.4)
 
 ## Зачем это
 
@@ -271,6 +271,20 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e43_routing_segments.sql
 ```
 
+## Topology inference audit (E4.4)
+
+READ-ONLY diagnostics: endpoint connectivity (exact / 1 / 5 / 10 m) and crossing classification on `water.routing_segments`. **No** graph nodes/edges, **no** stitching, crossing ≠ junction.
+
+See [`docs/E4_4_TOPOLOGY_INFERENCE.md`](docs/E4_4_TOPOLOGY_INFERENCE.md).
+
+```bash
+python3 ingest/e44_topology_inference_audit.py \
+  --json-out data/e44_topology_inference.json
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e44_topology_inference.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -287,7 +301,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E4.4** (предложение): endpoint coincidence / clustering diagnostics — still no graph nodes/edges
+- Graph schema / nodes / edges — **only** on an explicit separate task (not E4.4)
 - позже — WaterGraph builder using member-way segments as SoT
 
 ## Важно
