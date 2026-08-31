@@ -86,6 +86,16 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e39_merge_anomaly_qa.sql
 ```
 
+## Conflict review + occurrence policy (E3.10)
+
+See [`../docs/E3_10_CONFLICT_REVIEW.md`](../docs/E3_10_CONFLICT_REVIEW.md).
+
+```bash
+python3 ingest/e310_conflict_review.py probe-demo
+python3 ingest/e310_conflict_review.py list --status open
+python3 ingest/poc_e310_occurrence_merge.py
+```
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.

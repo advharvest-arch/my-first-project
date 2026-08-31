@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-AquaRoute E3.7 — merge staging batches into canonical water.* tables.
+AquaRoute E3.7+ — merge staging batches into canonical water.* tables.
 
-Rules (E3.6):
+Rules (E3.6 / E3.10):
   - identity = (osm_type, osm_id)
   - no silent geometry/tags overwrite
-  - relation members = ordered union (never replace-all)
+  - relation members = ordered union by occurrence (type, id, role, seq)
+    (never replace-all; never collapse legitimate OSM duplicate members)
   - no placeholder objects for missing members
   - transactional per batch
+  - conflict.resolution = recommendation; human review is separate (E3.10)
 """
 
 from __future__ import annotations
@@ -329,28 +331,55 @@ def merge_object_row(cur: Any, batch_id: int, st: dict[str, Any]) -> str:
 
 
 def membership_key(m: dict[str, Any]) -> tuple:
+    """Legacy E3.7 identity (type, id, role) — collapses OSM duplicate members."""
     return (m["member_osm_type"], int(m["member_osm_id"]), m["member_role"] or "")
+
+
+def occurrence_key(m: dict[str, Any]) -> tuple:
+    """
+    E3.10 occurrence identity for relation members.
+
+    Real OSM relations may list the same (type, id, role) at multiple seq values
+    (e.g. 14000871). Occurrence = (type, id, role, seq).
+    """
+    return (
+        m["member_osm_type"],
+        int(m["member_osm_id"]),
+        m["member_role"] or "",
+        int(m["seq"]),
+    )
 
 
 def ordered_union_members(
     backbone: list[dict[str, Any]], other: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
+    """Deprecated E3.7 collapse-by-(type,id,role). Prefer occurrence-aware union."""
+    return ordered_union_members_by_occurrence(backbone, other)
+
+
+def ordered_union_members_by_occurrence(
+    backbone: list[dict[str, Any]], other: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """
+    Ordered union keyed by occurrence (type, id, role, seq).
+
+    Preserves legitimate OSM duplicate members at different seq.
+    Does not renumber seq (callers that need contiguous seq handle insert).
+    """
     merged: list[dict[str, Any]] = []
     seen: set[tuple] = set()
     for m in backbone:
-        k = membership_key(m)
+        k = occurrence_key(m)
         if k in seen:
             continue
         seen.add(k)
         merged.append(dict(m))
     for m in other:
-        k = membership_key(m)
+        k = occurrence_key(m)
         if k in seen:
             continue
         seen.add(k)
         merged.append(dict(m))
-    for i, m in enumerate(merged):
-        m["seq"] = i
     return merged
 
 
@@ -358,6 +387,9 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
     """
     Ordered union of canonical members with staging members for one relation.
     Never DELETE+replace-all.
+
+    E3.10: occurrence identity (type, id, role, seq) — do not collapse
+    legitimate OSM duplicate members.
     """
     cur.execute(
         """
@@ -385,11 +417,21 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
     if not staging:
         return {"parent_osm_id": parent_osm_id, "action": "noop", "added": 0}
 
-    # Detect seq disagreements for shared memberships
-    canon_by_key = {membership_key(m): m for m in canon}
-    for sm in staging:
-        k = membership_key(sm)
-        if k in canon_by_key and int(canon_by_key[k]["seq"]) != int(sm["seq"]):
+    # Order conflict: same (type,id,role) appears with different seq sets
+    # across extracts. Do not silently drop either side's occurrences.
+    from collections import defaultdict
+
+    canon_seqs: dict[tuple, list[int]] = defaultdict(list)
+    staging_seqs: dict[tuple, list[int]] = defaultdict(list)
+    for m in canon:
+        canon_seqs[membership_key(m)].append(int(m["seq"]))
+    for m in staging:
+        staging_seqs[membership_key(m)].append(int(m["seq"]))
+    for mk, c_seqs in canon_seqs.items():
+        if mk not in staging_seqs:
+            continue
+        s_seqs = staging_seqs[mk]
+        if sorted(c_seqs) != sorted(s_seqs):
             record_conflict(
                 cur,
                 osm_type="relation",
@@ -398,22 +440,25 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
                 conflict_type="members_order",
                 canonical_value={
                     "member": {
-                        "type": k[0],
-                        "id": k[1],
-                        "role": k[2],
-                        "seq": int(canon_by_key[k]["seq"]),
+                        "type": mk[0],
+                        "id": mk[1],
+                        "role": mk[2],
+                        "seqs": sorted(c_seqs),
                     }
                 },
                 incoming_value={
                     "member": {
-                        "type": k[0],
-                        "id": k[1],
-                        "role": k[2],
-                        "seq": int(sm["seq"]),
+                        "type": mk[0],
+                        "id": mk[1],
+                        "role": mk[2],
+                        "seqs": sorted(s_seqs),
                     }
                 },
                 resolution="keep_canonical",
-                notes="same member with different seq; keep canonical order backbone",
+                notes=(
+                    "E3.10: same (type,id,role) with differing seq sets; "
+                    "preserve occurrences; do not collapse duplicates"
+                ),
             )
 
     # Backbone = longer list (tie → canonical if non-empty else staging)
@@ -422,13 +467,14 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
     else:
         backbone, other = staging, canon
 
-    merged = ordered_union_members(backbone, other)
+    merged = ordered_union_members_by_occurrence(backbone, other)
 
-    # Apply: insert only missing memberships; do not delete existing
-    existing_keys = {membership_key(m) for m in canon}
+    # Apply: insert only missing OCCURRENCES; do not delete existing
+    existing_keys = {occurrence_key(m) for m in canon}
+    existing_seqs = {int(m["seq"]) for m in canon}
     added = 0
     if not canon:
-        # Fresh relation members: insert full merged list with seq
+        # Fresh relation members: insert full merged list preserving seq
         for m in merged:
             cur.execute(
                 """
@@ -447,7 +493,8 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
             )
             added += 1
     else:
-        # Keep canonical seq for existing; append new members after max seq
+        # Keep canonical occurrences; append only new occurrence keys.
+        # Prefer original seq when free; else allocate after max seq.
         cur.execute(
             """
             SELECT COALESCE(MAX(seq), -1) AS max_seq
@@ -458,9 +505,17 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
         )
         next_seq = int(cur.fetchone()["max_seq"]) + 1
         for m in merged:
-            k = membership_key(m)
+            k = occurrence_key(m)
             if k in existing_keys:
                 continue
+            seq = int(m["seq"])
+            if seq in existing_seqs:
+                seq = next_seq
+                next_seq += 1
+            else:
+                existing_seqs.add(seq)
+                if seq >= next_seq:
+                    next_seq = seq + 1
             cur.execute(
                 """
                 INSERT INTO water.object_members (
@@ -470,13 +525,20 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
                 """,
                 (
                     parent_osm_id,
-                    next_seq,
+                    seq,
                     m["member_osm_type"],
                     int(m["member_osm_id"]),
                     m["member_role"] or "",
                 ),
             )
-            next_seq += 1
+            existing_keys.add(
+                (
+                    m["member_osm_type"],
+                    int(m["member_osm_id"]),
+                    m["member_role"] or "",
+                    seq,
+                )
+            )
             added += 1
 
     link_batch(cur, "relation", parent_osm_id, batch_id, "member_contrib")
@@ -487,6 +549,7 @@ def merge_relation_members(cur: Any, batch_id: int, parent_osm_id: int) -> dict[
         "canonical_before": len(canon),
         "staging": len(staging),
         "canonical_after_estimate": len(canon) + added,
+        "policy": "occurrence_key=(type,id,role,seq)",
     }
 
 
