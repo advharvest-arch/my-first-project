@@ -96,6 +96,16 @@ python3 ingest/e310_conflict_review.py list --status open
 python3 ingest/poc_e310_occurrence_merge.py
 ```
 
+## Water-data composition (E3.11)
+
+Read-only. See [`../docs/E3_11_WATER_DATA_COMPOSITION.md`](../docs/E3_11_WATER_DATA_COMPOSITION.md).
+
+```bash
+python3 ingest/e311_inventory.py --json-out data/e311_inventory.json
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e311_water_data_inventory.sql
+```
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
