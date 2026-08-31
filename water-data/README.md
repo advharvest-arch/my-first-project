@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.1)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.2)
 
 ## Зачем это
 
@@ -243,6 +243,20 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e41_routing_relevance.sql
 ```
 
+## Routing candidate extract (E4.2)
+
+READ-ONLY VIEW `water.routing_candidates` selects HIGH + stream/river_area MEDIUM + way members of HIGH waterway/lake relations as WaterGraph **candidates**. Identity = `(osm_type, osm_id)`. No graph tables. No navigability claims.
+
+See [`docs/E4_2_ROUTING_CANDIDATES.md`](docs/E4_2_ROUTING_CANDIDATES.md).
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/init/011_routing_candidates.sql
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e42_routing_candidates.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -259,8 +273,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E4.2** (предложение): routing-candidate extract policy over HIGH (+ optional MEDIUM) — still no graph tables / no navigability claims
-- позже — osm_version/timestamp; WaterGraph builder using member ways as SoT
+- **E4.3** (предложение): optional materialization / indexes for `routing_candidates` performance — still no graph nodes/edges
+- позже — WaterGraph builder using member ways as SoT
 
 ## Важно
 
