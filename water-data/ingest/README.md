@@ -75,6 +75,17 @@ python3 ingest/poc_e37_merge.py             # E3.7 real staging→canonical PoC
 python3 ingest/merge_staging.py --batch-id N
 ```
 
+## Merge anomaly QA (E3.9)
+
+Read-only. See [`../docs/E3_9_MERGE_ANOMALY_QA.md`](../docs/E3_9_MERGE_ANOMALY_QA.md).
+
+```bash
+python3 ingest/e39_conflict_review.py --summary --top 10
+python3 ingest/e39_conflict_review.py --open-geometry --sort water_type
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e39_merge_anomaly_qa.sql
+```
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
