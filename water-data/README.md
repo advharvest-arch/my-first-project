@@ -150,6 +150,21 @@ Conflicts remain `status=open` with recorded `resolution` (audit of what merge d
 
 **Schema limit:** extract-level `source_version` only; no per-object OSM `version`/`timestamp` → not enough for deterministic freshness ordering.
 
+## Manual conflict review + occurrence policy (E3.10)
+
+See [`docs/E3_10_CONFLICT_REVIEW.md`](docs/E3_10_CONFLICT_REVIEW.md).
+
+```bash
+# Apply 009 on existing volume if needed:
+docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/init/009_conflict_review.sql
+
+python3 ingest/e310_conflict_review.py probe-demo
+python3 ingest/e310_conflict_review.py list --status open
+python3 ingest/poc_e310_occurrence_merge.py   # TEMP PoC; no canonical writes
+```
+
+`resolution` = merge recommendation; `status` = human review (`open|accepted|rejected|deferred`). Review never applies geometry.
+
 ## Остановка БД
 
 ```bash
@@ -166,8 +181,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.10** (предложение): optional third overlapping extract for Volga–Baltic member completion **или** conflict-review workflow (manual accept/reject) — без WaterGraph
-- позже — опциональная сборка WaterGraph из БД (отдельные этапы)
+- **E3.11** (предложение): optional explicit one-conflict `apply-recommendation` (transactional) **или** third overlapping extract — без WaterGraph
+- позже — per-object OSM version/timestamp; опциональная сборка WaterGraph из БД
 
 ## Важно
 
