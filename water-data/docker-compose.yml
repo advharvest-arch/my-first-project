@@ -1,0 +1,29 @@
+# AquaRoute E3.1 — local water data infrastructure (isolated).
+# Not wired to routing, frontend, WaterGraph, BRouter, or Hybrid Router.
+
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    container_name: aquaroute-water-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: aquaroute_water
+      POSTGRES_USER: aquaroute
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in water-data/.env (see .env.example)}
+    ports:
+      # Host 5433 avoids clashing with a typical local PostgreSQL on 5432
+      - "5433:5432"
+    volumes:
+      - aquaroute_water_pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aquaroute -d aquaroute_water"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  aquaroute_water_pgdata:
