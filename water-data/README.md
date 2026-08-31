@@ -132,7 +132,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.5** (предложение): coverage QA / выбор следующего региона или water-only filter pipeline — всё ещё без графа и без роутера
+- **E3.7** (предложение): staging DDL + merge job по политике E3.6 (без нового большого региона / без графа)
 - позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно
