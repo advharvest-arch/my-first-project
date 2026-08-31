@@ -121,12 +121,21 @@ docker compose exec -T db \
 
 После успешного прогона в `water.objects` не должно остаться smoke-записей.
 
+## E3.3 status (blocked on schema)
+
+Offline import was **not** started: `water.objects` cannot store OSM relation **members** without either polluting `tags` or extending the schema.
+
+See: [`docs/E3_3_RELATION_MEMBERS_SCHEMA_NEEDED.md`](docs/E3_3_RELATION_MEMBERS_SCHEMA_NEEDED.md)  
+(tool comparison, Belomor probe `9909116`, proposed `water.object_members`).
+
+Awaiting approval of that minimal extension before implementing `water-data/ingest/`.
+
 ## Что дальше (не выполняется здесь)
 
 Предположительно:
 
-- **E3.3** — пайплайн/скрипт импорта ограниченного OSM-набора в `water.objects` (без графа и без роутера)
-- позже — диагностика покрытия, связь с `water.data_sources`
+- **E3.3 (resume)** — schema for members → offline import of a small Belomor extract → `water.objects` + `data_sources`
+- **E3.4+** — larger extracts / coverage diagnostics (still without wiring the router)
 - ещё позже — опциональная сборка WaterGraph из БД (отдельные этапы, feature flags)
 
 Production AquaRoute до тех пор остаётся прежним.
