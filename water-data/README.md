@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.7)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.8)
 
 ## Зачем это
 
@@ -116,6 +116,22 @@ python3 ingest/poc_e37_merge.py          # Belomor ordered-union + tags conflict
 python3 ingest/merge_staging.py --batch-id N
 ```
 
+## Multi-extract: Leningrad + Karelia (E3.8)
+
+```bash
+./ingest/download_leningrad.sh           # ~189MB, gitignored
+python3 ingest/e38_overlap_report.py --backfill-karelia
+python3 ingest/import_osm.py data/leningrad_oblast-latest.osm.pbf \
+  --to-staging --batch-key e38-leningrad-oblast \
+  --source-version osm-leningrad-oblast-e38
+python3 ingest/merge_staging.py --batch-id <id>
+python3 ingest/e38_overlap_report.py --report
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e38_multi_extract_audit.sql
+```
+
+**Rollback note:** deleting an `import_batches` row cascades staging/conflicts/links for that batch, but does **not** remove canonical objects/members already merged. Full batch rollback is not implemented.
+
 ## Остановка БД
 
 ```bash
@@ -132,7 +148,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.8** (предложение): прогнать merge на втором реальном extract (с overlap) по политике E3.7 — без графа/роутера
+- **E3.9** (предложение): QA duplicate memberships + conflict review tooling; optional third overlapping extract — без WaterGraph
 - позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно

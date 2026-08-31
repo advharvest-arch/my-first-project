@@ -522,6 +522,200 @@ def run_import(path: str, dsn: str, source_version: str | None) -> dict[str, Any
     }
 
 
+def run_import_to_staging(
+    path: str,
+    dsn: str,
+    *,
+    batch_key: str,
+    source_version: str | None,
+    dataset_name: str | None = None,
+) -> dict[str, Any]:
+    """Load water features into staging_* for a new import_batch (no canonical writes)."""
+    from merge_staging import create_batch  # local sibling import
+
+    t0 = time.perf_counter()
+    index = IndexHandler()
+    index.apply_file(path, locations=False)
+    t_index = time.perf_counter()
+
+    water_relations = dict(index.relations)
+    member_way_ids: set[int] = set()
+    for rel in water_relations.values():
+        for mtype, mid, _role in rel.members:
+            if mtype == "way":
+                member_way_ids.add(mid)
+
+    way_ids = set(index.water_way_ids) | member_way_ids
+    node_ids = set(index.water_node_ids)
+
+    mat = MaterializeHandler(
+        way_ids=way_ids, node_ids=node_ids, relations=water_relations
+    )
+    mat.apply_file(path, locations=True)
+    t_mat = time.perf_counter()
+
+    if source_version is None:
+        source_version = default_source_version(path)
+    if dataset_name is None:
+        dataset_name = os.path.basename(path)
+
+    skipped_relations: list[int] = []
+    staged_objects = 0
+    staged_members = 0
+    staged_relations = 0
+
+    conn = psycopg2.connect(dsn)
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=__import__("psycopg2.extras", fromlist=["RealDictCursor"]).RealDictCursor) as cur:
+            batch_id = create_batch(
+                cur,
+                batch_key=batch_key,
+                source_version=source_version,
+                dataset_name=dataset_name,
+                notes=f"E3.8 staging load of {dataset_name}",
+            )
+            # Clear prior staging rows if reloading same batch key
+            cur.execute("DELETE FROM water.staging_members WHERE batch_id = %s", (batch_id,))
+            cur.execute("DELETE FROM water.staging_objects WHERE batch_id = %s", (batch_id,))
+
+            def stage_obj(
+                *,
+                osm_type: str,
+                osm_id: int,
+                name: str | None,
+                water_type: str | None,
+                wkt: str,
+                tags: dict[str, str],
+            ) -> None:
+                nonlocal staged_objects
+                cur.execute(
+                    """
+                    INSERT INTO water.staging_objects (
+                      batch_id, osm_type, osm_id, name, water_type, geometry, tags,
+                      source, source_version
+                    ) VALUES (
+                      %s, %s, %s, %s, %s,
+                      ST_SetSRID(ST_GeomFromText(%s), 4326),
+                      %s, 'osm', %s
+                    )
+                    ON CONFLICT (batch_id, osm_type, osm_id) DO UPDATE SET
+                      name = EXCLUDED.name,
+                      water_type = EXCLUDED.water_type,
+                      geometry = EXCLUDED.geometry,
+                      tags = EXCLUDED.tags,
+                      source_version = EXCLUDED.source_version
+                    """,
+                    (
+                        batch_id,
+                        osm_type,
+                        osm_id,
+                        name,
+                        water_type,
+                        wkt,
+                        Json(tags),
+                        source_version,
+                    ),
+                )
+                staged_objects += 1
+
+            for node in mat.nodes.values():
+                if not node.wkt:
+                    continue
+                stage_obj(
+                    osm_type="node",
+                    osm_id=node.osm_id,
+                    name=pick_name(node.tags),
+                    water_type=normalize_water_type(node.tags),
+                    wkt=node.wkt,
+                    tags=node.tags,
+                )
+
+            for way in mat.ways.values():
+                if not way.wkt:
+                    continue
+                stage_obj(
+                    osm_type="way",
+                    osm_id=way.osm_id,
+                    name=pick_name(way.tags),
+                    water_type=normalize_water_type(way.tags),
+                    wkt=way.wkt,
+                    tags=way.tags,
+                )
+
+            for rel in water_relations.values():
+                wkt = resolve_relation_wkt(rel, mat.ways)
+                if not wkt:
+                    skipped_relations.append(rel.osm_id)
+                    continue
+                stage_obj(
+                    osm_type="relation",
+                    osm_id=rel.osm_id,
+                    name=pick_name(rel.tags),
+                    water_type=normalize_water_type(rel.tags),
+                    wkt=wkt,
+                    tags=rel.tags,
+                )
+                staged_relations += 1
+                for seq, (mtype, mid, role) in enumerate(rel.members):
+                    cur.execute(
+                        """
+                        INSERT INTO water.staging_members (
+                          batch_id, parent_osm_type, parent_osm_id, seq,
+                          member_osm_type, member_osm_id, member_role
+                        ) VALUES (%s, 'relation', %s, %s, %s, %s, %s)
+                        ON CONFLICT (batch_id, parent_osm_type, parent_osm_id, seq)
+                        DO UPDATE SET
+                          member_osm_type = EXCLUDED.member_osm_type,
+                          member_osm_id = EXCLUDED.member_osm_id,
+                          member_role = EXCLUDED.member_role
+                        """,
+                        (batch_id, rel.osm_id, seq, mtype, mid, role or ""),
+                    )
+                    staged_members += 1
+
+            cur.execute(
+                """
+                INSERT INTO water.data_sources (source_name, source_version, notes)
+                VALUES (%s, %s, %s)
+                """,
+                (
+                    "osm",
+                    source_version,
+                    f"staging batch_key={batch_key} file={os.path.basename(path)}",
+                ),
+            )
+            cur.execute(
+                "UPDATE water.import_batches SET status = 'loaded' WHERE id = %s",
+                (batch_id,),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    t_end = time.perf_counter()
+    return {
+        "mode": "staging",
+        "batch_key": batch_key,
+        "batch_id": batch_id,
+        "source_version": source_version,
+        "dataset": os.path.basename(path),
+        "staged_objects": staged_objects,
+        "staged_relations": staged_relations,
+        "staged_members": staged_members,
+        "relations_skipped_no_geometry_count": len(skipped_relations),
+        "timing_seconds": {
+            "index_pass": round(t_index - t0, 3),
+            "materialize_pass": round(t_mat - t_index, 3),
+            "db_write": round(t_end - t_mat, 3),
+            "total": round(t_end - t0, 3),
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -540,6 +734,21 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Override source_version (default: osm-<dataset>-<utc>)",
     )
+    parser.add_argument(
+        "--to-staging",
+        action="store_true",
+        help="Write to water.staging_* + import_batches (no canonical upsert)",
+    )
+    parser.add_argument(
+        "--batch-key",
+        default=None,
+        help="Required with --to-staging: unique import_batches.batch_key",
+    )
+    parser.add_argument(
+        "--dataset-name",
+        default=None,
+        help="Optional dataset_name for import_batches",
+    )
     args = parser.parse_args(argv)
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -554,6 +763,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    if args.to_staging and not args.batch_key:
+        print("--to-staging requires --batch-key", file=sys.stderr)
+        return 2
+
     dsn = args.dsn or default_dsn()
     parsed = urlparse(dsn)
     safe = (
@@ -562,8 +775,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"Importing {osm_file}")
     print(f"DSN {safe}")
+    if args.to_staging:
+        print(f"Mode staging batch_key={args.batch_key}")
 
-    result = run_import(osm_file, dsn, args.source_version)
+    if args.to_staging:
+        result = run_import_to_staging(
+            osm_file,
+            dsn,
+            batch_key=args.batch_key,
+            source_version=args.source_version,
+            dataset_name=args.dataset_name,
+        )
+    else:
+        result = run_import(osm_file, dsn, args.source_version)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
