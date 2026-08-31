@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.2)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.3)
 
 ## Зачем это
 
@@ -257,6 +257,20 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e42_routing_candidates.sql
 ```
 
+## Routing segments / endpoints (E4.3)
+
+READ-ONLY VIEWs `water.routing_segments` + `water.routing_geometry_class`: linear way geometries from candidates with endpoints (`start_point`/`end_point`, `length_m`). No LineMerge, no graph nodes/edges, no proximity stitching. Relation cached geometry is **not** used as segment SoT.
+
+See [`docs/E4_3_ROUTING_SEGMENTS.md`](docs/E4_3_ROUTING_SEGMENTS.md).
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/init/012_routing_segments.sql
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e43_routing_segments.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -273,8 +287,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E4.3** (предложение): optional materialization / indexes for `routing_candidates` performance — still no graph nodes/edges
-- позже — WaterGraph builder using member ways as SoT
+- **E4.4** (предложение): endpoint coincidence / clustering diagnostics — still no graph nodes/edges
+- позже — WaterGraph builder using member-way segments as SoT
 
 ## Важно
 
