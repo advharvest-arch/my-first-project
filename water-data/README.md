@@ -177,6 +177,18 @@ docker compose exec -T db \
 python3 ingest/e311_inventory.py --json-out data/e311_inventory.json
 ```
 
+## Volga–Baltic coverage forensics (E3.12)
+
+Read-only. Uses existing Karelia/Leningrad PBFs only — **does not download** the next extract.
+
+See [`docs/E3_12_VOLGA_BALTIC_COVERAGE.md`](docs/E3_12_VOLGA_BALTIC_COVERAGE.md).
+
+```bash
+python3 ingest/e312_volga_baltic_coverage.py --json-out data/e312_volga_baltic_coverage.json
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e312_volga_baltic_coverage.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -193,8 +205,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.12** (предложение): read-only routing-relevance VIEW / HIGH-subset inventory **или** measured overlapping extract for Volga–Baltic — без WaterGraph
-- позже — osm_version/timestamp; опциональная сборка WaterGraph из БД
+- **E3.13** (предложение): staging import Vologda oblast (or OSM API `relation/16738852/full`) → merge → re-measure completeness — без WaterGraph
+- позже — osm_version/timestamp; routing-relevance VIEW; опциональная сборка WaterGraph
 
 ## Важно
 

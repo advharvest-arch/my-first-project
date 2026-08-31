@@ -106,6 +106,14 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e311_water_data_inventory.sql
 ```
 
+## Volga–Baltic coverage (E3.12)
+
+Read-only forensics (no new PBF download). See [`../docs/E3_12_VOLGA_BALTIC_COVERAGE.md`](../docs/E3_12_VOLGA_BALTIC_COVERAGE.md).
+
+```bash
+python3 ingest/e312_volga_baltic_coverage.py --json-out data/e312_volga_baltic_coverage.json
+```
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
