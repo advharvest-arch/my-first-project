@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.6)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E3.7)
 
 ## Зачем это
 
@@ -104,16 +104,16 @@ python3 ingest/qa_incomplete_relations.py \
 - **internal_missing** — id есть в PBF, но нет в `water.objects`
 - **mixed** — часть missing in-PBF, часть нет
 
-## Multi-extract architecture (E3.6)
+## Multi-extract architecture (E3.6) + staging merge (E3.7)
 
 Документ: [`docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md`](docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md).
 
-Выбрана стратегия **staging → merge → canonical**. Текущий replace-all members **небезопасен** для второго региона.
-
-Локальный PoC (TEMP tables, реальные members Беломора, без новых PBF / без записи в permanent tables):
+Схема E3.7: `import_batches`, `staging_objects`, `staging_members`, `object_conflicts`, `object_batch_links` (`db/init/005`–`008`).
 
 ```bash
-python3 ingest/poc_multi_extract_merge.py
+# Apply 005–008 on an existing volume if needed, then:
+python3 ingest/poc_e37_merge.py          # Belomor ordered-union + tags conflict PoC
+python3 ingest/merge_staging.py --batch-id N
 ```
 
 ## Остановка БД
@@ -132,7 +132,7 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.7** (предложение): staging DDL + merge job по политике E3.6 (без нового большого региона / без графа)
+- **E3.8** (предложение): прогнать merge на втором реальном extract (с overlap) по политике E3.7 — без графа/роутера
 - позже — опциональная сборка WaterGraph из БД (отдельные этапы)
 
 ## Важно

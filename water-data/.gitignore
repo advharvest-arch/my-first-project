@@ -10,3 +10,7 @@ data/
 *.o5m
 *.osc
 *.osc.gz
+
+# Python
+__pycache__/
+*.py[cod]

@@ -65,12 +65,14 @@ Missing-member classification (PBF presence evidence):
 - `internal_missing` — id in PBF but not in `water.objects`
 - `mixed` — both
 
-## Multi-extract architecture (E3.6)
+## Multi-extract architecture (E3.6) + merge (E3.7)
 
 See [`../docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md`](../docs/E3_6_MULTI_EXTRACT_ARCHITECTURE.md).
 
 ```bash
-python3 ingest/poc_multi_extract_merge.py   # TEMP-table PoC; no durable writes
+python3 ingest/poc_multi_extract_merge.py   # E3.6 TEMP-table sketch
+python3 ingest/poc_e37_merge.py             # E3.7 real staging→canonical PoC
+python3 ingest/merge_staging.py --batch-id N
 ```
 
 ## Idempotency
