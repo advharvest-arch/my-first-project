@@ -228,6 +228,21 @@ python3 ingest/e315_topology_audit.py --relation 21149039
 
 Members = source of truth; `relation.geometry` is cached/derived.
 
+## Routing relevance layer (E4.1)
+
+READ-ONLY SQL VIEW `water.routing_relevance` classifies existing `water.objects` as HIGH / MEDIUM / LOW / IGNORE for future WaterGraph planning. **Does not** mutate canonical data, **does not** imply navigability, **does not** create graph tables.
+
+See [`docs/E4_1_ROUTING_RELEVANCE.md`](docs/E4_1_ROUTING_RELEVANCE.md).
+
+```bash
+# Apply on existing volume if needed:
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/init/010_routing_relevance.sql
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e41_routing_relevance.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -244,8 +259,8 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E3.16** (предложение): optional waterway relation geometry rebuild from members (orient + gap report) **or** keep members as SoT for later WaterGraph — без новых регионов / без graph tables unless requested
-- позже — osm_version/timestamp; routing-relevance VIEW; WaterGraph
+- **E4.2** (предложение): routing-candidate extract policy over HIGH (+ optional MEDIUM) — still no graph tables / no navigability claims
+- позже — osm_version/timestamp; WaterGraph builder using member ways as SoT
 
 ## Важно
 
