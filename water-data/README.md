@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E8)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E9)
 
 ## Зачем это
 
@@ -368,6 +368,17 @@ python3 ingest/e8_navigation_semantics.py \
 docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e8_navigation_semantics.sql
 ```
+
+## AquaRoute integration pilot (E9)
+
+Export Belomor NAVIGABLE subgraph for sea-map hybrid pilot (`USE_WATER_GRAPH`, default **false**):
+
+```bash
+python3 ingest/e9_export_postgis_wg_pilot.py \
+  --out ../sea-map/src/__fixtures__/postgis-watergraph/belomor-navigable.json
+```
+
+See sea-map [`docs/E9_WATERGRAPH_INTEGRATION_PILOT.md`](../sea-map/docs/E9_WATERGRAPH_INTEGRATION_PILOT.md).
 
 ## Остановка БД
 

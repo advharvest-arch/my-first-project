@@ -36,9 +36,10 @@ export type RouteFeatureFlags = {
    */
   PHASE_C_MAX_PAIRS_OVERRIDE: number | null;
   /**
-   * E2.0/E2.15 — Hybrid WaterGraph.
+   * E2.0/E2.15/E9 — Hybrid WaterGraph pilot.
    * Default false → legacy Phase A/B/C only (production identity).
-   * When true → pilot: try WaterGraph first (validated); else BRouter fallback.
+   * When true → try PostGIS NAVIGABLE WaterGraph (E9) / fixture WG first;
+   * else BRouter fallback. Never enable in production by default.
    */
   USE_WATER_GRAPH: boolean;
 };

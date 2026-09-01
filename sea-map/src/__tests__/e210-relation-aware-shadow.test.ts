@@ -109,13 +109,16 @@ describe('E2.10 relation-aware WaterGraph shadow', () => {
     expect(a.method === 'route_not_found' || a.points.length >= 2).toBe(true);
   });
 
-  it('with USE_WATER_GRAPH=true, Belomor hybrid selects WaterGraph (relation-aware)', async () => {
+  it('with USE_WATER_GRAPH=true, Belomor hybrid selects WaterGraph (PostGIS/relation)', async () => {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
     const path = await measureWaterChain([BELOMOR_A, BELOMOR_B]);
     const tr = getLastRouteTrace();
     expect(tr?.hybridRouter?.selectedRouter).toBe('watergraph');
     expect(tr?.hybridRouter?.fallbackUsed).toBe(false);
-    expect(tr?.hybridRouter?.centerlineSource).toMatch(/relation_aware/);
+    // E9 prefers PostGIS NAVIGABLE snapshot; relation_aware remains fallback candidate.
+    expect(tr?.hybridRouter?.centerlineSource).toMatch(
+      /postgis_watergraph|relation_aware/,
+    );
     expect(path.method).not.toBe('route_not_found');
     expect(tr?.final.ok).toBe(true);
     expect(path.lengthKm).toBeGreaterThan(150);

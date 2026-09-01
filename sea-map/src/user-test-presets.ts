@@ -178,6 +178,17 @@ export const USER_TEST_PRESETS: UserTestPreset[] = [
 
   // —— RIVERS ——
   {
+    id: 'BELOMOR',
+    name: 'BELOMOR White Sea–Baltic Canal',
+    group: 'rivers',
+    a: { lon: 34.82, lat: 62.86 },
+    b: { lon: 34.77, lat: 64.52 },
+    zoom: 7,
+    expectedCurrentStatus: 'ok_expected',
+    purpose:
+      'E9 pilot: enable ?wg=1 — PostGIS NAVIGABLE WaterGraph (~217 km); flag off = legacy BRouter',
+  },
+  {
     id: 'R02',
     name: 'R02 Oka Kaluga → Serpukhov',
     group: 'rivers',

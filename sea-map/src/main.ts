@@ -1800,8 +1800,8 @@ gpxExportBtn.addEventListener('click', () => {
 });
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
-  // E2.15/E2.16 pilot: ?wg=1 enables Hybrid WaterGraph (WaterGraph → BRouter fallback).
-  // Default remains USE_WATER_GRAPH=false.
+  // E2.15/E2.16 pilot: ?wg=1 enables Hybrid WaterGraph (PostGIS NAVIGABLE / fixture → BRouter fallback).
+  // Default remains USE_WATER_GRAPH=false (E9 production identity unchanged).
   if (hybridEnabledFromSearchParams(params)) {
     setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
   }
