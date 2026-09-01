@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E5)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E6)
 
 ## Зачем это
 
@@ -328,6 +328,19 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e5_watergraph_poc.sql
 ```
 
+## WaterGraph safety validation (E6)
+
+Read-only safety gate on `wg_nodes`/`wg_edges`: integrity, E1-only connections, Belomor/VB/N06/N08/structures/Ladoga. Writes `wg_safety_run` / `wg_edge_safety`. **ALLOWED_TOPOLOGY ≠ navigable.**
+
+See [`docs/E6_WATERGRAPH_SAFETY.md`](docs/E6_WATERGRAPH_SAFETY.md).
+
+```bash
+python3 ingest/e6_watergraph_safety.py --json-out data/e6_watergraph_safety.json
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e6_watergraph_safety.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -344,9 +357,9 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- Wiring WaterGraph into AquaRoute / routing API — **explicit separate task**
-- Navigability / directionality / lake open-water — not E5
-- Production flag — not enabled
+- **E7** isolated routing pilot — only after E6 gate; N06/N08 remain FALLBACK without Kuibyshev coverage
+- AquaRoute / BRouter / production flag — not enabled here
+- Navigability classification — still UNKNOWN for structures / lake rings
 
 ## Важно
 
