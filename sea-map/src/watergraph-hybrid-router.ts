@@ -1,16 +1,20 @@
 /**
- * E2.15 — Hybrid WaterGraph pilot router.
+ * E2.15 / E9 — Hybrid WaterGraph pilot router.
  *
  * When USE_WATER_GRAPH=true:
- *   try WaterGraph (ingest + densified lake mask + relation-aware OSM when
- *   the corridor geographically overlaps known relation geometry) →
- *   existing validateWaterRoute + hydro → if OK return WaterGraph path;
- *   else fall back to legacy Phase A/B/C (BRouter) unchanged.
+ *   0. E9 PostGIS WaterGraph (NAVIGABLE-only snapshot; Belomor corridor) →
+ *      validateWaterRoute + hydro
+ *   1. else Overpass/fixture WaterGraph (ingest + densified lake mask +
+ *      relation-aware OSM when corridor overlaps) → validator+hydro
+ *   → if OK return WaterGraph path; else fall back to legacy Phase A/B/C
+ *     (BRouter) unchanged.
  *
  * When USE_WATER_GRAPH=false: not used; measureWaterChain stays legacy-only.
+ * Production default remains USE_WATER_GRAPH=false.
  *
  * No route-name special cases (no if N08 / Belomor). No synthetic seams.
- * No snap/validator weakening. No Volga↔Akhtuba sew.
+ * No snap/validator weakening. No Volga↔Akhtuba sew. UNKNOWN edges forbidden
+ * on the PostGIS path.
  */
 
 import { haversineKm, type LngLat } from './geo';
@@ -35,6 +39,12 @@ import {
 import { endpointSnapKmForAccept } from './water-snap';
 import type { WaterPath } from './waterways';
 import type { WaterGraphFailureStage } from './water-graph-types';
+import { validateWaterRoute } from './validate-water-route';
+import {
+  isPostgisBelomorCorridor,
+  routePostgisWaterGraph,
+  POSTGIS_WG_PROVIDER,
+} from './postgis-watergraph-provider';
 
 export type HybridSelectedRouter =
   | 'watergraph'
@@ -81,7 +91,8 @@ export type HybridAttemptOk = {
   ok: true;
   path: WaterPath;
   diag: RouteTraceHybridRouter;
-  shadow: WaterGraphShadowResult;
+  /** Present for Overpass/fixture shadow path; null for E9 PostGIS provider. */
+  shadow: WaterGraphShadowResult | null;
 };
 
 export type HybridAttemptFail = {
@@ -405,6 +416,7 @@ function shadowToWaterPath(
  * Caller falls back to legacy measureWaterChain phases on failure.
  *
  * Order (general mechanisms, no route-name gates):
+ *  0. E9 PostGIS WaterGraph NAVIGABLE snapshot (when corridor covered)
  *  1. Geographic relation-aware OSM (when corridor overlaps)
  *  2. Densified shared-lake mask alone (fast; no Overpass)
  *  3. Overpass centerlines + densified mask
@@ -415,6 +427,60 @@ export async function attemptWaterGraphRoute(
 ): Promise<HybridAttemptResult> {
   const t0 = performance.now();
   try {
+    // —— E9: PostGIS WaterGraph (NAVIGABLE-only) before Overpass/fixture ——
+    if (isPostgisBelomorCorridor(a, b)) {
+      const pg = routePostgisWaterGraph(a, b);
+      if (pg.ok) {
+        const validation = validateWaterRoute(pg.points, {
+          waypoints: [a, b],
+          lengthKm: pg.lengthKm,
+          method: 'waterway',
+        });
+        if (validation.ok) {
+          const attemptMs = performance.now() - t0;
+          return {
+            ok: true,
+            path: {
+              points: pg.points,
+              routingGeometry: pg.points,
+              displayGeometry: pg.points,
+              lengthKm: pg.lengthKm,
+              waterName: null,
+              method: 'waterway',
+              waypointCumKm: cumKm(pg.points, [a, b]),
+            },
+            diag: {
+              routerMode: 'hybrid_pilot',
+              selectedRouter: 'watergraph',
+              waterGraphAttempted: true,
+              waterGraphResult: 'ok',
+              waterGraphSafetyResult: 'accepted',
+              fallbackUsed: false,
+              fallbackReason: null,
+              pathKm: pg.lengthKm,
+              timing: {
+                attemptMs,
+                ingestMs: 0,
+                maskResolveMs: 0,
+                buildMs: 0,
+                searchMs: attemptMs,
+              },
+              centerlineSource: POSTGIS_WG_PROVIDER,
+              maskSource: null,
+              failureStage: null,
+              note: pg.note,
+            },
+            shadow: null,
+          };
+        }
+        // Validated miss → record fail but continue to other WG candidates
+        // then BRouter. Do not accept unsafe PostGIS geometry.
+      } else if (pg.reason === 'no_path' || pg.reason === 'unknown_edge_in_path') {
+        // Hard navigation miss on covered corridor — still try other candidates;
+        // BRouter remains fallback if all WG paths fail.
+      }
+    }
+
     const tMask0 = performance.now();
     const maskResolved = await resolveHybridLakeMask(a, b);
     const maskResolveMs = performance.now() - tMask0;
