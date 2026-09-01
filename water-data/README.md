@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E7)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E8)
 
 ## Зачем это
 
@@ -353,6 +353,20 @@ python3 ingest/e7_watergraph_routing_pilot.py \
 
 docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e7_watergraph_routing_pilot.sql
+```
+
+## Navigation semantics (E8)
+
+OSM-tag evidence layer: **NAVIGABLE / BLOCKED / UNKNOWN** on `wg_edges`. Does not change E1 topology. Belomor locks with `CEMT=Va` → NAVIGABLE → full 29-edge Belomor route. **Not** production / not AquaRoute-wired.
+
+See [`docs/E8_NAVIGATION_SEMANTICS.md`](docs/E8_NAVIGATION_SEMANTICS.md).
+
+```bash
+python3 ingest/e8_navigation_semantics.py \
+  --json-out data/e8_navigation_semantics.json
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e8_navigation_semantics.sql
 ```
 
 ## Остановка БД
