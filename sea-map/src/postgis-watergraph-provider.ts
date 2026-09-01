@@ -149,20 +149,6 @@ function orientedGeom(edge: PostgisWgEdge, fromNode: number): LngLat[] {
   return pts;
 }
 
-function nearestNode(
-  nodes: PostgisWgNode[],
-  pt: LngLat,
-  maxKm: number,
-): { node: PostgisWgNode; distKm: number } | null {
-  let best: { node: PostgisWgNode; distKm: number } | null = null;
-  for (const n of nodes) {
-    const d = haversineKm(pt, { lon: n.lon, lat: n.lat });
-    if (d > maxKm) continue;
-    if (!best || d < best.distKm) best = { node: n, distKm: d };
-  }
-  return best;
-}
-
 /**
  * Bind terminal to a NAVIGABLE graph node within snap.
  * Prefer degree-1 (corridor ends) when available so mid-chain snaps
