@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E4.6)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E5)
 
 ## Зачем это
 
@@ -312,6 +312,22 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e46_e1_component_poc.sql
 ```
 
+## Isolated WaterGraph PoC (E5)
+
+First graph tables (`water.wg_build` / `wg_nodes` / `wg_edges`) built from `routing_segments` with **E1 only**. Isolated — **not** wired to AquaRoute / sea-map / BRouter. No navigability / directionality.
+
+See [`docs/E5_WATERGRAPH_POC.md`](docs/E5_WATERGRAPH_POC.md).
+
+```bash
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/init/013_watergraph_poc.sql
+
+python3 ingest/e5_watergraph_poc_build.py --json-out data/e5_watergraph_poc.json
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e5_watergraph_poc.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -328,8 +344,9 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- Graph schema / nodes / edges — **only** on an explicit separate task (not E4.6)
-- позже — WaterGraph builder applying E1 components with explicit policy filters
+- Wiring WaterGraph into AquaRoute / routing API — **explicit separate task**
+- Navigability / directionality / lake open-water — not E5
+- Production flag — not enabled
 
 ## Важно
 
