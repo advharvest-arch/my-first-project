@@ -146,6 +146,14 @@ python3 e315_topology_audit.py --relation 9909116 --json-out ../data/e315_belomo
 
 See [`../docs/E3_15_TOPOLOGY_AUDIT.md`](../docs/E3_15_TOPOLOGY_AUDIT.md).
 
+## Navigation semantics (E8)
+
+```bash
+python3 e8_navigation_semantics.py --json-out ../data/e8_navigation_semantics.json
+```
+
+See [`../docs/E8_NAVIGATION_SEMANTICS.md`](../docs/E8_NAVIGATION_SEMANTICS.md).
+
 ## Idempotency
 
 Run `import_osm.py` twice on the same file; `water.objects` / `water.object_members` counts must not grow via duplicates. `water.data_sources` may gain one audit row per run.
