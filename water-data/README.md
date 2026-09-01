@@ -1,4 +1,4 @@
-# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E6)
+# water-data — локальная инфраструктура водных данных (AquaRoute E3.1–E7)
 
 ## Зачем это
 
@@ -341,6 +341,20 @@ docker compose exec -T db \
   psql -U aquaroute -d aquaroute_water < db/smoke/e6_watergraph_safety.sql
 ```
 
+## Isolated WaterGraph routing pilot (E7)
+
+Dijkstra on `wg_edges` using **only** E6 `ALLOWED_TOPOLOGY` edges. First corridor: Belomor (largest ALLOWED subcomponent; UNKNOWN lock edges excluded). **Not** wired to AquaRoute.
+
+See [`docs/E7_WATERGRAPH_ROUTING_PILOT.md`](docs/E7_WATERGRAPH_ROUTING_PILOT.md).
+
+```bash
+python3 ingest/e7_watergraph_routing_pilot.py \
+  --json-out data/e7_routing_pilot.json
+
+docker compose exec -T db \
+  psql -U aquaroute -d aquaroute_water < db/smoke/e7_watergraph_routing_pilot.sql
+```
+
 ## Остановка БД
 
 ```bash
@@ -357,9 +371,10 @@ docker compose exec -T db psql -U aquaroute -d aquaroute_water < db/smoke/e32_ob
 
 ## Что дальше (не выполняется здесь)
 
-- **E7** isolated routing pilot — only after E6 gate; N06/N08 remain FALLBACK without Kuibyshev coverage
-- AquaRoute / BRouter / production flag — not enabled here
-- Navigability classification — still UNKNOWN for structures / lake rings
+- AquaRoute / sea-map / BRouter / production flag — not enabled
+- Navigability PASS for UNKNOWN lock edges — separate policy decision
+- Kuibyshev extract for N06/N08 — required before those corridors leave FALLBACK
+- Expanding Belomor pilot through locks — only after navigability policy for structures
 
 ## Важно
 
