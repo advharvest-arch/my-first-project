@@ -1,0 +1,138 @@
+[
+  {
+    "corridor": "volga_rybinsk_nn",
+    "waterway": "volga",
+    "osm": {
+      "hasGeometry": true,
+      "hasFairwayTag": "partial",
+      "hasLocks": true,
+      "hasGuaranteedDepth": false,
+      "notes": "OSM ways + waterway=river/canal; fairway pins sparse; no official guaranteed depth attrs"
+    },
+    "brouter": {
+      "hasGeometry": true,
+      "respectsOfficialFairway": "unknown",
+      "notes": "River profile hugs navigable-looking geometry; no ENC/official bulletin awareness"
+    },
+    "routeTrace": {
+      "recordsChoice": true,
+      "externalFacts": false,
+      "notes": "E0 logs candidates/phases; no externalFacts[] yet (research concept only)"
+    },
+    "russianOpen": {
+      "hasGeometry": false,
+      "hasNamedSegments": true,
+      "hasGuaranteedDepth": true,
+      "hasNavigationEvents": true,
+      "sources": ["volga-fairways", "volga-ops", "kim-bulletins"],
+      "notes": "AT-442 family + Kim bulletins: km segments, depths/widths, closures — not centreline polylines"
+    },
+    "onlyOsm": ["continuous centreline polyline", "community POIs"],
+    "onlyRussianOpen": ["guaranteed depth/width by km segment", "dated closures/restrictions", "season open/close dates in dispositions"],
+    "conflicts": ["OSM fairway may deviate from official s/x without ENC geometry to verify"],
+    "confidenceBoost": ["official depth facts raise confidence near Kim/Volga segments when matched by km/name"],
+    "insufficient": ["precise RECTRC-like geometry still missing without ENC or surveyed open GIS"]
+  },
+  {
+    "corridor": "oka_kaluga_kolomna",
+    "waterway": "oka",
+    "osm": {
+      "hasGeometry": true,
+      "hasFairwayTag": "rare",
+      "hasLocks": true,
+      "hasGuaranteedDepth": false,
+      "notes": "OSM river geometry present; depths absent"
+    },
+    "brouter": {
+      "hasGeometry": true,
+      "respectsOfficialFairway": "unknown",
+      "notes": "May route through shallow/OSM-complete stretches"
+    },
+    "routeTrace": {
+      "recordsChoice": true,
+      "externalFacts": false,
+      "notes": "STEM/detour guards exist; no official Oka dimension feed wired"
+    },
+    "russianOpen": {
+      "hasGeometry": false,
+      "hasNamedSegments": true,
+      "hasGuaranteedDepth": true,
+      "hasNavigationEvents": true,
+      "sources": ["kim-bulletins"],
+      "notes": "Kim bulletin lists Oka segments with guaranteed vs actual depth/width and km marks"
+    },
+    "onlyOsm": ["polyline geometry"],
+    "onlyRussianOpen": ["65–170 cm guaranteed depths on upper Oka segments", "limiting riffles notes"],
+    "conflicts": ["BRouter path length vs official shallow segments — open data can flag low confidence"],
+    "confidenceBoost": ["actual << guaranteed is AI/context signal"],
+    "insufficient": ["no open centreline for Oka fairway axis"]
+  },
+  {
+    "corridor": "kama_perm_mouth",
+    "waterway": "kama",
+    "osm": {
+      "hasGeometry": true,
+      "hasFairwayTag": "partial",
+      "hasLocks": true,
+      "hasGuaranteedDepth": false,
+      "notes": "OSM covers Kama reservoirs; locks present"
+    },
+    "brouter": {
+      "hasGeometry": true,
+      "respectsOfficialFairway": "unknown",
+      "notes": "No Kama bulletin integration"
+    },
+    "routeTrace": {
+      "recordsChoice": true,
+      "externalFacts": false,
+      "notes": "Same E0 schema"
+    },
+    "russianOpen": {
+      "hasGeometry": false,
+      "hasNamedSegments": true,
+      "hasGuaranteedDepth": "via_docs",
+      "hasNavigationEvents": "via_bulletin_page",
+      "sources": ["kama-dimensions"],
+      "notes": "XLSX named segments + bridge clearance PDFs + BT-527 disposition"
+    },
+    "onlyOsm": ["geometry"],
+    "onlyRussianOpen": ["authoritative segment inventory with lengths", "bridge vertical clearances PDF"],
+    "conflicts": ["segment toponyms may not match OSM names 1:1"],
+    "confidenceBoost": ["named official inventory for coverage gaps"],
+    "insufficient": ["machine-readable guaranteed depths table less complete than Kim bulletin in this pass"]
+  },
+  {
+    "corridor": "don_azov",
+    "waterway": "don",
+    "osm": {
+      "hasGeometry": true,
+      "hasFairwayTag": "partial",
+      "hasLocks": true,
+      "hasGuaranteedDepth": false,
+      "notes": "OSM Don + reservoirs"
+    },
+    "brouter": {
+      "hasGeometry": true,
+      "respectsOfficialFairway": "unknown",
+      "notes": "No draft-limit awareness from ADGBU"
+    },
+    "routeTrace": {
+      "recordsChoice": true,
+      "externalFacts": false,
+      "notes": "E0 only"
+    },
+    "russianOpen": {
+      "hasGeometry": false,
+      "hasNamedSegments": true,
+      "hasGuaranteedDepth": true,
+      "hasNavigationEvents": true,
+      "sources": ["don-character", "don-depth-forecast"],
+      "notes": "HTML character descriptions + depth forecasts + draft limits pages"
+    },
+    "onlyOsm": ["geometry"],
+    "onlyRussianOpen": ["textual guaranteed dimensions", "Manych non-guaranteed note", "depth forecast series"],
+    "conflicts": ["OSM may imply navigability where ADGBU says dimensions not guaranteed"],
+    "confidenceBoost": ["hazard/dangerous stretch pages"],
+    "insufficient": ["structured machine tables weaker than Kim; PDF/HTML mix"]
+  }
+]

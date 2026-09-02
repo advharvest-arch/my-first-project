@@ -25,6 +25,22 @@ import {
 } from './waterways';
 import { maxWaterSnapKm } from './water-snap';
 import { RouteAsyncGeneration } from './route-async-generation';
+import { RouteRequestControl } from './route-request-control';
+import {
+  beginRouteE2E,
+  finalizeUiRouteE2E,
+  noteRouteE2ERequestControlMs,
+} from './route-e2e-latency';
+import { getLastRouteTrace, replaceLastRouteTrace } from './route-trace';
+import { nowPerfMs } from './route-perf-context';
+import {
+  setRouteFeatureFlagsForTests,
+} from './route-feature-flags';
+import {
+  hybridEnabledFromSearchParams,
+  isHybridWaterGraphEnabled,
+  statusWithRouterSource,
+} from './hybrid-router-ui';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -131,8 +147,8 @@ const elevCanvas = document.querySelector<HTMLCanvasElement>('#elev-canvas')!;
 
 let mode: AppMode = 'water';
 let waypoints: Waypoint[] = [];
-let busy = false;
-let pendingRebuild = false;
+/** Coordinates Clear/Reset vs in-flight BUILD so busy never sticks after reset. */
+const routeRequestControl = new RouteRequestControl();
 let suppressMapClick = false;
 /** Last computed route distance — used for live ETA when speed changes */
 let lastDistanceKm: number | null = null;
@@ -268,6 +284,26 @@ function escapeHtml(s: string): string {
 function setStatus(message: string, isError = false): void {
   statusEl.textContent = message;
   statusEl.classList.toggle('error', isError);
+}
+
+/** E2.16 — persistent Hybrid mode hint (no diagnostics). */
+function syncHybridModeHint(): void {
+  let hint = document.getElementById('hybrid-mode-hint');
+  if (!isHybridWaterGraphEnabled()) {
+    if (hint) hint.remove();
+    document.body.classList.remove('hybrid-wg-on');
+    return;
+  }
+  document.body.classList.add('hybrid-wg-on');
+  if (!hint) {
+    hint = document.createElement('p');
+    hint.id = 'hybrid-mode-hint';
+    hint.className = 'hybrid-mode-hint';
+    hint.setAttribute('role', 'status');
+    statusEl.insertAdjacentElement('beforebegin', hint);
+  }
+  hint.textContent =
+    'Режим: Hybrid WaterGraph (пилот) · выкл: уберите ?wg=1 или снимите переключатель';
 }
 
 function clearStats(): void {
@@ -445,12 +481,18 @@ function syncRouteExportActions(): void {
 }
 
 function syncControls(): void {
-  routeBtn.disabled = waypoints.length < 2 || busy;
+  routeBtn.disabled = waypoints.length < 2 || routeRequestControl.busy;
   undoBtn.hidden = false;
   reverseBtn.hidden = waypoints.length < 2;
   waypointCountEl.textContent = `Точек: ${waypoints.length}`;
   renderWaypointList();
   syncRouteExportActions();
+}
+
+/** Clear / Reset: drop busy, invalidate polish + in-flight BUILD completions. */
+function resetRouteRequestState(detail: string): void {
+  routeRequestControl.reset(detail);
+  routeAsyncGeneration.invalidate();
 }
 
 function renderWaypointList(): void {
@@ -1233,15 +1275,24 @@ function routePrefer(): RoutePrefer {
 async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
   const fit = opts.fit ?? false;
   if (waypoints.length < 2) return;
-  if (busy) {
-    pendingRebuild = true;
+  if (routeRequestControl.busy) {
+    routeRequestControl.noteBusyCollapse('computeWaterRoute');
     return;
   }
-  busy = true;
-  pendingRebuild = false;
+  // E2.2 PREP — UI E2E start (BUILD ROUTE / Проложить). Diagnostic only.
+  beginRouteE2E('ui');
+  const tControl0 = nowPerfMs();
+  const requestToken = routeRequestControl.begin('computeWaterRoute');
+  noteRouteE2ERequestControlMs(nowPerfMs() - tControl0);
   routeBtn.disabled = true;
   const prefer = routePrefer();
   setStatus('Построение маршрута...');
+  let requestFailed = false;
+
+  const sealE2E = (): void => {
+    const sealed = finalizeUiRouteE2E(getLastRouteTrace());
+    if (sealed) replaceLastRouteTrace(sealed);
+  };
 
   try {
     const path = await measureHybridChain(waypoints, {
@@ -1250,6 +1301,12 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       speedKnots: speedKmh() / KM_PER_KNOT,
       prefer,
     });
+
+    // Clear/Reset invalidated this request — do not rewrite status/geometry.
+    if (!routeRequestControl.isCurrent(requestToken)) {
+      sealE2E();
+      return;
+    }
 
     if (path.method === 'route_not_found' || path.points.length < 2) {
       // Invalidate in-flight polish from a prior success so it cannot restore
@@ -1263,7 +1320,15 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       hideRouteDesc();
       redrawWaypoints();
       renderWaypointList();
-      setStatus('Водный маршрут не найден', true);
+      setStatus(
+        statusWithRouterSource(
+          'Водный маршрут не найден',
+          getLastRouteTrace()?.hybridRouter,
+          false,
+        ),
+        true,
+      );
+      sealE2E();
       return;
     }
 
@@ -1314,12 +1379,23 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
 
     if (path.seaUnavailable && prefer === 'sea') {
       setStatus(
-        `Точки далеко от моря — оставлен речной маршрут (${netLabel}). Для моря кликните порт или берег.`,
+        statusWithRouterSource(
+          `Точки далеко от моря — оставлен речной маршрут (${netLabel}). Для моря кликните порт или берег.`,
+          getLastRouteTrace()?.hybridRouter,
+          true,
+        ),
         true,
       );
     } else {
-      setStatus(`Готово: ${waypoints.length} точ.${parallelNote}`);
+      setStatus(
+        statusWithRouterSource(
+          `Готово: ${waypoints.length} точ.${parallelNote}`,
+          getLastRouteTrace()?.hybridRouter,
+          true,
+        ),
+      );
     }
+    sealE2E();
     if (fit && lastRoutePath.length >= 2) {
       fitRouteBounds(lastRoutePath);
     }
@@ -1330,7 +1406,7 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       const wps = waypoints.map((w) => ({ lon: w.lon, lat: w.lat }));
       void polishWaterPath(path, wps).then((polished) => {
         if (!polished || !routeAsyncGeneration.isCurrent(gen)) return;
-        if (busy) return;
+        if (routeRequestControl.busy) return;
         lastRoutingPath = polished.routingGeometry?.length
           ? polished.routingGeometry
           : polished.points;
@@ -1350,14 +1426,19 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       });
     }
   } catch (err) {
+    requestFailed = true;
     console.error(err);
+    if (!routeRequestControl.isCurrent(requestToken)) {
+      sealE2E();
+      return;
+    }
     // Keep the previous successful route visible instead of wiping it.
     if (lastRoutePath && lastRoutePath.length >= 2) {
       redrawWaypoints(lastRoutePath);
       setStatus('Не удалось пересчитать маршрут — показан предыдущий. Попробуйте снова.', true);
     } else {
       lastRoutePath = null;
-  lastRoutingPath = null;
+      lastRoutingPath = null;
       lastCumKm = [];
       redrawWaypoints();
       const km = pathLengthKm(waypoints);
@@ -1365,11 +1446,14 @@ async function computeWaterRoute(opts: { fit?: boolean } = {}): Promise<void> {
       hideRouteDesc();
       setStatus('Ошибка запроса маршрута. Подождите и нажмите «Проложить» ещё раз.', true);
     }
+    sealE2E();
   } finally {
-    busy = false;
+    const { shouldRebuild } = routeRequestControl.end(requestToken, {
+      error: requestFailed,
+      detail: requestFailed ? 'computeWaterRoute-error' : 'computeWaterRoute',
+    });
     syncControls();
-    if (pendingRebuild && waypoints.length >= 2) {
-      pendingRebuild = false;
+    if (shouldRebuild && waypoints.length >= 2) {
       void computeWaterRoute({ fit: false });
     }
   }
@@ -1417,8 +1501,7 @@ function applyOfflinePreset(preset: (typeof INLAND_PRESETS)[number]): boolean {
   const canned = getPresetRoute(preset.id);
   if (!canned || canned.points.length < 2) return false;
 
-  busy = false;
-  pendingRebuild = false;
+  resetRouteRequestState('offline-preset');
   waypoints = [
     makeWaypoint(canned.a.lon, canned.a.lat, 'Старт'),
     makeWaypoint(canned.b.lon, canned.b.lat, 'Финиш'),
@@ -1619,6 +1702,7 @@ reverseBtn.addEventListener('click', () => {
 });
 
 clearBtn.addEventListener('click', () => {
+  resetRouteRequestState('clear-btn');
   waypoints = [];
   lastRoutePath = null;
   lastRoutingPath = null;
@@ -1627,6 +1711,7 @@ clearBtn.addEventListener('click', () => {
   pinnedWaterRoute = null;
   drawLayer.clearLayers();
   clearStats();
+  hideRouteDesc();
   syncControls();
   setStatus('');
 });
@@ -1715,6 +1800,12 @@ gpxExportBtn.addEventListener('click', () => {
 });
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
+  // E2.15/E2.16 pilot: ?wg=1 enables Hybrid WaterGraph (PostGIS NAVIGABLE / fixture → BRouter fallback).
+  // Default remains USE_WATER_GRAPH=false (E9 production identity unchanged).
+  if (hybridEnabledFromSearchParams(params)) {
+    setRouteFeatureFlagsForTests({ USE_WATER_GRAPH: true });
+  }
+  syncHybridModeHint();
   const qMode = params.get('mode');
   if (qMode === 'ruler') setMode('ruler');
   else if (qMode === 'water' || qMode === 'sea' || qMode === 'inland') setMode('water');
@@ -1785,3 +1876,57 @@ syncSpeedPresetChips();
 setStatus('Кликните точки маршрута на воде.');
 warmWaterCache();
 bootFromQuery();
+
+/** Dev-only: inspect Clear/BUILD lifecycle without noisy console spam. */
+if (import.meta.env.DEV) {
+  (window as unknown as { __aquarouteRouteLifecycle?: () => readonly unknown[] }).__aquarouteRouteLifecycle =
+    () => routeRequestControl.getLifecycle();
+}
+
+/** Dev-only manual test panel (USER_TEST_READY). Production builds skip this. */
+if (import.meta.env.DEV) {
+  void import('./user-test-panel').then(({ mountUserTestPanel }) => {
+    mountUserTestPanel({
+      map,
+      runRoute: async (a, b) => {
+        setMode('water');
+        waypoints = [
+          makeWaypoint(a.lon, a.lat, 'A'),
+          makeWaypoint(b.lon, b.lat, 'B'),
+        ];
+        lastRoutePath = null;
+        lastRoutingPath = null;
+        lastCumKm = [];
+        lastItinerary = [];
+        redrawWaypoints();
+        syncControls();
+        const midLat = (a.lat + b.lat) / 2;
+        const midLon = (a.lon + b.lon) / 2;
+        if (!map.getBounds().contains([a.lat, a.lon]) || !map.getBounds().contains([b.lat, b.lon])) {
+          map.setView([midLat, midLon], Math.max(map.getZoom(), 7));
+        }
+        await computeWaterRoute({ fit: true });
+      },
+      onHybridToggle: () => {
+        syncHybridModeHint();
+      },
+      clearRoute: () => {
+        resetRouteRequestState('user-test-clear');
+        waypoints = [];
+        lastRoutePath = null;
+        lastRoutingPath = null;
+        lastCumKm = [];
+        lastItinerary = [];
+        pinnedWaterRoute = null;
+        drawLayer.clearLayers();
+        clearStats();
+        hideRouteDesc();
+        syncControls();
+        setStatus('');
+      },
+      setSuppressMapClick: (next) => {
+        suppressMapClick = next;
+      },
+    });
+  });
+}

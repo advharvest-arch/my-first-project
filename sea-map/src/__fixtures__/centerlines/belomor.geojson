@@ -1,0 +1,154 @@
+{
+  "type": "FeatureCollection",
+  "name": "belomor-open-osm-style",
+  "properties": {
+    "note": "OSM-structured fixture for E2.1 offline tests",
+    "corridor": "Povenets-Belomorsk"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": 5020001,
+      "properties": {
+        "osmId": 5020001,
+        "waterway": "canal",
+        "name": "Беломорско-Балтийский канал",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            34.82,
+            62.86
+          ],
+          [
+            34.83,
+            63.05
+          ],
+          [
+            34.85,
+            63.2
+          ],
+          [
+            34.88,
+            63.35
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 5020002,
+      "properties": {
+        "osmId": 5020002,
+        "waterway": "canal",
+        "name": "Беломорско-Балтийский канал",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            34.88,
+            63.35
+          ],
+          [
+            34.9,
+            63.5
+          ],
+          [
+            34.88,
+            63.65
+          ],
+          [
+            34.85,
+            63.8
+          ],
+          [
+            34.82,
+            63.95
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 5020003,
+      "properties": {
+        "osmId": 5020003,
+        "waterway": "canal",
+        "name": "Беломорско-Балтийский канал",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            34.79,
+            64.12
+          ],
+          [
+            34.78,
+            64.25
+          ],
+          [
+            34.77,
+            64.4
+          ],
+          [
+            34.77,
+            64.52
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 5020004,
+      "properties": {
+        "osmId": 5020004,
+        "waterway": "canal",
+        "name": "Беломорско-Балтийский канал",
+        "source": "osm-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            34.82,
+            62.86
+          ],
+          [
+            34.83,
+            63.05
+          ],
+          [
+            34.85,
+            63.2
+          ],
+          [
+            34.88,
+            63.35
+          ],
+          [
+            34.9,
+            63.5
+          ],
+          [
+            34.88,
+            63.65
+          ],
+          [
+            34.85,
+            63.8
+          ],
+          [
+            34.82,
+            63.95
+          ]
+        ]
+      }
+    }
+  ]
+}

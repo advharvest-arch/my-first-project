@@ -1,0 +1,366 @@
+{
+  "generatedAt": "2026-08-27T12:00:00Z",
+  "count": 60,
+  "hints": [
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-9677d902",
+      "summary": "depth/width fact 140 cm on г. Осташков - пр. Городомля",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-66a3fd60",
+      "summary": "depth/width fact 400 cm on с/х №63 (с/х №65, 407 км - Торовские створы)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-96768e86",
+      "summary": "depth/width fact 270 cm on с/х №64 (с/х №63 (буй № 9) - г. Весьегонск)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-3af46da7",
+      "summary": "depth/width fact 400 cm on c/x №63)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-653de3e4",
+      "summary": "depth/width fact 270 cm on Брейтово (с/х №64, 23 км) - с/x №63 (431 км)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-da6f7bac",
+      "summary": "depth/width fact 200 cm on пристань Брейтово - с/х №64, 27 км",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-7e49bf9b",
+      "summary": "depth/width fact 210 cm on п. Мигалово - г. Тверь",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-84409104",
+      "summary": "depth/width fact 400 cm on г. Тверь - Иваньковский г/у",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-f0b135a2",
+      "summary": "lock metadata: Иваньковский г/у - Угличский шлюз",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-f0b135a2",
+      "summary": "depth/width fact 400 cm on Иваньковский г/у - Угличский шлюз",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-6685d64f",
+      "summary": "lock metadata: с/х №65 (Угличский шлюз - Рыбинский г/у)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-6685d64f",
+      "summary": "depth/width fact 400 cm on с/х №65 (Угличский шлюз - Рыбинский г/у)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-c9e692bf",
+      "summary": "depth/width fact 400 cm on Подход к пас. причалам г. Углич",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-c7d6ba4e",
+      "summary": "depth/width fact 400 cm on Колхозник)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-44de66a2",
+      "summary": "depth/width fact 400 cm on подходы к грузовым причалам порта Углич",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-94e0944f",
+      "summary": "depth/width fact 350 cm on пр. Калязин - устье (р. Волга)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-a66d279a",
+      "summary": "depth/width fact 360 cm on тур. кластер \"Волжское море\" - устье (р. Волга)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-86a4b296",
+      "summary": "depth/width fact 120 cm on пос. 1-е Мая - устье (р. Волга)",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-b83fdc5e",
+      "summary": "lock metadata: Иваньковский шлюз - Москва (Щукино)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-b83fdc5e",
+      "summary": "depth/width fact 400 cm on Иваньковский шлюз - Москва (Щукино)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-66820bc8",
+      "summary": "depth/width fact 250 cm on канала, 65 км",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-273d1f93",
+      "summary": "depth/width fact 250 cm on пристань Аксаково - основной с/х канала, 75 км",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-bd218b99",
+      "summary": "lock metadata: Нижний подход. канал шлюза №8 - Западный порт",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-bd218b99",
+      "summary": "depth/width fact 350 cm on Нижний подход. канал шлюза №8 - Западный порт",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-f9345055",
+      "summary": "lock metadata: 31 км - шлюз №10",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-f9345055",
+      "summary": "depth/width fact 300 cm on 31 км - шлюз №10",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-d00b72d7",
+      "summary": "lock metadata: шлюз №10 - причал Беседы",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-d00b72d7",
+      "summary": "depth/width fact 310 cm on шлюз №10 - причал Беседы",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-7a273b7c",
+      "summary": "lock metadata: причал Беседы - шлюз Софьино",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-7a273b7c",
+      "summary": "depth/width fact 240 cm on причал Беседы - шлюз Софьино",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-b0499093",
+      "summary": "lock metadata: шлюз Софьино - шлюз Северка",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-b0499093",
+      "summary": "depth/width fact 220 cm on шлюз Софьино - шлюз Северка",
+      "soft": true
+    },
+    {
+      "kind": "lock_portal",
+      "factId": "wf-dim-e95ffd6b",
+      "summary": "lock metadata: шлюз Северка - устье р. Москвы (р. Ока)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-e95ffd6b",
+      "summary": "depth/width fact 220 cm on шлюз Северка - устье р. Москвы (р. Ока)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-a71c3b30",
+      "summary": "depth/width fact 310 cm on г. Калуга (1099 км) - 1051 км",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-39e64e7c",
+      "summary": "depth/width fact 410 cm on 1051 км - г. Алексин",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-5f231aa4",
+      "summary": "depth/width fact 310 cm on г. Алексин - 956 км",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-9ed501e1",
+      "summary": "depth/width fact 260 cm on 956 км - 886 км",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-6cbfc15f",
+      "summary": "depth/width fact 340 cm on 886 км - н.п. Щурово",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-6e899159",
+      "summary": "depth/width fact 220 cm on н.п. Щурово - г/у Белоомут",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-a5582677",
+      "summary": "depth/width fact 300 cm on г/у Белоомут - г/у Кузьминск",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-af9ebd56",
+      "summary": "depth/width fact 300 cm on г/у Кузьминск - г. Рязань",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-4e837d76",
+      "summary": "depth/width fact 300 cm on г. Рязань - п. Елатьма",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-2e096d6c",
+      "summary": "depth/width fact 400 cm on п. Елатьма - вход в канал р. Сеймы",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-0e200bf9",
+      "summary": "depth/width fact 290 cm on понтонный мост - устье (р.Ока)",
+      "soft": true
+    },
+    {
+      "kind": "edge_constraint",
+      "factId": "wf-dim-a212e227",
+      "summary": "depth/width fact 400 cm on г. Навашино - устье (р.Ока)",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-ff6adb89",
+      "summary": "named segment Река Кама: устье р.Вятка — пос.Сейва",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-6dc6bcf4",
+      "summary": "named segment Река Весляна: устье (р.Кама) — пос.Пельмин Бор",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-52028b24",
+      "summary": "named segment Река Коса: устье (р.Кама) — пос.Кордон",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-195753a3",
+      "summary": "named segment Река Вишера: устье (р.Кама) — г.Красновишерск",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-20aeec80",
+      "summary": "named segment Река Колва: устье (р.Вишера) — дер.Петрецово",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-d175a997",
+      "summary": "named segment Река Яйва: устье (р.Кама) — рейд Камлесосплава",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-2b8335af",
+      "summary": "named segment Река Иньва: устье (р.Кама) — пос.Майкор",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-2b93b007",
+      "summary": "named segment Река Косьва: устье (р.Кама) — карьер",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-754cac5f",
+      "summary": "named segment Река Обва: устье (р.Кама) — автомост",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-d8f4956b",
+      "summary": "named segment Река Чусовая: устье (р.Кама) — карьер",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-173f019f",
+      "summary": "named segment Река Сылва: устье (р.Чусовая) — дер.Шатово",
+      "soft": true
+    },
+    {
+      "kind": "fairway_prior",
+      "factId": "wf-seg-577705a9",
+      "summary": "named segment Река Нытва: устье (р.Кама) — г.Нытва",
+      "soft": true
+    },
+    {
+      "kind": "edge_availability",
+      "factId": "nev-closure-2415bc8a",
+      "summary": "closure: канала имени Москвы от шлюза № 7 до шлюза № 8 (запрещение движения судов)",
+      "soft": false
+    },
+    {
+      "kind": "advisory",
+      "factId": "nev-restrict-29b9ed3e",
+      "summary": "restriction: 430-434.8 км (ограничение движения / запрет обгона-расхождения)",
+      "soft": true
+    }
+  ]
+}

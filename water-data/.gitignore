@@ -1,0 +1,16 @@
+# Local secrets — never commit
+.env
+
+# Offline OSM extracts (download locally; do not commit)
+data/
+*.osm
+*.osm.bz2
+*.osm.pbf
+*.pbf
+*.o5m
+*.osc
+*.osc.gz
+
+# Python
+__pycache__/
+*.py[cod]

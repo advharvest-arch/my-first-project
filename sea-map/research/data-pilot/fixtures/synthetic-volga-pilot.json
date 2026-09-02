@@ -1,0 +1,159 @@
+{
+  "source": "synthetic",
+  "folioIds": ["8R4001", "8R5001", "8R5002", "8R4002"],
+  "basinLabel": "Volga pilot: Rybinsk → Nizhny Novgorod (synthetic)",
+  "features": [
+    {
+      "objectClass": "RECTRC",
+      "cellId": "8R5001",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [38.83, 58.05],
+          [39.2, 57.85],
+          [39.85, 57.62],
+          [40.5, 57.2],
+          [43.95, 56.32]
+        ]
+      },
+      "attributes": {
+        "OBJNAM": "Volga official track Rybinsk-NN",
+        "CATTRK": 1
+      }
+    },
+    {
+      "objectClass": "FAIRWY",
+      "cellId": "8R4001",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [38.2, 58.2],
+          [38.5, 58.1],
+          [38.83, 58.05]
+        ]
+      },
+      "attributes": {
+        "OBJNAM": "Rybinsk reservoir preferred fairway"
+      }
+    },
+    {
+      "objectClass": "GATCON",
+      "cellId": "8R4002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [43.46, 56.39]
+      },
+      "attributes": {
+        "OBJNAM": "Gorodets / Nizhny approach lock gate",
+        "CATGAT": 4
+      }
+    },
+    {
+      "objectClass": "LOKBSN",
+      "cellId": "8R4002",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [43.45, 56.388],
+            [43.47, 56.388],
+            [43.47, 56.392],
+            [43.45, 56.392],
+            [43.45, 56.388]
+          ]
+        ]
+      },
+      "attributes": {
+        "OBJNAM": "Lock basin"
+      }
+    },
+    {
+      "objectClass": "DAMCON",
+      "cellId": "8R4002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [43.47, 56.4]
+      },
+      "attributes": {
+        "OBJNAM": "Nizhny Novgorod HPP dam",
+        "CATDAM": 1
+      }
+    },
+    {
+      "objectClass": "OBSTRN",
+      "cellId": "8R5002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [40.9, 57.45]
+      },
+      "attributes": {
+        "OBJNAM": "Shoal / wreck hazard",
+        "CATOBS": 1,
+        "RESTRN": "avoid"
+      }
+    },
+    {
+      "objectClass": "DEPARE",
+      "cellId": "8R5001",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [39.0, 57.7],
+            [39.4, 57.7],
+            [39.4, 57.9],
+            [39.0, 57.9],
+            [39.0, 57.7]
+          ]
+        ]
+      },
+      "attributes": {
+        "DRVAL1": 3.5,
+        "DRVAL2": 12.0
+      }
+    },
+    {
+      "objectClass": "DRGARE",
+      "cellId": "8R5001",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [39.1, 57.75],
+            [39.2, 57.75],
+            [39.2, 57.8],
+            [39.1, 57.8],
+            [39.1, 57.75]
+          ]
+        ]
+      },
+      "attributes": {
+        "DRVAL1": 4.0
+      }
+    },
+    {
+      "objectClass": "BRIDGE",
+      "cellId": "8R5002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [40.93, 57.77]
+      },
+      "attributes": {
+        "OBJNAM": "Kostroma road bridge",
+        "VERCLR": 14.5
+      }
+    },
+    {
+      "objectClass": "DISMAR",
+      "cellId": "8R5001",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [39.85, 57.62]
+      },
+      "attributes": {
+        "OBJNAM": "km 2900",
+        "disver": 2900
+      }
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "generatedAt": "2026-08-27T12:00:00Z",
+  "qualities": [
+    {
+      "sourceId": "volga-ops",
+      "authority": 1,
+      "freshness": 1,
+      "geographicPrecision": 0.7,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.8400000000000001
+    },
+    {
+      "sourceId": "kim-bulletins",
+      "authority": 1,
+      "freshness": 1,
+      "geographicPrecision": 0.7,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.8400000000000001
+    },
+    {
+      "sourceId": "kama-dimensions",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.7,
+      "machineReadability": 1,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.8099999999999999
+    },
+    {
+      "sourceId": "volgobalt-bulletins",
+      "authority": 1,
+      "freshness": 0.75,
+      "geographicPrecision": 0.7,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.79
+    },
+    {
+      "sourceId": "volga-fairways",
+      "authority": 1,
+      "freshness": 0.75,
+      "geographicPrecision": 0.7,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.79
+    },
+    {
+      "sourceId": "don-character",
+      "authority": 1,
+      "freshness": 0.75,
+      "geographicPrecision": 0.7,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.79
+    },
+    {
+      "sourceId": "don-depth-forecast",
+      "authority": 1,
+      "freshness": 0.75,
+      "geographicPrecision": 0.4,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.7300000000000001
+    },
+    {
+      "sourceId": "volgobalt-cartography",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.55,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.6900000000000001
+    },
+    {
+      "sourceId": "ckt-enc-catalog",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.55,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.6900000000000001
+    },
+    {
+      "sourceId": "gov-1800r",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.4,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.6599999999999999
+    },
+    {
+      "sourceId": "volgobalt-lock-dims",
+      "authority": 1,
+      "freshness": 0.35,
+      "geographicPrecision": 0.4,
+      "machineReadability": 0.55,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.65
+    },
+    {
+      "sourceId": "kim-ris",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.7,
+      "machineReadability": 0.2,
+      "provenanceScore": 0.95,
+      "sourceQuality": 0.65
+    },
+    {
+      "sourceId": "volga-knn-is",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.4,
+      "machineReadability": 0.2,
+      "provenanceScore": 0.35,
+      "sourceQuality": 0.4699999999999999
+    },
+    {
+      "sourceId": "volgobalt-enc-cells",
+      "authority": 1,
+      "freshness": 0.4,
+      "geographicPrecision": 0.55,
+      "machineReadability": 0.2,
+      "provenanceScore": 0.1,
+      "sourceQuality": 0.45
+    },
+    {
+      "sourceId": "random-enc-mirrors",
+      "authority": 0.25,
+      "freshness": 0.4,
+      "geographicPrecision": 0.4,
+      "machineReadability": 0.2,
+      "provenanceScore": 0.1,
+      "sourceQuality": 0.27
+    }
+  ]
+}

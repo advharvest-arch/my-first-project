@@ -1,4 +1,17 @@
 import { haversineKm, pathLengthKm, type LngLat } from './geo';
+import { getRouteFeatureFlags } from './route-feature-flags';
+import {
+  brouterCacheKey,
+  getCachedBrouterResult,
+  normalizeBrouterLonlats,
+  putCachedBrouterResult,
+  withBrouterRequestDedup,
+} from './provider-cache';
+import { addPerfMs, getRoutePerf, nowPerfMs } from './route-perf-context';
+import {
+  beginFallbackEvent,
+  endFallbackEvent,
+} from './route-fallback-timeline';
 import {
   DUBNA_LOCK,
   DUBNA_LOCK_LOWER,
@@ -382,7 +395,7 @@ function parseBrouterPayload(text: string): BrouterResult | null {
   return finalizeBrouterResult({ points, lengthKm, wayTags: [...wayTags] });
 }
 
-async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
+async function brouterOnceNetwork(waypoints: LngLat[]): Promise<BrouterResult | null> {
   if (waypoints.length < 2) return null;
   const span = routeSpanKm(waypoints);
   const lonlats = waypoints.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join('|');
@@ -392,15 +405,82 @@ async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), brouterTimeoutMs(span));
+  const t0 = nowPerfMs();
+  const evId = beginFallbackEvent('brouter', 'brouter-http', {
+    meta: {
+      attemptKind: 'network',
+      spanKm: span,
+      waypointCount: waypoints.length,
+    },
+  });
   try {
     const res = await fetch(url, { signal: controller.signal });
     const text = await res.text();
-    return parseBrouterPayload(text);
-  } catch {
+    const parsed = parseBrouterPayload(text);
+    const ok = Boolean(parsed && parsed.points.length >= 2 && parsed.lengthKm > 0);
+    endFallbackEvent(evId, ok ? 'ok' : 'empty_or_parse_fail', {
+      httpOk: res.ok,
+      cache: 'miss',
+      deduped: false,
+      actualHttp: true,
+    });
+    return parsed;
+  } catch (err) {
+    endFallbackEvent(evId, 'error_or_abort', {
+      cache: 'miss',
+      deduped: false,
+      actualHttp: true,
+      error: err instanceof Error ? err.message : 'error',
+    });
     return null;
   } finally {
     clearTimeout(timer);
+    addPerfMs('brouterMs', nowPerfMs() - t0);
+    const perf = getRoutePerf();
+    if (perf) perf.brouterCalls += 1;
   }
+}
+
+/**
+ * E1.6 — optional short-TTL + request-scoped dedupe around brouterOnceNetwork.
+ * Cache stores success and short-lived negatives separately; never changes parse.
+ */
+async function brouterOnce(waypoints: LngLat[]): Promise<BrouterResult | null> {
+  if (waypoints.length < 2) return null;
+  const flags = getRouteFeatureFlags();
+  const key = brouterCacheKey(normalizeBrouterLonlats(waypoints, 'river'));
+
+  const run = async (): Promise<BrouterResult | null> => {
+    if (flags.USE_BROUTER_RESULT_CACHE) {
+      const cached = getCachedBrouterResult<BrouterResult>(key);
+      if (cached.hit) {
+        const perf = getRoutePerf();
+        if (perf) perf.brouterCacheHits += 1;
+        const evId = beginFallbackEvent('brouter', 'brouter-cache', {
+          meta: { attemptKind: 'cache', cache: 'hit', actualHttp: false },
+        });
+        endFallbackEvent(evId, cached.value ? 'cache_hit_success' : 'cache_hit_negative', {
+          cache: 'hit',
+          deduped: false,
+          actualHttp: false,
+        });
+        return cached.value;
+      }
+      const perfMiss = getRoutePerf();
+      if (perfMiss) perfMiss.brouterCacheMisses += 1;
+    }
+    const hit = await brouterOnceNetwork(waypoints);
+    if (flags.USE_BROUTER_RESULT_CACHE) {
+      if (hit && hit.points.length >= 2 && hit.lengthKm > 0) {
+        putCachedBrouterResult(key, hit, 'success');
+      } else {
+        putCachedBrouterResult(key, null, 'negative');
+      }
+    }
+    return hit;
+  };
+
+  return withBrouterRequestDedup(key, flags.USE_BROUTER_REQUEST_DEDUP, run);
 }
 
 /**

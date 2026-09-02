@@ -1,4 +1,5 @@
 import legacy from '@vitejs/plugin-legacy';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -32,6 +33,13 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 2000,
     cssTarget: ['chrome87', 'safari14', 'firefox78', 'edge88'],
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        // Isolated Yandex Maps v3 smoke page (not AquaRoute / Leaflet).
+        yandexProto: resolve(__dirname, 'yandex-proto/index.html'),
+      },
+    },
   },
   preview: {
     allowedHosts: true,

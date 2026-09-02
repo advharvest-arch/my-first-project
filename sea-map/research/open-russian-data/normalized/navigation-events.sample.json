@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-08-27T12:00:00Z",
+  "count": 2,
+  "events": [
+    {
+      "id": "nev-closure-2415bc8a",
+      "waterway": "moscow_canal",
+      "locationText": "канала имени Москвы от шлюза № 7 до шлюза № 8",
+      "eventType": "closure",
+      "validFrom": null,
+      "validTo": null,
+      "restriction": "запрещение движения судов",
+      "fromKm": 44,
+      "toKm": 41,
+      "confidence": 0.8,
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "page": null,
+        "originalText": "запрещение движения судов на участке канала имени Москвы от шлюза № 7 до шлюза № 8\n(44,0 км – 41,0 км)",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "nev-restrict-29b9ed3e",
+      "waterway": "volga",
+      "locationText": "430-434.8 км",
+      "eventType": "restriction",
+      "validFrom": null,
+      "validTo": null,
+      "restriction": "ограничение движения / запрет обгона-расхождения",
+      "fromKm": 430,
+      "toKm": 434.8,
+      "confidence": 0.7,
+      "provenance": {
+        "sourceId": "kim-bulletins",
+        "sourceUrl": "https://kim-online.ru/images/docs/navigatsiya/bulleteni/2024/may/informacionnyy_byulleten_-_17052024.pdf",
+        "retrievedAt": "2026-08-27T12:00:00Z",
+        "documentDate": "2024-05-17",
+        "page": null,
+        "originalText": "на участке от 430,00 км по 434,8 км 61 судового хода расхождение и обгон\nсудов и составов запрещ",
+        "confidence": 0.7
+      }
+    }
+  ]
+}
