@@ -45,6 +45,12 @@ import {
   routePostgisWaterGraph,
   POSTGIS_WG_PROVIDER,
 } from './postgis-watergraph-provider';
+import {
+  AREA_BRIDGE_PROVIDER,
+  isBeloyeAreaBridgeCorridor,
+  routeWithAreaBridge,
+} from './area-bridge';
+import beloyeAreaBridgeFixture from './__fixtures__/area-bridge/beloye-lake.json';
 
 export type HybridSelectedRouter =
   | 'watergraph'
@@ -478,6 +484,62 @@ export async function attemptWaterGraphRoute(
       } else if (pg.reason === 'no_path' || pg.reason === 'unknown_edge_in_path') {
         // Hard navigation miss on covered corridor — still try other candidates;
         // BRouter remains fallback if all WG paths fail.
+      }
+    }
+
+    // —— Area-Bridge overlay (lake/reservoir/river_area via geometric incidence) ——
+    // Does not mutate E1 / wg_edges. Belomor path above is unchanged.
+    if (isBeloyeAreaBridgeCorridor(a, b)) {
+      const ab = routeWithAreaBridge(
+        a,
+        b,
+        beloyeAreaBridgeFixture as Parameters<typeof routeWithAreaBridge>[2],
+      );
+      if (ab.ok && ab.usedAreaBridge) {
+        const validation = validateWaterRoute(ab.points, {
+          waypoints: [a, b],
+          lengthKm: ab.lengthKm,
+          method: 'lake',
+        });
+        if (validation.ok) {
+          const attemptMs = performance.now() - t0;
+          return {
+            ok: true,
+            path: {
+              points: ab.points,
+              routingGeometry: ab.points,
+              displayGeometry: ab.points,
+              lengthKm: ab.lengthKm,
+              waterName: null,
+              method: 'lake',
+              waypointCumKm: cumKm(ab.points, [a, b]),
+            },
+            diag: {
+              routerMode: 'hybrid_pilot',
+              selectedRouter: 'watergraph',
+              waterGraphAttempted: true,
+              waterGraphResult: 'ok',
+              waterGraphSafetyResult: 'accepted',
+              fallbackUsed: false,
+              fallbackReason: null,
+              pathKm: ab.lengthKm,
+              timing: {
+                attemptMs,
+                ingestMs: 0,
+                maskResolveMs: 0,
+                buildMs: 0,
+                searchMs: attemptMs,
+              },
+              centerlineSource: AREA_BRIDGE_PROVIDER,
+              maskSource: ab.areaOsmIds.length
+                ? `area_bridge:${ab.areaOsmIds.join(',')}`
+                : null,
+              failureStage: null,
+              note: ab.note,
+            },
+            shadow: null,
+          };
+        }
       }
     }
 
