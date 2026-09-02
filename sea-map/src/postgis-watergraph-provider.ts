@@ -149,30 +149,86 @@ function orientedGeom(edge: PostgisWgEdge, fromNode: number): LngLat[] {
   return pts;
 }
 
+type BindCand = {
+  node: PostgisWgNode;
+  distKm: number;
+  degree: number;
+};
+
 /**
- * Bind terminal to a NAVIGABLE graph node within snap.
- * Prefer degree-1 (corridor ends) when available so mid-chain snaps
- * do not silently truncate a continuous NAVIGABLE corridor.
+ * Proximity only forms the candidate set (legacy waterway snap).
+ * Does NOT prove water connection — topology must already exist.
  */
-function bindTerminal(
+function collectBindCandidates(
   nodes: PostgisWgNode[],
   adj: Map<number, AdjEntry[]>,
   pt: LngLat,
   maxKm: number,
-): { node: PostgisWgNode; distKm: number } | null {
-  const inSnap = nodes
+): BindCand[] {
+  return nodes
     .map((n) => ({
       node: n,
       distKm: haversineKm(pt, { lon: n.lon, lat: n.lat }),
       degree: adj.get(n.node_id)?.length ?? 0,
     }))
-    .filter((x) => x.distKm <= maxKm && x.degree > 0);
-  if (!inSnap.length) return null;
-  const ends = inSnap.filter((x) => x.degree === 1);
-  const pool = ends.length ? ends : inSnap;
-  pool.sort((a, b) => a.distKm - b.distKm);
-  const best = pool[0]!;
-  return { node: best.node, distKm: best.distKm };
+    .filter((x) => x.distKm <= maxKm && x.degree > 0)
+    .sort((a, b) => a.distKm - b.distKm || a.node.node_id - b.node.node_id);
+}
+
+/**
+ * Choose terminal pair among snap candidates by maximizing the length of the
+ * existing NAVIGABLE shortest-path between them.
+ *
+ * Why not nearest-node alone: Belomor preset A is closer to mid-corridor
+ * node 76541 (~1.2 km) than to degree-1 end 1171 (~2.85 km); nearest bind
+ * truncates Lock #1/#2 even though they are on the same connected component.
+ *
+ * Proximity ≠ connection: we only score pairs that already have a path on
+ * NAVIGABLE adjacency (no new edges).
+ */
+function chooseTerminalPair(
+  candA: BindCand[],
+  candB: BindCand[],
+  adj: Map<number, AdjEntry[]>,
+): {
+  bindA: BindCand;
+  bindB: BindCand;
+  path: { nodeIds: number[]; edges: PostgisWgEdge[] };
+} | null {
+  if (!candA.length || !candB.length) return null;
+
+  let best: {
+    bindA: BindCand;
+    bindB: BindCand;
+    path: { nodeIds: number[]; edges: PostgisWgEdge[] };
+    lengthM: number;
+    snapSum: number;
+  } | null = null;
+
+  for (const a of candA) {
+    for (const b of candB) {
+      if (a.node.node_id === b.node.node_id) continue;
+      const path = dijkstra(adj, a.node.node_id, b.node.node_id);
+      if (!path || !path.edges.length) continue;
+      const lengthM = path.edges.reduce((s, e) => s + e.length_m, 0);
+      const snapSum = a.distKm + b.distKm;
+      if (
+        !best ||
+        lengthM > best.lengthM + 1e-6 ||
+        (Math.abs(lengthM - best.lengthM) <= 1e-6 && snapSum < best.snapSum - 1e-9) ||
+        (Math.abs(lengthM - best.lengthM) <= 1e-6 &&
+          Math.abs(snapSum - best.snapSum) <= 1e-9 &&
+          (a.node.node_id < best.bindA.node.node_id ||
+            (a.node.node_id === best.bindA.node.node_id &&
+              b.node.node_id < best.bindB.node.node_id)))
+      ) {
+        best = { bindA: a, bindB: b, path, lengthM, snapSum };
+      }
+    }
+  }
+  return best
+    ? { bindA: best.bindA, bindB: best.bindB, path: best.path }
+    : null;
 }
 
 function dijkstra(
@@ -236,8 +292,8 @@ function reconstructPoints(
 
 /**
  * Route A→B on PostGIS WaterGraph snapshot (NAVIGABLE only).
- * Terminals bind to nearest exported graph nodes within legacy waterway snap.
- * No new topology edges are invented.
+ * Snap candidates via legacy waterway proximity; terminal pair chosen by
+ * maximizing existing NAVIGABLE shortest-path length (no new topology).
  */
 export function routePostgisWaterGraph(
   a: LngLat,
@@ -270,9 +326,9 @@ export function routePostgisWaterGraph(
 
   const adj = buildNavigableAdjacency(navEdges);
   const navNodes = snap.nodes.filter((n) => adj.has(n.node_id));
-  const bindA = bindTerminal(navNodes, adj, a, maxSnap);
-  const bindB = bindTerminal(navNodes, adj, b, maxSnap);
-  if (!bindA || !bindB) {
+  const candA = collectBindCandidates(navNodes, adj, a, maxSnap);
+  const candB = collectBindCandidates(navNodes, adj, b, maxSnap);
+  if (!candA.length || !candB.length) {
     return {
       ok: false,
       provider: POSTGIS_WG_PROVIDER,
@@ -280,24 +336,19 @@ export function routePostgisWaterGraph(
       note: `No NAVIGABLE node within ${maxSnap} km of endpoint(s)`,
     };
   }
-  if (bindA.node.node_id === bindB.node.node_id) {
-    return {
-      ok: false,
-      provider: POSTGIS_WG_PROVIDER,
-      reason: 'terminals_collapse',
-      note: 'A and B bound to the same node',
-    };
-  }
 
-  const path = dijkstra(adj, bindA.node.node_id, bindB.node.node_id);
-  if (!path || !path.edges.length) {
+  const chosen = chooseTerminalPair(candA, candB, adj);
+  if (!chosen) {
     return {
       ok: false,
       provider: POSTGIS_WG_PROVIDER,
       reason: 'no_path',
-      note: 'No NAVIGABLE path between bound terminals (no stitch across gaps)',
+      note: 'No NAVIGABLE path between snap candidates (no stitch across gaps)',
     };
   }
+
+  const { bindA, bindB, path } = chosen;
+  // path already computed on existing NAVIGABLE adjacency — no second search needed
 
   const statuses = [...new Set(path.edges.map((e) => e.nav_status))];
   if (statuses.some((s) => s !== 'NAVIGABLE')) {
@@ -332,7 +383,7 @@ export function routePostgisWaterGraph(
     navStatusesUsed: statuses,
     snapAKm: bindA.distKm,
     snapBKm: bindB.distKm,
-    note: `PostGIS WG NAVIGABLE route (${path.edges.length} edges, build ${snap.build_id})`,
+    note: `PostGIS WG NAVIGABLE route (${path.edges.length} edges, build ${snap.build_id}; terminals by max proven corridor)`,
   };
 }
 

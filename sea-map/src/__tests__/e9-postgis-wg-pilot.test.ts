@@ -59,6 +59,21 @@ describe('E9 PostGIS WaterGraph integration pilot', () => {
     expect(r.lengthKm / geo).toBeGreaterThan(1.05);
   });
 
+  it('Belomor terminal bind prefers full NAVIGABLE corridor (not nearest mid-node)', () => {
+    // Evidence: A is closer to junction 76541 (~1.225 km) than to deg-1 end 1171 (~2.854 km).
+    // Nearest-only would start at 76541 and drop Lock #1/#2 from A→B path.
+    const r = routePostgisWaterGraph(BELOMOR_A, BELOMOR_B);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.startNodeId).toBe(1171);
+    expect(r.endNodeId).toBe(76548);
+    expect(r.edgeIds).toContain(54335); // Lock #1
+    expect(r.edgeIds).toContain(54325); // Lock #2
+    expect(r.edgeIds.length).toBe(29);
+    expect(r.snapAKm).toBeGreaterThan(2.5);
+    expect(r.snapAKm).toBeLessThanOrEqual(3);
+  });
+
   it('UNKNOWN edges are never used (injecting UNKNOWN removes routability)', () => {
     const snap = structuredClone(getPostgisWgSnapshot());
     // Flip one edge to UNKNOWN — provider must refuse the corridor export
