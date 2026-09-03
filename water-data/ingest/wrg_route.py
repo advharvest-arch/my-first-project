@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-AquaRoute WRG-004 — First Route MVP (runtime A→B).
+AquaRoute WRG-004/005 — First Route MVP + funnel geometry.
 
 Physical routing on the already-built unified WRG:
   E1 centerlines ∪ WRG-002 mesh traversal ∪ proven portal attachments.
+WRG-005 post-process: A* vertex path → triangle corridor → string-pull.
 
 Does not write wg_edges. Does not call production routing, BRouter,
 measureWaterChain, Area-Bridge, sea, river_area, or any UI.
@@ -32,14 +33,24 @@ from typing import Any, Hashable, Iterable
 from shapely import LineString, Point, from_wkb
 from shapely.ops import substring
 
-ROUTER_VERSION = "wrg-004-1"
+from wrg_funnel import (
+    MeshPartIndex,
+    funnel_debug,
+    funnel_mesh_run,
+    polyline_length_m,
+)
+
+ROUTER_VERSION = "wrg-005-1"
 BIND_MAX_M = 25.0  # metres — not kilometres
 EARTH_M = 6371000.0
 ZERO_T = 1e-12
+FUNNEL_COVER_MAX_M = 1.0
+FUNNEL_ENDPOINT_MAX_M = 2.0
 
 STATUS_ROUTE_FOUND = "ROUTE_FOUND"
 STATUS_NO_WATER_CONNECTION = "NO_WATER_CONNECTION"
 STATUS_ENDPOINT_NOT_ON_WATER = "ENDPOINT_NOT_ON_WATER"
+STATUS_GEOMETRY_VALIDATION_FAILED = "GEOMETRY_VALIDATION_FAILED"
 
 START: tuple[str, ...] = ("s",)
 GOAL: tuple[str, ...] = ("g",)
@@ -255,7 +266,9 @@ class RouteResult:
     runtime_ms: float = 0.0
     bind_ms: float = 0.0
     search_ms: float = 0.0
+    geometry_ms: float = 0.0
     detail: str | None = None
+    astar_distance_m: float | None = None
 
     def as_dict(self, include_coords: bool = True) -> dict[str, Any]:
         geom = None
@@ -290,6 +303,7 @@ class RouteResult:
             "runtime_ms": round(self.runtime_ms, 1),
             "bind_ms": round(self.bind_ms, 1),
             "search_ms": round(self.search_ms, 1),
+            "geometry_ms": round(self.geometry_ms, 1),
             "detail": self.detail,
         }
 
@@ -406,6 +420,7 @@ class WrgRouter:
         self.edge_wkb: dict[int, bytes] = {}
         self.load_ms = 0.0
         self.stats: dict[str, Any] = {}
+        self._part_index: dict[tuple[int, int], MeshPartIndex] = {}
         self._load_graph()
 
     def _latest_build(self) -> int:
@@ -912,8 +927,17 @@ class WrgRouter:
         geom_parts: list[LineString] = []
         mesh_lines: list[LineString] = []
         hop_kinds: list[str] = []
+        mesh_runs: list[dict[str, Any]] = []
+        run: dict[str, Any] | None = None
         mesh_max = 0.0
         prev_node: Hashable | None = None
+
+        def flush_run() -> None:
+            nonlocal run
+            if run is not None:
+                mesh_runs.append(run)
+                run = None
+
         for node, via in path[1:]:
             if via is None:
                 if node not in (START, GOAL):
@@ -921,6 +945,7 @@ class WrgRouter:
                 continue
             kind = via.kind
             if kind in ("start_stub", "goal_stub"):
+                flush_run()
                 if via.edge_id is not None:
                     sub = self._edge_substring(via.edge_id, via.t0, via.t1)
                     if sub is not None:
@@ -929,11 +954,13 @@ class WrgRouter:
                 prev_node = node if node not in (START, GOAL) else prev_node
                 continue
             if kind == "e1" and via.edge_id is not None:
+                flush_run()
                 sub = self._edge_substring(via.edge_id, via.t0, via.t1)
                 if sub is not None:
                     geom_parts.append(sub)
                 hop_kinds.append("e1")
             elif kind == "portal" and via.edge_id is not None:
+                flush_run()
                 sub = self._edge_substring(via.edge_id, via.t0, via.t1)
                 if sub is not None:
                     geom_parts.append(sub)
@@ -943,17 +970,106 @@ class WrgRouter:
                 cb_xy = self.coords.get(node)
                 if ca_xy is not None and cb_xy is not None and ca_xy != cb_xy:
                     ln = LineString([ca_xy, cb_xy])
+                    if (
+                        run is None
+                        and isinstance(prev_node, tuple)
+                        and prev_node[0] == "m"
+                        and isinstance(node, tuple)
+                        and node[0] == "m"
+                    ):
+                        run = {
+                            "area_id": int(node[1]),
+                            "part": int(node[2]),
+                            "vids": [int(prev_node[3]), int(node[3])],
+                            "start_xy": ca_xy,
+                            "end_xy": cb_xy,
+                            "part_index": len(geom_parts),
+                            "n_parts": 1,
+                        }
+                    elif (
+                        run is not None
+                        and isinstance(node, tuple)
+                        and node[0] == "m"
+                        and int(node[1]) == run["area_id"]
+                        and int(node[2]) == run["part"]
+                    ):
+                        run["vids"].append(int(node[3]))
+                        run["end_xy"] = cb_xy
+                        run["n_parts"] += 1
+                    else:
+                        flush_run()
                     geom_parts.append(ln)
                     mesh_lines.append(ln)
                     mesh_max = max(mesh_max, haversine_m(ca_xy, cb_xy))
                 hop_kinds.append("mesh")
+            else:
+                flush_run()
             if node not in (START, GOAL):
                 prev_node = node
+        flush_run()
 
+        t_geom = time.perf_counter()
+        funnel_meta: dict[str, Any] = {
+            "geometry_source": "mesh_vertex",
+            "astar_distance_m": round(float(dist), 3),
+        }
+        vertex_mesh_lines = list(mesh_lines)
+        vertex_distance_m = (
+            polyline_length_m(
+                [(float(x), float(y)) for line in mesh_lines for x, y in line.coords]
+            )
+            if mesh_lines
+            else 0.0
+        )
+        funnel_meta["vertex_mesh_distance_m"] = round(vertex_distance_m, 3)
+        funnel_meta["vertex_mesh_n_coords"] = (
+            sum(len(line.coords) for line in mesh_lines) if mesh_lines else 0
+        )
+
+        geom_status = STATUS_ROUTE_FOUND
+        geom_detail: str | None = None
+        if mesh_runs:
+            applied, ferr, extra = self._apply_funnel(ba, bb, mesh_runs, geom_parts)
+            funnel_meta.update(extra)
+            if ferr == "geometry_validation_failed":
+                geom_status = STATUS_GEOMETRY_VALIDATION_FAILED
+                geom_detail = "funnel_and_vertex_path_invalid"
+            elif applied:
+                mesh_lines = []
+                for run in mesh_runs:
+                    i = int(run["part_index"])
+                    n = int(run["n_parts"])
+                    mesh_lines.extend(geom_parts[i : i + n])
+                mesh_max = 0.0
+                for ln in mesh_lines:
+                    cs = list(ln.coords)
+                    for i in range(len(cs) - 1):
+                        mesh_max = max(
+                            mesh_max,
+                            haversine_m(
+                                (float(cs[i][0]), float(cs[i][1])),
+                                (float(cs[i + 1][0]), float(cs[i + 1][1])),
+                            ),
+                        )
+            else:
+                mesh_lines = vertex_mesh_lines
+
+        geometry_ms = (time.perf_counter() - t_geom) * 1000.0
         geometry = concat_lines(geom_parts)
         path_type = compress_layers(nodes)
+        if funnel_meta.get("geometry_source") == "funnel":
+            funnel_mesh = 0.0
+            for run_info in funnel_meta.get("funnel_runs") or []:
+                if run_info.get("used") == "funnel" and run_info.get("funnel_length_m") is not None:
+                    funnel_mesh += float(run_info["funnel_length_m"])
+                elif run_info.get("vertex_path_length_m") is not None:
+                    funnel_mesh += float(run_info["vertex_path_length_m"])
+            vmesh = float(funnel_meta.get("vertex_mesh_distance_m") or 0.0)
+            distance_m = float(dist) - vmesh + funnel_mesh
+        else:
+            distance_m = float(dist)
         res = RouteResult(
-            status=STATUS_ROUTE_FOUND,
+            status=geom_status,
             bind_a=ba,
             bind_b=bb,
             component_a=ca,
@@ -965,16 +1081,229 @@ class WrgRouter:
             mesh_hops=sum(1 for k in hop_kinds if k == "mesh"),
             portal_hops=sum(1 for k in hop_kinds if k == "portal"),
             e1_mesh_transitions=count_e1_mesh_transitions(path_type),
-            distance_m=float(dist),
+            distance_m=distance_m,
+            astar_distance_m=float(dist),
             geometry=geometry,
             mesh_lines=mesh_lines,
             mesh_max_seg_m=mesh_max if mesh_lines else None,
             bind_ms=bind_ms,
             search_ms=search_ms,
+            geometry_ms=geometry_ms,
             runtime_ms=(time.perf_counter() - t_all) * 1000.0,
+            detail=geom_detail,
         )
-        res.geometry_validation = self._local_geom_validation(res)
+        res.geometry_validation = {**self._local_geom_validation(res), **funnel_meta}
         return res
+
+    def _mesh_part_index(self, area_id: int, part: int) -> MeshPartIndex:
+        key = (int(area_id), int(part))
+        cached = self._part_index.get(key)
+        if cached is not None:
+            return cached
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT triangle_id, v0, v1, v2
+            FROM water.wrg_mesh_triangles
+            WHERE wrg_build_id = %s AND area_id = %s AND part = %s
+            """,
+            (self.wrg_build_id, key[0], key[1]),
+        )
+        tris: dict[int, tuple[int, int, int]] = {}
+        vids: set[int] = set()
+        for triangle_id, v0, v1, v2 in cur:
+            tid = int(triangle_id)
+            vv = (int(v0), int(v1), int(v2))
+            tris[tid] = vv
+            vids.update(vv)
+        xy: dict[int, tuple[float, float]] = {}
+        for vid in vids:
+            c = self.coords.get(mesh_node(key[0], key[1], vid))
+            if c is not None:
+                xy[vid] = c
+        idx = MeshPartIndex.from_triangles(key[0], key[1], tris, xy)
+        self._part_index[key] = idx
+        return idx
+
+    def _line_leftover_m(
+        self, line: LineString, area_id: int, part: int
+    ) -> float | None:
+        if line is None or line.is_empty:
+            return None
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT ST_Length(
+                     ST_Difference(
+                       ST_SetSRID(ST_GeomFromWKB(%s), 4326),
+                       ST_GeometryN(a.geom, %s)
+                     )::geography
+                   ) AS leftover_m
+            FROM water.wrg_areas a
+            WHERE a.wrg_build_id = %s AND a.area_id = %s
+            """,
+            (bytes(line.wkb), int(part), self.wrg_build_id, int(area_id)),
+        )
+        row = cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
+
+    def _line_ok(
+        self,
+        line: LineString,
+        area_id: int,
+        part: int,
+        start_xy: tuple[float, float],
+        end_xy: tuple[float, float],
+    ) -> tuple[bool, dict[str, Any]]:
+        info: dict[str, Any] = {
+            "is_valid": bool(line is not None and line.is_valid and not line.is_empty),
+            "leftover_m": None,
+            "covered_by_part": False,
+            "start_err_m": None,
+            "end_err_m": None,
+        }
+        if line is None or line.is_empty or not line.is_valid:
+            return False, info
+        coords = [(float(x), float(y)) for x, y in line.coords]
+        if len(coords) < 2:
+            return False, info
+        info["start_err_m"] = round(haversine_m(coords[0], start_xy), 3)
+        info["end_err_m"] = round(haversine_m(coords[-1], end_xy), 3)
+        leftover = self._line_leftover_m(line, area_id, part)
+        info["leftover_m"] = None if leftover is None else round(leftover, 3)
+        info["covered_by_part"] = bool(
+            leftover is not None and leftover <= FUNNEL_COVER_MAX_M
+        )
+        ok = (
+            info["is_valid"]
+            and info["covered_by_part"]
+            and info["start_err_m"] <= FUNNEL_ENDPOINT_MAX_M
+            and info["end_err_m"] <= FUNNEL_ENDPOINT_MAX_M
+        )
+        return ok, info
+
+    def _funnel_endpoints(
+        self,
+        ba: Binding,
+        bb: Binding,
+        run: dict[str, Any],
+        is_first: bool,
+        is_last: bool,
+    ) -> tuple[tuple[float, float], tuple[float, float], int | None, int | None]:
+        start_xy = run["start_xy"]
+        end_xy = run["end_xy"]
+        start_tid = None
+        end_tid = None
+        if (
+            is_first
+            and ba.kind == "mesh"
+            and ba.area_id == run["area_id"]
+            and ba.part == run["part"]
+        ):
+            start_xy = (float(ba.lon), float(ba.lat))
+            start_tid = ba.triangle_id
+        if (
+            is_last
+            and bb.kind == "mesh"
+            and bb.area_id == run["area_id"]
+            and bb.part == run["part"]
+        ):
+            end_xy = (float(bb.lon), float(bb.lat))
+            end_tid = bb.triangle_id
+        return start_xy, end_xy, start_tid, end_tid
+
+    def _apply_funnel(
+        self,
+        ba: Binding,
+        bb: Binding,
+        mesh_runs: list[dict[str, Any]],
+        geom_parts: list[LineString],
+    ) -> tuple[bool, str | None, dict[str, Any]]:
+        extra: dict[str, Any] = {"funnel_runs": []}
+        any_applied = False
+        for ri, run in enumerate(reversed(mesh_runs)):
+            orig_i = len(mesh_runs) - 1 - ri
+            i = int(run["part_index"])
+            n = int(run["n_parts"])
+            vertex_line = concat_lines(geom_parts[i : i + n])
+            start_xy, end_xy, start_tid, end_tid = self._funnel_endpoints(
+                ba, bb, run, orig_i == 0, orig_i == len(mesh_runs) - 1
+            )
+            index = self._mesh_part_index(int(run["area_id"]), int(run["part"]))
+            pulled = funnel_mesh_run(
+                index,
+                list(run["vids"]),
+                start_xy,
+                end_xy,
+                start_tid,
+                end_tid,
+            )
+            run_info: dict[str, Any] = {
+                "area_id": run["area_id"],
+                "part": run["part"],
+                **funnel_debug(pulled),
+            }
+            funnel_line = None
+            if pulled.ok and len(pulled.coords) >= 2:
+                funnel_line = LineString(pulled.coords)
+            funnel_ok, funnel_val = False, {}
+            if funnel_line is not None:
+                funnel_ok, funnel_val = self._line_ok(
+                    funnel_line,
+                    int(run["area_id"]),
+                    int(run["part"]),
+                    start_xy,
+                    end_xy,
+                )
+            run_info["funnel_validation"] = funnel_val
+            vertex_ok, vertex_val = False, {}
+            if vertex_line is not None:
+                vertex_ok, vertex_val = self._line_ok(
+                    vertex_line,
+                    int(run["area_id"]),
+                    int(run["part"]),
+                    run["start_xy"],
+                    run["end_xy"],
+                )
+            run_info["vertex_validation"] = vertex_val
+            if funnel_ok and funnel_line is not None and vertex_line is not None:
+                flen = polyline_length_m(
+                    [(float(x), float(y)) for x, y in funnel_line.coords]
+                )
+                vlen = polyline_length_m(
+                    [(float(x), float(y)) for x, y in vertex_line.coords]
+                )
+                if flen > vlen + FUNNEL_COVER_MAX_M:
+                    funnel_ok = False
+                    run_info["funnel_rejected"] = "longer_than_vertex_path"
+            if funnel_ok and funnel_line is not None:
+                geom_parts[i : i + n] = [funnel_line]
+                delta = n - 1
+                run["n_parts"] = 1
+                if delta:
+                    for other in mesh_runs:
+                        if other is not run and int(other["part_index"]) > i:
+                            other["part_index"] = int(other["part_index"]) - delta
+                any_applied = True
+                extra["geometry_source"] = "funnel"
+                run_info["used"] = "funnel"
+            elif vertex_ok:
+                run_info["used"] = "mesh_vertex_fallback"
+                extra.setdefault("geometry_source", "mesh_vertex_fallback")
+            else:
+                extra["funnel_runs"].append(run_info)
+                extra["geometry_source"] = "invalid"
+                return False, "geometry_validation_failed", extra
+            extra["funnel_runs"].append(run_info)
+        if any_applied and extra.get("geometry_source") != "mesh_vertex_fallback":
+            extra["geometry_source"] = "funnel"
+        elif not any_applied:
+            extra["geometry_source"] = extra.get(
+                "geometry_source", "mesh_vertex_fallback"
+            )
+        return any_applied, None, extra
 
     def _local_geom_validation(self, res: RouteResult) -> dict[str, Any]:
         g = res.geometry
@@ -1138,10 +1467,11 @@ def run_validation(router: WrgRouter) -> dict[str, Any]:
         "cases": reports,
         "limits": [
             "MVP A→B only; no A→B→C, no UI, no production wiring",
-            "mesh path is CDT vertex sequence, not funnel / Euclidean shortest",
+            "WRG-005 funnel on A* triangle corridor; vertex path kept as fallback",
             "unmeshed lakes without E1 within 25 m → ENDPOINT_NOT_ON_WATER",
             "portal hop uses along-edge distance, never a geodesic chord to far E1 ends",
             "no new topology edges stored",
+            "geometry validation failure is not NO_WATER_CONNECTION",
         ],
     }
 
@@ -1196,7 +1526,7 @@ def serve_stdio_json(dsn: str, wrg_build_id: int | None) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="WRG-004 first-route MVP (A→B)")
+    parser = argparse.ArgumentParser(description="WRG-004/005 first-route MVP + funnel (A→B)")
     parser.add_argument("coords", nargs="*", type=float, help="A_LON A_LAT B_LON B_LAT")
     parser.add_argument("--validate", action="store_true", help="run the 5 WRG-004 cases")
     parser.add_argument(

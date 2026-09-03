@@ -45,7 +45,7 @@ class WrgRouteOfflineTests(unittest.TestCase):
                 STATUS_ENDPOINT_NOT_ON_WATER,
             },
         )
-        self.assertTrue(ROUTER_VERSION.startswith("wrg-004"))
+        self.assertTrue(ROUTER_VERSION.startswith("wrg-005"))
 
     def test_haversine_forbidden_chord_length(self) -> None:
         d = haversine_m((37.3270442, 60.2490477), (37.2303366, 60.184603))
@@ -159,6 +159,53 @@ class WrgRouteLiveTests(unittest.TestCase):
                     self.assertIsNotNone(leftover)
                     self.assertLessEqual(float(leftover), 1.0)
                     self.assertGreater(len(res.geometry.coords), 2)
+
+
+    def test_live_funnel_acceptance(self) -> None:
+        router = self.router
+        assert router is not None
+        old = {
+            "beloye_kovzha_belozersky": 32190.455,
+            "beloye_same_part": 16331.02,
+            "vygozero_same_part": 19097.088,
+        }
+        a = self._case("beloye_kovzha_belozersky")
+        res_a = router.route(a["a"][0], a["a"][1], a["b"][0], a["b"][1])
+        self.assertEqual(res_a.status, STATUS_ROUTE_FOUND)
+        self.assertEqual(tuple(res_a.path_type), ("E1", "mesh", "E1"))
+        self.assertIsNotNone(res_a.geometry)
+        self.assertGreater(len(res_a.geometry.coords), 2)
+        self.assertLessEqual(float(res_a.distance_m or 0), old["beloye_kovzha_belozersky"] + 1.0)
+        water_a = router.validate_mesh_in_area(res_a, osm_id=1603199)
+        self.assertLessEqual(float(water_a.get("mesh_leftover_m") or 0), 1.0)
+        self.assertNotEqual(res_a.status, "NO_WATER_CONNECTION")
+
+        b = self._case("beloye_same_part")
+        res_b = router.route(b["a"][0], b["a"][1], b["b"][0], b["b"][1])
+        self.assertEqual(res_b.status, STATUS_ROUTE_FOUND)
+        self.assertLessEqual(float(res_b.distance_m or 0), old["beloye_same_part"] + 1.0)
+        water_b = router.validate_mesh_in_area(res_b, osm_id=1603199)
+        self.assertLessEqual(float(water_b.get("mesh_leftover_m") or 0), 1.0)
+        src = (res_b.geometry_validation or {}).get("geometry_source")
+        self.assertIn(src, ("funnel", "mesh_vertex_fallback", "mesh_vertex"))
+
+        c = self._case("vygozero_same_part")
+        res_c = router.route(c["a"][0], c["a"][1], c["b"][0], c["b"][1])
+        self.assertEqual(res_c.status, STATUS_ROUTE_FOUND)
+        self.assertLessEqual(float(res_c.distance_m or 0), old["vygozero_same_part"] + 1.0)
+        water_c = router.validate_mesh_in_area(res_c)
+        self.assertLessEqual(float(water_c.get("mesh_leftover_m") or 0), 1.0)
+        self.assertGreater(len(res_c.geometry.coords), 2)
+
+        d = self._case("strelka_land_separation")
+        res_d = router.route(d["a"][0], d["a"][1], d["b"][0], d["b"][1])
+        self.assertEqual(res_d.status, STATUS_NO_WATER_CONNECTION)
+        self.assertTrue(res_d.geometry is None or res_d.geometry.is_empty)
+
+        e = self._case("land_off_network")
+        res_e = router.route(e["a"][0], e["a"][1], e["b"][0], e["b"][1])
+        self.assertEqual(res_e.status, STATUS_ENDPOINT_NOT_ON_WATER)
+        self.assertTrue(res_e.geometry is None or res_e.geometry.is_empty)
 
 
 if __name__ == "__main__":
