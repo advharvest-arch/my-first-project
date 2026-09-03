@@ -1621,6 +1621,7 @@ map.on('zoomend', () => scheduleScaleDependentRedraw());
 
 map.on('click', (e: L.LeafletMouseEvent) => {
   if (suppressMapClick) return;
+  if (document.body.classList.contains('wrg-demo-on')) return;
   if (Date.now() < markerClickGuardUntil) return;
   const { lat, lng } = e.latlng;
 
@@ -1876,6 +1877,16 @@ syncSpeedPresetChips();
 setStatus('Кликните точки маршрута на воде.');
 warmWaterCache();
 bootFromQuery();
+
+/** WaterGraph Demo / Shadow: separate layer + wrg_route.py. Production routing unchanged. */
+void import('./wrg-demo-ui').then(({ mountWrgDemo }) => {
+  mountWrgDemo({
+    map,
+    setSuppressMapClick: (next) => {
+      suppressMapClick = next;
+    },
+  });
+});
 
 /** Dev-only: inspect Clear/BUILD lifecycle without noisy console spam. */
 if (import.meta.env.DEV) {

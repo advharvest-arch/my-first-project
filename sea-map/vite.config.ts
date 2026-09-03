@@ -1,9 +1,11 @@
 import legacy from '@vitejs/plugin-legacy';
 import { defineConfig } from 'vite';
+import { wrgDemoPlugin } from './vite-wrg-demo-plugin';
 
 export default defineConfig({
   base: './',
   plugins: [
+    wrgDemoPlugin(),
     legacy({
       // Desktop + phones / WebViews. IE 11 is intentionally out of scope.
       targets: [
