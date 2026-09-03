@@ -13,6 +13,7 @@ BIND_MAX_M metres. No 3/10/25 km snap. No proximity topology edges.
 
     python3 ingest/wrg_route.py A_LON A_LAT B_LON B_LAT
     python3 ingest/wrg_route.py --validate
+    python3 ingest/wrg_route.py --stdio-json   # demo UI adapter (one JSON line in / out)
 """
 
 from __future__ import annotations
@@ -1145,21 +1146,77 @@ def run_validation(router: WrgRouter) -> dict[str, Any]:
     }
 
 
+def serve_stdio_json(dsn: str, wrg_build_id: int | None) -> int:
+    """One JSON object per stdin line → one JSON object on stdout. Demo UI only."""
+    import psycopg2
+
+    conn = psycopg2.connect(dsn)
+    try:
+        router = WrgRouter(conn, wrg_build_id)
+        print(
+            f"graph load {router.load_ms:.0f} ms  "
+            f"e1_edges={router.stats['e1_edges']}  "
+            f"mesh_edges={router.stats['mesh_edges']}  "
+            f"portals={router.stats['portals']}",
+            file=sys.stderr,
+        )
+        sys.stdout.write(
+            json.dumps({"ready": True, "graph": router.stats}, ensure_ascii=False) + "\n"
+        )
+        sys.stdout.flush()
+        for raw in sys.stdin:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                req = json.loads(line)
+            except json.JSONDecodeError as exc:
+                sys.stdout.write(
+                    json.dumps({"status": "BAD_REQUEST", "detail": str(exc)}) + "\n"
+                )
+                sys.stdout.flush()
+                continue
+            if req.get("cmd") == "ping":
+                sys.stdout.write(json.dumps({"ok": True, "ready": True}) + "\n")
+                sys.stdout.flush()
+                continue
+            res = router.route(
+                float(req["a_lon"]),
+                float(req["a_lat"]),
+                float(req["b_lon"]),
+                float(req["b_lat"]),
+            )
+            sys.stdout.write(
+                json.dumps(res.as_dict(include_coords=True), ensure_ascii=False) + "\n"
+            )
+            sys.stdout.flush()
+        return 0
+    finally:
+        conn.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="WRG-004 first-route MVP (A→B)")
     parser.add_argument("coords", nargs="*", type=float, help="A_LON A_LAT B_LON B_LAT")
     parser.add_argument("--validate", action="store_true", help="run the 5 WRG-004 cases")
+    parser.add_argument(
+        "--stdio-json",
+        action="store_true",
+        help="demo adapter: JSON lines on stdin/stdout (does not change routing)",
+    )
     parser.add_argument("--dsn", default=None)
     parser.add_argument("--wrg-build-id", type=int, default=None)
     parser.add_argument("--json-out", type=Path, default=None)
     parser.add_argument("--no-geometry-coords", action="store_true")
     args = parser.parse_args()
-    if not args.validate and len(args.coords) != 4:
-        parser.error("need A_LON A_LAT B_LON B_LAT, or --validate")
+    if not args.validate and not args.stdio_json and len(args.coords) != 4:
+        parser.error("need A_LON A_LAT B_LON B_LAT, or --validate / --stdio-json")
 
     import psycopg2
 
     dsn = args.dsn or default_dsn()
+    if args.stdio_json:
+        return serve_stdio_json(dsn, args.wrg_build_id)
     conn = psycopg2.connect(dsn)
     try:
         router = WrgRouter(conn, args.wrg_build_id)

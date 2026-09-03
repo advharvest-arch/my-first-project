@@ -1094,3 +1094,106 @@ body {
     max-height: 42vh;
   }
 }
+
+/* —— WaterGraph Demo / Shadow (does not restyle production route) —— */
+.wrg-demo {
+  position: fixed;
+  z-index: 1150;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: min(48vh, 28rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  pointer-events: none;
+}
+.wrg-demo__toggle,
+.wrg-demo__body,
+.wrg-demo__btn {
+  pointer-events: auto;
+}
+.wrg-demo__toggle {
+  align-self: flex-start;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  background: rgba(7, 24, 33, 0.9);
+  color: #e8f4f2;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font: 650 0.82rem/1.2 Manrope, system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.wrg-demo__toggle.is-active {
+  background: #0e7490;
+  border-color: #22d3ee;
+}
+.wrg-demo__body {
+  display: none;
+  overflow: auto;
+  padding: 0.7rem 0.8rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  background: rgba(7, 24, 33, 0.92);
+  color: #e8f4f2;
+  font: 500 0.75rem/1.35 Manrope, system-ui, sans-serif;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+}
+.wrg-demo.is-on .wrg-demo__body {
+  display: block;
+}
+.wrg-demo__hint {
+  margin: 0 0 0.55rem;
+  opacity: 0.75;
+  font-size: 0.7rem;
+}
+.wrg-demo__cases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin-bottom: 0.45rem;
+}
+.wrg-demo__btn {
+  border: 1px solid rgba(232, 244, 242, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border-radius: 8px;
+  padding: 0.28rem 0.5rem;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.wrg-demo__btn:hover {
+  background: rgba(34, 211, 238, 0.15);
+}
+.wrg-demo__result {
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+  font: 500 0.7rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.92;
+}
+.wrg-demo-marker {
+  background: transparent !important;
+  border: 0 !important;
+}
+.wrg-demo-marker__dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #071821;
+  font: 700 0.7rem/1 Manrope, system-ui, sans-serif;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 720px) {
+  .wrg-demo {
+    left: 0.5rem;
+    bottom: 0.5rem;
+    width: min(18.5rem, calc(100vw - 1rem));
+  }
+}
