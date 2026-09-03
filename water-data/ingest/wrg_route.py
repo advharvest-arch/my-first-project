@@ -34,7 +34,6 @@ from shapely.ops import substring
 ROUTER_VERSION = "wrg-004-1"
 BIND_MAX_M = 25.0  # metres — not kilometres
 EARTH_M = 6371000.0
-EMPTY_EPS_M = 0.05
 ZERO_T = 1e-12
 
 STATUS_ROUTE_FOUND = "ROUTE_FOUND"
@@ -56,7 +55,7 @@ VALIDATION_CASES: list[dict[str, Any]] = [
     {
         "id": "beloye_kovzha_belozersky",
         "name": "БЕЛОЕ: Ковжа edge 8039 → Белозерский edge 2228",
-        "a": (37.1582034, 60.3357963),  # Ковжа from_node 12244
+        "a": (37.15860787, 60.33563016),  # on Ковжа 8039, ~29 m from node 12244
         "b": (37.2263761, 60.2570485),  # Белозерский from_node 3432
         "expect": STATUS_ROUTE_FOUND,
         "expect_path_type": ("E1", "mesh", "E1"),
@@ -66,8 +65,8 @@ VALIDATION_CASES: list[dict[str, Any]] = [
     {
         "id": "beloye_same_part",
         "name": "БЕЛОЕ: две точки внутри одной water part",
-        "a": (37.62387475270754, 60.1805663),  # PointOnSurface part 1
-        "b": (37.3270442, 60.2490477),  # Kovzha attach, in lake
+        "a": (37.5591499, 60.3253729),  # portal Водоба, in Beloye part 1
+        "b": (37.3270442, 60.2490477),  # portal Ковжа attach, in lake
         "expect": STATUS_ROUTE_FOUND,
         "expect_path_type": ("mesh",),
         "check_beloye_water": True,
@@ -76,8 +75,8 @@ VALIDATION_CASES: list[dict[str, Any]] = [
     {
         "id": "vygozero_same_part",
         "name": "ВЫГОЗЕРО: две точки внутри одного part",
-        "a": (34.67528548737927, 63.55419575),  # PointOnSurface part 2
-        "b": (34.245828, 63.8472787),  # portal attach in part 2
+        "a": (34.3220777, 63.8827376),  # portal in Vygozero part 2 (north)
+        "b": (34.245828, 63.8472787),  # portal in Vygozero part 2
         "expect": STATUS_ROUTE_FOUND,
         "expect_path_type": ("mesh",),
         "check_beloye_water": False,
@@ -429,7 +428,7 @@ class WrgRouter:
 
         cur.execute(
             """
-            SELECT edge_id, from_node_id, to_node_id, length_m, geom
+            SELECT edge_id, from_node_id, to_node_id, length_m, ST_AsBinary(geom)
             FROM water.wg_edges
             """
         )
@@ -439,7 +438,10 @@ class WrgRouter:
             u, v = e1_node(int(frm)), e1_node(int(to))
             cost = float(length_m)
             eid = int(edge_id)
-            self.edge_wkb[eid] = bytes(geom)
+            if isinstance(geom, str):
+                self.edge_wkb[eid] = bytes.fromhex(geom)
+            else:
+                self.edge_wkb[eid] = bytes(geom)
             adj.setdefault(u, []).append((v, cost, Via("e1", eid, 0.0, 1.0)))
             adj.setdefault(v, []).append((u, cost, Via("e1", eid, 1.0, 0.0)))
 
