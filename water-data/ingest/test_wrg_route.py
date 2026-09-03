@@ -207,6 +207,15 @@ class WrgRouteLiveTests(unittest.TestCase):
         self.assertEqual(res_e.status, STATUS_ENDPOINT_NOT_ON_WATER)
         self.assertTrue(res_e.geometry is None or res_e.geometry.is_empty)
 
+    def test_live_arbitrary_beloye_ab(self) -> None:
+        router = self.router
+        assert router is not None
+        res = router.route(37.42, 60.29, 37.48, 60.31)
+        self.assertEqual(res.status, STATUS_ROUTE_FOUND)
+        self.assertGreater(float(res.distance_m or 0), 0.0)
+        water = router.validate_mesh_in_area(res, osm_id=1603199)
+        self.assertLessEqual(float(water.get("mesh_leftover_m") or 0), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
