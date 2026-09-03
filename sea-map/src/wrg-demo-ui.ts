@@ -13,7 +13,7 @@ import {
   wrgDemoMapView,
 } from './wrg-demo-controller';
 import { WrgDemoLayers } from './wrg-demo-layers';
-import type { WrgDemoPoint, WrgDemoRouteResult } from './wrg-demo-types';
+import type { WrgDemoPoint, WrgDemoRouteResult, WrgDemoState } from './wrg-demo-types';
 
 export type WrgDemoHooks = {
   map: LeafletMap;
