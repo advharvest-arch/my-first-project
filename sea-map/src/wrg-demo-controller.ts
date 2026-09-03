@@ -84,31 +84,44 @@ function fmtPt(p: WrgDemoPoint | null): string {
   return `${p.lon.toFixed(6)}, ${p.lat.toFixed(6)}`;
 }
 
+/** `?wrgDemo=1` opens Free Route immediately (no case-button required). */
+export function shouldAutoEnableWrgFreeRoute(search: string): boolean {
+  const q = search.startsWith('?') ? search.slice(1) : search;
+  const params = new URLSearchParams(q);
+  return params.get('wrgDemo') === '1' || params.get('wrg-demo') === '1';
+}
+
+function formatDistanceM(distanceM: number | null | undefined): string {
+  if (distanceM == null) return '—';
+  return `${Math.round(distanceM).toLocaleString('ru-RU')} м`;
+}
+
+function pendingStatus(phase: WrgDemoPhase): string {
+  if (phase === 'pick-a') return 'кликните A';
+  if (phase === 'pick-b') return 'кликните B';
+  if (phase === 'routing') return 'считаем маршрут';
+  return 'ожидание';
+}
+
+/** Free Route panel: A, B, status, distance. */
 export function formatWrgDemoPanel(state: WrgDemoState): string {
   const head = [`A: ${fmtPt(state.a)}`, `B: ${fmtPt(state.b)}`];
   const r = state.result;
   if (state.error || isWrgDemoHttpErrorStatus(r?.status)) {
     const detail = state.error || String(r?.detail ?? r?.status ?? 'backend error');
-    return [...head, `http_error: ${r?.status ?? 'RUNTIME_UNAVAILABLE'}`, detail].join('\n');
+    return [
+      ...head,
+      `http_error: ${r?.status ?? 'RUNTIME_UNAVAILABLE'}`,
+      `distance: —`,
+      detail,
+    ].join('\n');
   }
   if (!r) {
-    if (state.phase === 'pick-a') return [...head, 'Кликните A на карте.'].join('\n');
-    if (state.phase === 'pick-b') return [...head, 'Кликните B на карте.'].join('\n');
-    if (state.phase === 'routing') return [...head, 'WaterGraph считает маршрут…'].join('\n');
-    return [...head, 'Включите Demo и кликните A, затем B.'].join('\n');
+    return [...head, `status: ${pendingStatus(state.phase)}`, 'distance: —'].join('\n');
   }
-  const dist =
-    r.distance_m == null ? '—' : `${Math.round(r.distance_m).toLocaleString('ru-RU')} м`;
-  const pathType = r.path_type?.length ? r.path_type.join(' → ') : '—';
-  return [
-    ...head,
-    `status: ${r.status}`,
-    `distance: ${dist}`,
-    `path nodes/edges: ${r.path_node_count ?? '—'} / ${r.path_edge_count ?? '—'}`,
-    `E1 ↔ mesh: ${r.e1_mesh_transitions ?? '—'}  (${pathType})`,
-    `physical component IDs: ${r.component_a ?? '—'} / ${r.component_b ?? '—'}`,
-    `routing time: ${r.runtime_ms != null ? `${r.runtime_ms.toFixed(1)} ms` : '—'}`,
-  ].join('\n');
+  return [...head, `status: ${r.status}`, `distance: ${formatDistanceM(r.distance_m)}`].join(
+    '\n',
+  );
 }
 
 export function shouldBlockProductionWaypointClick(

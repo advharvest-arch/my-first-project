@@ -1,15 +1,17 @@
 /**
  * WaterGraph Demo / Shadow UI on the existing Leaflet map.
+ * Free Route is the primary mode. Five validation cases live under Tests / Examples.
  * Does not call measureWaterChain, BRouter, or production drawLayer.
  */
 
 import type { Map as LeafletMap } from 'leaflet';
-import { WRG_DEMO_CASES } from './wrg-demo-cases';
+import { WRG_DEMO_CASES, WRG_FREE_ROUTE_UI, WRG_FREE_ROUTE_VIEW } from './wrg-demo-cases';
 import { requestWrgDemoRoute } from './wrg-demo-client';
 import {
   WrgDemoController,
   formatWrgDemoPanel,
   isWrgDemoHttpErrorStatus,
+  shouldAutoEnableWrgFreeRoute,
   wrgDemoMapView,
 } from './wrg-demo-controller';
 import { WrgDemoLayers } from './wrg-demo-layers';
@@ -38,21 +40,22 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   const layers = new WrgDemoLayers(map);
 
   const root = el('aside', 'wrg-demo');
-  root.setAttribute('aria-label', 'WaterGraph Demo');
+  root.setAttribute('aria-label', WRG_FREE_ROUTE_UI.title);
+  root.dataset.mode = 'free-route';
 
-  const toggle = el('button', 'wrg-demo__toggle', 'WaterGraph Demo') as HTMLButtonElement;
+  const toggle = el('button', 'wrg-demo__toggle', WRG_FREE_ROUTE_UI.title) as HTMLButtonElement;
   toggle.type = 'button';
 
   const body = el('div', 'wrg-demo__body');
-  const hint = el(
-    'p',
-    'wrg-demo__hint',
-    'Shadow mode. Клик A → клик B → WRG-маршрут. Clear сбрасывает пару. Production не меняется.',
-  );
+  const title = el('h2', 'wrg-demo__title', WRG_FREE_ROUTE_UI.title);
+  const hint = el('p', 'wrg-demo__hint', WRG_FREE_ROUTE_UI.hint);
   const resultEl = el('pre', 'wrg-demo__result', '');
-  const clearBtn = el('button', 'wrg-demo__btn', 'Clear A/B · Reset') as HTMLButtonElement;
+  const clearBtn = el('button', 'wrg-demo__btn wrg-demo__btn--clear', 'Clear') as HTMLButtonElement;
   clearBtn.type = 'button';
 
+  const examples = el('details', 'wrg-demo__examples');
+  examples.open = WRG_FREE_ROUTE_UI.examplesOpenByDefault;
+  const summary = el('summary', 'wrg-demo__examples-summary', WRG_FREE_ROUTE_UI.examplesLabel);
   const casesWrap = el('div', 'wrg-demo__cases');
   for (const c of WRG_DEMO_CASES) {
     const btn = el('button', 'wrg-demo__btn wrg-demo__btn--case', c.name) as HTMLButtonElement;
@@ -60,8 +63,9 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
     btn.dataset.caseId = c.id;
     casesWrap.append(btn);
   }
+  examples.append(summary, casesWrap);
 
-  body.append(hint, casesWrap, clearBtn, resultEl);
+  body.append(title, hint, resultEl, clearBtn, examples);
   root.append(toggle, body);
   document.body.append(root);
 
@@ -76,7 +80,7 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   };
 
   const runRoute = async (a: WrgDemoPoint, b: WrgDemoPoint) => {
-    resultEl.textContent = 'WaterGraph считает маршрут…';
+    resultEl.textContent = formatWrgDemoPanel(controller.getState());
     const res: WrgDemoRouteResult = await requestWrgDemoRoute(a, b);
     if (isWrgDemoHttpErrorStatus(res.status)) {
       sync(controller.applyError(String(res.detail ?? res.status)));
@@ -128,9 +132,11 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
     }
   });
 
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('wrgDemo') === '1' || params.get('wrg-demo') === '1') {
+  if (shouldAutoEnableWrgFreeRoute(window.location.search)) {
     sync(controller.enable());
+    map.setView([WRG_FREE_ROUTE_VIEW.lat, WRG_FREE_ROUTE_VIEW.lon], WRG_FREE_ROUTE_VIEW.zoom, {
+      animate: false,
+    });
   } else {
     sync(controller.getState());
   }
