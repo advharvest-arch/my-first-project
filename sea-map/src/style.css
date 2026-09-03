@@ -1110,7 +1110,8 @@ body {
 }
 .wrg-demo__toggle,
 .wrg-demo__body,
-.wrg-demo__btn {
+.wrg-demo__btn,
+.wrg-demo__examples {
   pointer-events: auto;
 }
 .wrg-demo__toggle {
@@ -1143,16 +1144,51 @@ body {
 .wrg-demo.is-on .wrg-demo__body {
   display: block;
 }
+.wrg-demo__title {
+  margin: 0 0 0.35rem;
+  font: 700 0.92rem/1.2 Manrope, system-ui, sans-serif;
+  color: #67e8f9;
+}
 .wrg-demo__hint {
   margin: 0 0 0.55rem;
   opacity: 0.75;
   font-size: 0.7rem;
 }
+.wrg-demo__result {
+  margin: 0 0 0.55rem;
+  white-space: pre-wrap;
+  font: 500 0.7rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.92;
+}
+.wrg-demo__btn--clear {
+  width: 100%;
+  text-align: center;
+  margin-bottom: 0.55rem;
+  border-color: rgba(34, 211, 238, 0.35);
+}
+.wrg-demo__examples {
+  margin: 0;
+  border-top: 1px solid rgba(232, 244, 242, 0.12);
+  padding-top: 0.4rem;
+}
+.wrg-demo__examples-summary {
+  cursor: pointer;
+  list-style: none;
+  opacity: 0.7;
+  font-size: 0.7rem;
+  user-select: none;
+}
+.wrg-demo__examples-summary::-webkit-details-marker {
+  display: none;
+}
+.wrg-demo__examples[open] .wrg-demo__examples-summary {
+  margin-bottom: 0.35rem;
+  opacity: 0.9;
+}
 .wrg-demo__cases {
   display: flex;
   flex-direction: column;
   gap: 0.28rem;
-  margin-bottom: 0.45rem;
 }
 .wrg-demo__btn {
   border: 1px solid rgba(232, 244, 242, 0.2);
@@ -1166,12 +1202,6 @@ body {
 }
 .wrg-demo__btn:hover {
   background: rgba(34, 211, 238, 0.15);
-}
-.wrg-demo__result {
-  margin: 0.5rem 0 0;
-  white-space: pre-wrap;
-  font: 500 0.7rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  opacity: 0.92;
 }
 .wrg-demo-marker {
   background: transparent !important;

@@ -5,6 +5,20 @@
 
 import type { WrgDemoCase } from './wrg-demo-types';
 
+/** Camera for Free Route so the user can click water without a case button. */
+export const WRG_FREE_ROUTE_VIEW = {
+  lon: 37.44,
+  lat: 60.29,
+  zoom: 9,
+} as const;
+
+export const WRG_FREE_ROUTE_UI = {
+  title: 'Free Route',
+  hint: 'Первый клик = A, второй = B. Маршрут строится сам. Clear — новая пара.',
+  examplesLabel: 'Tests / Examples',
+  examplesOpenByDefault: false,
+} as const;
+
 export const WRG_DEMO_CASES: WrgDemoCase[] = [
   {
     id: 'beloye_kovzha_belozersky',

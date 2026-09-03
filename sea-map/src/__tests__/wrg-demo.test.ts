@@ -3,13 +3,14 @@
  * Does not exercise production measureWaterChain / BRouter.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { WRG_DEMO_CASES } from '../wrg-demo-cases';
+import { WRG_DEMO_CASES, WRG_FREE_ROUTE_UI, WRG_FREE_ROUTE_VIEW } from '../wrg-demo-cases';
 import { requestWrgDemoRoute } from '../wrg-demo-client';
 import {
   WrgDemoController,
   formatWrgDemoPanel,
   geoJsonLineToLatLngs,
   isWrgDemoHttpErrorStatus,
+  shouldAutoEnableWrgFreeRoute,
   shouldBlockProductionWaypointClick,
   shouldDrawWrgRoute,
   wrgDemoMapView,
@@ -191,6 +192,23 @@ describe('WaterGraph Demo GeoJSON helper', () => {
   });
 });
 
+describe('Free Route query and chrome', () => {
+  it('?wrgDemo=1 auto-opens Free Route without a case id', () => {
+    expect(shouldAutoEnableWrgFreeRoute('?wrgDemo=1')).toBe(true);
+    expect(shouldAutoEnableWrgFreeRoute('wrg-demo=1')).toBe(true);
+    expect(shouldAutoEnableWrgFreeRoute('?wrgDemo=1&from=x')).toBe(true);
+    expect(shouldAutoEnableWrgFreeRoute('')).toBe(false);
+    expect(shouldAutoEnableWrgFreeRoute('?demo=moscow')).toBe(false);
+  });
+
+  it('keeps Tests / Examples collapsed and secondary', () => {
+    expect(WRG_FREE_ROUTE_UI.title).toBe('Free Route');
+    expect(WRG_FREE_ROUTE_UI.examplesLabel).toBe('Tests / Examples');
+    expect(WRG_FREE_ROUTE_UI.examplesOpenByDefault).toBe(false);
+    expect(WRG_FREE_ROUTE_VIEW.zoom).toBeGreaterThanOrEqual(8);
+  });
+});
+
 describe('WaterGraph Demo cases catalog', () => {
   it('includes the five required WRG validation cases', () => {
     expect(WRG_DEMO_CASES.map((c) => c.id)).toEqual([
@@ -275,6 +293,25 @@ describe('WaterGraph Demo client adapter', () => {
 });
 
 describe('WaterGraph Demo panel vs production', () => {
+  it('shows A/B, status and distance after a click-built route (no case button)', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    expect(formatWrgDemoPanel(c.getState())).toContain('status: кликните A');
+    c.click(37.42, 60.29);
+    expect(formatWrgDemoPanel(c.getState())).toContain('status: кликните B');
+    c.click(37.48, 60.31);
+    expect(formatWrgDemoPanel(c.getState())).toContain('status: считаем маршрут');
+    c.applyResult({ status: 'ROUTE_FOUND', distance_m: 1200, geometry: line.geometry });
+    const text = formatWrgDemoPanel(c.getState());
+    expect(text).toContain('A: 37.420000, 60.290000');
+    expect(text).toContain('B: 37.480000, 60.310000');
+    expect(text).toContain('status: ROUTE_FOUND');
+    expect(text).toMatch(/distance: .*(1.200|1200) м/);
+    expect(text.split('\n').filter((line) => line.startsWith('A:') || line.startsWith('B:') || line.startsWith('status:') || line.startsWith('distance:'))).toHaveLength(4);
+    expect(text).not.toContain('http_error');
+    expect(text).not.toMatch(/Белое|Выгозеро|Стрелка|Ковжа/);
+  });
+
   it('shows A/B lon lat and routing status, not http_error, for WRG statuses', () => {
     const c = new WrgDemoController();
     c.setPoints({ lon: 37.42, lat: 60.29 }, { lon: 37.48, lat: 60.31 });
@@ -283,7 +320,25 @@ describe('WaterGraph Demo panel vs production', () => {
     expect(text).toContain('A: 37.420000, 60.290000');
     expect(text).toContain('B: 37.480000, 60.310000');
     expect(text).toContain('status: ROUTE_FOUND');
+    expect(text).toContain('distance:');
     expect(text).not.toContain('http_error');
+  });
+
+  it('builds a second Free Route pair after Clear without reloading', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.click(37.42, 60.29);
+    c.click(37.48, 60.31);
+    c.applyResult(line);
+    c.clear();
+    expect(c.click(37.40, 60.28).kind).toBe('set-a');
+    expect(c.click(37.50, 60.32).kind).toBe('set-b-and-route');
+    c.applyResult({ ...line, distance_m: 2400 });
+    const text = formatWrgDemoPanel(c.getState());
+    expect(text).toContain('A: 37.400000, 60.280000');
+    expect(text).toContain('B: 37.500000, 60.320000');
+    expect(text).toContain('status: ROUTE_FOUND');
+    expect(text).toContain('distance:');
   });
 
   it('shows http_error separately from routing status', () => {
