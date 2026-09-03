@@ -75,6 +75,49 @@ export function wrgDemoMapView(state: WrgDemoState): {
   };
 }
 
+export function isWrgDemoHttpErrorStatus(status: string | undefined): boolean {
+  return status === 'RUNTIME_UNAVAILABLE' || status === 'BAD_REQUEST';
+}
+
+function fmtPt(p: WrgDemoPoint | null): string {
+  if (!p) return '—';
+  return `${p.lon.toFixed(6)}, ${p.lat.toFixed(6)}`;
+}
+
+export function formatWrgDemoPanel(state: WrgDemoState): string {
+  const head = [`A: ${fmtPt(state.a)}`, `B: ${fmtPt(state.b)}`];
+  const r = state.result;
+  if (state.error || isWrgDemoHttpErrorStatus(r?.status)) {
+    const detail = state.error || String(r?.detail ?? r?.status ?? 'backend error');
+    return [...head, `http_error: ${r?.status ?? 'RUNTIME_UNAVAILABLE'}`, detail].join('\n');
+  }
+  if (!r) {
+    if (state.phase === 'pick-a') return [...head, 'Кликните A на карте.'].join('\n');
+    if (state.phase === 'pick-b') return [...head, 'Кликните B на карте.'].join('\n');
+    if (state.phase === 'routing') return [...head, 'WaterGraph считает маршрут…'].join('\n');
+    return [...head, 'Включите Demo и кликните A, затем B.'].join('\n');
+  }
+  const dist =
+    r.distance_m == null ? '—' : `${Math.round(r.distance_m).toLocaleString('ru-RU')} м`;
+  const pathType = r.path_type?.length ? r.path_type.join(' → ') : '—';
+  return [
+    ...head,
+    `status: ${r.status}`,
+    `distance: ${dist}`,
+    `path nodes/edges: ${r.path_node_count ?? '—'} / ${r.path_edge_count ?? '—'}`,
+    `E1 ↔ mesh: ${r.e1_mesh_transitions ?? '—'}  (${pathType})`,
+    `physical component IDs: ${r.component_a ?? '—'} / ${r.component_b ?? '—'}`,
+    `routing time: ${r.runtime_ms != null ? `${r.runtime_ms.toFixed(1)} ms` : '—'}`,
+  ].join('\n');
+}
+
+export function shouldBlockProductionWaypointClick(
+  wrgDemoOn: boolean,
+  suppressMapClick: boolean,
+): boolean {
+  return suppressMapClick || wrgDemoOn;
+}
+
 export type WrgDemoClickEffect =
   | { kind: 'ignored' }
   | { kind: 'set-a'; a: WrgDemoPoint }
@@ -130,9 +173,13 @@ export class WrgDemoController {
     if (!this.state.enabled) return { kind: 'ignored' };
     if (this.state.phase === 'routing') return { kind: 'ignored' };
     const pt: WrgDemoPoint = { lon, lat };
-    if (this.state.phase === 'pick-a' || this.state.a === null) {
+    if (
+      this.state.phase === 'pick-a' ||
+      this.state.phase === 'result' ||
+      this.state.a === null
+    ) {
       this.state = {
-        ...this.state,
+        enabled: true,
         a: pt,
         b: null,
         result: null,

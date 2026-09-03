@@ -6,7 +6,12 @@
 import type { Map as LeafletMap } from 'leaflet';
 import { WRG_DEMO_CASES } from './wrg-demo-cases';
 import { requestWrgDemoRoute } from './wrg-demo-client';
-import { WrgDemoController, wrgDemoMapView } from './wrg-demo-controller';
+import {
+  WrgDemoController,
+  formatWrgDemoPanel,
+  isWrgDemoHttpErrorStatus,
+  wrgDemoMapView,
+} from './wrg-demo-controller';
 import { WrgDemoLayers } from './wrg-demo-layers';
 import type { WrgDemoPoint, WrgDemoRouteResult, WrgDemoState } from './wrg-demo-types';
 
@@ -27,37 +32,6 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function fmtPt(p: WrgDemoPoint | null): string {
-  if (!p) return '—';
-  return `${p.lon.toFixed(6)}, ${p.lat.toFixed(6)}`;
-}
-
-function formatPanel(state: WrgDemoState): string {
-  const r = state.result;
-  if (state.error) {
-    return `status: error\n${state.error}`;
-  }
-  if (!r) {
-    if (state.phase === 'pick-a') return 'Кликните A на карте.';
-    if (state.phase === 'pick-b') return `A: ${fmtPt(state.a)}\nКликните B на карте.`;
-    if (state.phase === 'routing') return 'WaterGraph считает маршрут…';
-    return 'Включите Demo и кликните A, затем B.';
-  }
-  const dist =
-    r.distance_m == null ? '—' : `${Math.round(r.distance_m).toLocaleString('ru-RU')} м`;
-  const pathType = r.path_type?.length ? r.path_type.join(' → ') : '—';
-  return [
-    `status: ${r.status}`,
-    `A: ${fmtPt(state.a)}`,
-    `B: ${fmtPt(state.b)}`,
-    `distance: ${dist}`,
-    `path nodes/edges: ${r.path_node_count ?? '—'} / ${r.path_edge_count ?? '—'}`,
-    `E1 ↔ mesh: ${r.e1_mesh_transitions ?? '—'}  (${pathType})`,
-    `physical component IDs: ${r.component_a ?? '—'} / ${r.component_b ?? '—'}`,
-    `routing time: ${r.runtime_ms != null ? `${r.runtime_ms.toFixed(1)} ms` : '—'}`,
-  ].join('\n');
-}
-
 export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   const { map, setSuppressMapClick } = hooks;
   const controller = new WrgDemoController();
@@ -73,10 +47,10 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   const hint = el(
     'p',
     'wrg-demo__hint',
-    'Shadow mode. Первый клик = A, второй = B. Production маршрут не меняется.',
+    'Shadow mode. Клик A → клик B → WRG-маршрут. Clear сбрасывает пару. Production не меняется.',
   );
   const resultEl = el('pre', 'wrg-demo__result', '');
-  const clearBtn = el('button', 'wrg-demo__btn', 'Clear A/B') as HTMLButtonElement;
+  const clearBtn = el('button', 'wrg-demo__btn', 'Clear A/B · Reset') as HTMLButtonElement;
   clearBtn.type = 'button';
 
   const casesWrap = el('div', 'wrg-demo__cases');
@@ -96,7 +70,7 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
     document.body.classList.toggle('wrg-demo-on', state.enabled);
     toggle.classList.toggle('is-active', state.enabled);
     toggle.setAttribute('aria-pressed', state.enabled ? 'true' : 'false');
-    resultEl.textContent = formatPanel(state);
+    resultEl.textContent = formatWrgDemoPanel(state);
     layers.render(wrgDemoMapView(state));
     setSuppressMapClick(state.enabled);
   };
@@ -104,8 +78,8 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   const runRoute = async (a: WrgDemoPoint, b: WrgDemoPoint) => {
     resultEl.textContent = 'WaterGraph считает маршрут…';
     const res: WrgDemoRouteResult = await requestWrgDemoRoute(a, b);
-    if (res.status === 'RUNTIME_UNAVAILABLE') {
-      sync(controller.applyError(String(res.detail ?? 'runtime unavailable')));
+    if (isWrgDemoHttpErrorStatus(res.status)) {
+      sync(controller.applyError(String(res.detail ?? res.status)));
       layers.render(wrgDemoMapView(controller.getState()));
       return;
     }

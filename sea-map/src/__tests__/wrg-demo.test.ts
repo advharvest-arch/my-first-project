@@ -7,7 +7,10 @@ import { WRG_DEMO_CASES } from '../wrg-demo-cases';
 import { requestWrgDemoRoute } from '../wrg-demo-client';
 import {
   WrgDemoController,
+  formatWrgDemoPanel,
   geoJsonLineToLatLngs,
+  isWrgDemoHttpErrorStatus,
+  shouldBlockProductionWaypointClick,
   shouldDrawWrgRoute,
   wrgDemoMapView,
 } from '../wrg-demo-controller';
@@ -44,6 +47,34 @@ describe('WaterGraph Demo A/B selection', () => {
     expect(b.kind).toBe('set-b-and-route');
     expect(c.getState().phase).toBe('routing');
     expect(c.getState().b).toEqual({ lon: 37.2, lat: 60.2 });
+  });
+
+  it('arbitrary Beloye pair click A then B requests a route', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    const a = { lon: 37.42, lat: 60.29 };
+    const b = { lon: 37.48, lat: 60.31 };
+    expect(c.click(a.lon, a.lat)).toEqual({ kind: 'set-a', a });
+    const effect = c.click(b.lon, b.lat);
+    expect(effect).toEqual({ kind: 'set-b-and-route', a, b });
+    expect(c.getState().a).toEqual(a);
+    expect(c.getState().b).toEqual(b);
+    expect(c.getState().phase).toBe('routing');
+    expect(JSON.stringify(c.getState())).not.toMatch(/waypoint/i);
+  });
+
+  it('after a result, next click starts a new A instead of keeping old A', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.click(37.42, 60.29);
+    c.click(37.48, 60.31);
+    c.applyResult(line);
+    expect(c.getState().phase).toBe('result');
+    const next = c.click(37.40, 60.28);
+    expect(next.kind).toBe('set-a');
+    expect(c.getState().b).toBeNull();
+    expect(c.getState().result).toBeNull();
+    expect(wrgDemoMapView(c.getState()).routeLatLngs).toBeNull();
   });
 });
 
@@ -124,6 +155,18 @@ describe('WaterGraph Demo clear/reset', () => {
     expect(wrgDemoMapView(s).routeLatLngs).toBeNull();
   });
 
+  it('after clear, a new A→B pair can be set immediately', () => {
+    const c = new WrgDemoController();
+    c.setPoints({ lon: 1, lat: 2 }, { lon: 3, lat: 4 });
+    c.applyResult(line);
+    c.clear();
+    expect(c.click(37.42, 60.29).kind).toBe('set-a');
+    expect(c.click(37.48, 60.31).kind).toBe('set-b-and-route');
+    expect(c.getState().a).toEqual({ lon: 37.42, lat: 60.29 });
+    expect(c.getState().b).toEqual({ lon: 37.48, lat: 60.31 });
+    expect(c.getState().result).toBeNull();
+  });
+
   it('disable leaves demo off with empty view', () => {
     const c = new WrgDemoController();
     c.enable();
@@ -174,5 +217,90 @@ describe('WaterGraph Demo client adapter', () => {
     expect(res.status).toBe('RUNTIME_UNAVAILABLE');
     expect(res.geometry).toBeUndefined();
     expect(shouldDrawWrgRoute(res)).toBe(false);
+  });
+
+  it('maps HTTP 500 to RUNTIME_UNAVAILABLE, not a routing status', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ detail: 'boom' }),
+    });
+    const res = await requestWrgDemoRoute(
+      { lon: 1, lat: 2 },
+      { lon: 3, lat: 4 },
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(res.status).toBe('RUNTIME_UNAVAILABLE');
+    expect(res.detail).toContain('HTTP 500');
+    expect(isWrgDemoHttpErrorStatus(res.status)).toBe(true);
+    expect(shouldDrawWrgRoute(res)).toBe(false);
+  });
+
+  it('Kovzha → Belozersky 200 ROUTE_FOUND draws funnel coords, not a straight A→B', async () => {
+    const a = WRG_DEMO_CASES[0]!.a;
+    const b = WRG_DEMO_CASES[0]!.b;
+    const funnel = {
+      status: 'ROUTE_FOUND' as const,
+      distance_m: 31631,
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [
+          [a.lon, a.lat],
+          [37.20, 60.30],
+          [b.lon, b.lat],
+        ],
+      },
+    };
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => funnel,
+    });
+    const res = await requestWrgDemoRoute(a, b, fetchImpl as unknown as typeof fetch);
+    expect(res.status).toBe('ROUTE_FOUND');
+    const c = new WrgDemoController();
+    c.setPoints(a, b);
+    c.applyResult(res);
+    const view = wrgDemoMapView(c.getState());
+    expect(view.routeLatLngs).toEqual([
+      [a.lat, a.lon],
+      [60.3, 37.2],
+      [b.lat, b.lon],
+    ]);
+    expect(view.routeLatLngs).not.toEqual([
+      [a.lat, a.lon],
+      [b.lat, b.lon],
+    ]);
+  });
+});
+
+describe('WaterGraph Demo panel vs production', () => {
+  it('shows A/B lon lat and routing status, not http_error, for WRG statuses', () => {
+    const c = new WrgDemoController();
+    c.setPoints({ lon: 37.42, lat: 60.29 }, { lon: 37.48, lat: 60.31 });
+    c.applyResult({ status: 'ROUTE_FOUND', distance_m: 1200, geometry: line.geometry });
+    const text = formatWrgDemoPanel(c.getState());
+    expect(text).toContain('A: 37.420000, 60.290000');
+    expect(text).toContain('B: 37.480000, 60.310000');
+    expect(text).toContain('status: ROUTE_FOUND');
+    expect(text).not.toContain('http_error');
+  });
+
+  it('shows http_error separately from routing status', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.click(1, 2);
+    c.click(3, 4);
+    c.applyError('HTTP 503: down');
+    const text = formatWrgDemoPanel(c.getState());
+    expect(text).toContain('http_error:');
+    expect(text).not.toContain('status: ROUTE_FOUND');
+    expect(text).not.toContain('status: NO_WATER_CONNECTION');
+  });
+
+  it('blocks production waypoint clicks while demo is on', () => {
+    expect(shouldBlockProductionWaypointClick(true, false)).toBe(true);
+    expect(shouldBlockProductionWaypointClick(false, true)).toBe(true);
+    expect(shouldBlockProductionWaypointClick(false, false)).toBe(false);
   });
 });

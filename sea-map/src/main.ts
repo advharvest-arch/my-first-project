@@ -24,6 +24,7 @@ import {
   type ItinerarySegment,
 } from './waterways';
 import { maxWaterSnapKm } from './water-snap';
+import { shouldBlockProductionWaypointClick } from './wrg-demo-controller';
 import { RouteAsyncGeneration } from './route-async-generation';
 import { RouteRequestControl } from './route-request-control';
 import {
@@ -1620,8 +1621,14 @@ map.on('zoom', () => scheduleScaleDependentRedraw());
 map.on('zoomend', () => scheduleScaleDependentRedraw());
 
 map.on('click', (e: L.LeafletMouseEvent) => {
-  if (suppressMapClick) return;
-  if (document.body.classList.contains('wrg-demo-on')) return;
+  if (
+    shouldBlockProductionWaypointClick(
+      document.body.classList.contains('wrg-demo-on'),
+      suppressMapClick,
+    )
+  ) {
+    return;
+  }
   if (Date.now() < markerClickGuardUntil) return;
   const { lat, lng } = e.latlng;
 

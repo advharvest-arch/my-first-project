@@ -37,16 +37,21 @@ export async function requestWrgDemoRoute(
         'TODO: WaterGraph runtime is Python/PostGIS. Start sea-map with Vite so /wrg-demo/route can call wrg_route.py. No production backend was added.',
     };
   }
-  if (res.status === 404 || res.status === 503) {
-    let detail = 'WaterGraph demo runtime unavailable.';
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
     try {
-      const body = (await res.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
+      const body = (await res.json()) as { detail?: string; status?: string };
+      if (body.detail) detail = `${detail}: ${body.detail}`;
     } catch {
       /* ignore */
     }
     return { status: 'RUNTIME_UNAVAILABLE', detail };
   }
-  const body = (await res.json()) as WrgDemoRouteResult;
+  let body: WrgDemoRouteResult;
+  try {
+    body = (await res.json()) as WrgDemoRouteResult;
+  } catch {
+    return { status: 'RUNTIME_UNAVAILABLE', detail: `HTTP ${res.status}: invalid JSON` };
+  }
   return body;
 }
