@@ -170,6 +170,16 @@ export function formatWrgDemoPanel(state: WrgDemoState): string {
     return lines.join('\n');
   }
   lines.push(`status: ${r.status}`, `distance: ${formatDistanceM(r.distance_m)}`);
+  const dbg = r.endpoint_debug;
+  if (
+    r.status === 'ROUTE_FOUND' &&
+    dbg?.click_a_to_geom_start_m != null &&
+    dbg?.click_b_to_geom_end_m != null
+  ) {
+    lines.push(
+      `line ΔA=${formatDistanceM(dbg.click_a_to_geom_start_m)} ΔB=${formatDistanceM(dbg.click_b_to_geom_end_m)}`,
+    );
+  }
   if (state.segments.length > 1) {
     for (let i = 0; i < state.segments.length; i++) {
       lines.push(formatSegmentLine(i, state.segments[i]!));

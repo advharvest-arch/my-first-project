@@ -9,8 +9,13 @@ WRG-005 post-process: A* vertex path → triangle corridor → string-pull.
 Does not write wg_edges. Does not call production routing, BRouter,
 measureWaterChain, Area-Bridge, sea, river_area, or any UI.
 
-Bind rule: coordinate → covering mesh location OR E1 edge/node within
-BIND_MAX_M metres. No 3/10/25 km snap. No proximity topology edges.
+Bind rule: click stays the display/input coordinate. A click is on water when
+the meshed wrg_areas part / covering triangle ST_Intersects it in 4326 or
+lies within PIP_GEOGRAPHY_EPS_M in geography (4326 PIP jitter on complex
+rings — not a snap radius). Attach to the closest edge of the smallest
+covering triangle. Do not KNN-snap another triangle of the same area_id, and
+do not E1-steal a fairway after a mesh miss on mapped water. Holes and banks
+are ENDPOINT_NOT_ON_WATER. No 3/10/25 km snap. No proximity topology edges.
 
     python3 ingest/wrg_route.py A_LON A_LAT B_LON B_LAT
     python3 ingest/wrg_route.py --validate
@@ -34,14 +39,18 @@ from shapely import LineString, Point, from_wkb
 from shapely.ops import substring
 
 from wrg_funnel import (
+    LocalFrame,
     MeshPartIndex,
     funnel_debug,
     funnel_mesh_run,
     polyline_length_m,
 )
 
-ROUTER_VERSION = "wrg-005-1"
+ROUTER_VERSION = "wrg-005-4"
 BIND_MAX_M = 25.0  # metres — not kilometres
+# 4326 ST_Intersects/ST_Covers miss boundary points whose geography distance is 0
+# on Vygozero's 1290-hole MultiPolygon. This is PIP jitter, not a waypoint radius.
+PIP_GEOGRAPHY_EPS_M = 0.05
 EARTH_M = 6371000.0
 ZERO_T = 1e-12
 FUNNEL_COVER_MAX_M = 1.0
@@ -146,6 +155,58 @@ def haversine_m(
     return 2.0 * EARTH_M * asin(min(1.0, sqrt(h)))
 
 
+def xy_close(
+    a: tuple[float, float], b: tuple[float, float], max_m: float = 1e-3
+) -> bool:
+    return haversine_m(a, b) <= max_m
+
+
+def closest_point_on_segment(
+    p: tuple[float, float],
+    a: tuple[float, float],
+    b: tuple[float, float],
+) -> tuple[tuple[float, float], float, float]:
+    """Closest point on segment ab to p in a local metric frame. t in [0, 1]."""
+    frame = LocalFrame.from_points([p, a, b])
+    px, py = frame.to_xy(*p)
+    ax, ay = frame.to_xy(*a)
+    bx, by = frame.to_xy(*b)
+    vx, vy = bx - ax, by - ay
+    len2 = vx * vx + vy * vy
+    if len2 <= 1e-18:
+        return a, 0.0, haversine_m(p, a)
+    t = ((px - ax) * vx + (py - ay) * vy) / len2
+    t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+    qx, qy = ax + t * vx, ay + t * vy
+    q = frame.to_lonlat(qx, qy)
+    return q, t, haversine_m(p, q)
+
+
+def splice_line_endpoints(
+    line: LineString | None,
+    start_xy: tuple[float, float],
+    end_xy: tuple[float, float],
+) -> LineString:
+    """Prepend/append geometric endpoints. Does not add graph edges."""
+    coords: list[tuple[float, float]] = []
+    if line is not None and not line.is_empty:
+        coords = [(float(x), float(y)) for x, y in line.coords]
+    if not coords:
+        coords = [start_xy, end_xy]
+    else:
+        if not xy_close(coords[0], start_xy, FUNNEL_ENDPOINT_MAX_M):
+            coords = [start_xy] + coords
+        elif not xy_close(coords[0], start_xy, 1e-6):
+            coords[0] = start_xy
+        if not xy_close(coords[-1], end_xy, FUNNEL_ENDPOINT_MAX_M):
+            coords = coords + [end_xy]
+        elif not xy_close(coords[-1], end_xy, 1e-6):
+            coords[-1] = end_xy
+    if len(coords) < 2:
+        coords = [start_xy, end_xy]
+    return LineString(coords)
+
+
 def e1_node(node_id: int) -> tuple[str, int]:
     return ("e", int(node_id))
 
@@ -211,6 +272,8 @@ class Binding:
     length_m: float | None = None
     snap_lon: float | None = None
     snap_lat: float | None = None
+    edge_v0: int | None = None
+    edge_v1: int | None = None
     physical_component_id: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -227,7 +290,10 @@ class Binding:
                     "part": self.part,
                     "vertex_id": self.vertex_id,
                     "triangle_id": self.triangle_id,
+                    "edge_v0": self.edge_v0,
+                    "edge_v1": self.edge_v1,
                     "snap": [self.snap_lon, self.snap_lat],
+                    "bind": "covering_triangle_closest_edge",
                 }
             )
         else:
@@ -305,7 +371,33 @@ class RouteResult:
             "search_ms": round(self.search_ms, 1),
             "geometry_ms": round(self.geometry_ms, 1),
             "detail": self.detail,
+            "endpoint_debug": self._endpoint_debug(),
         }
+
+    def _endpoint_debug(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        coords: list[tuple[float, float]] = []
+        if self.geometry is not None and not self.geometry.is_empty:
+            coords = [(float(x), float(y)) for x, y in self.geometry.coords]
+        if coords:
+            out["geom_start"] = [coords[0][0], coords[0][1]]
+            out["geom_end"] = [coords[-1][0], coords[-1][1]]
+            if len(coords) >= 2:
+                out["first_hop_m"] = round(haversine_m(coords[0], coords[1]), 3)
+                out["last_hop_m"] = round(haversine_m(coords[-2], coords[-1]), 3)
+        if self.bind_a is not None:
+            click = (float(self.bind_a.lon), float(self.bind_a.lat))
+            out["click_a"] = [click[0], click[1]]
+            out["click_a_to_attach_m"] = round(float(self.bind_a.dist_m), 3)
+            if coords:
+                out["click_a_to_geom_start_m"] = round(haversine_m(click, coords[0]), 3)
+        if self.bind_b is not None:
+            click = (float(self.bind_b.lon), float(self.bind_b.lat))
+            out["click_b"] = [click[0], click[1]]
+            out["click_b_to_attach_m"] = round(float(self.bind_b.dist_m), 3)
+            if coords:
+                out["click_b_to_geom_end_m"] = round(haversine_m(click, coords[-1]), 3)
+        return out
 
 
 def astar(
@@ -576,6 +668,218 @@ class WrgRouter:
         row = cur.fetchone()
         return None if row is None else int(row[0])
 
+    def _binding_from_mesh_triangle(
+        self,
+        lon_f: float,
+        lat_f: float,
+        area_id: int,
+        part: int,
+        triangle_id: int,
+        v0: int,
+        v1: int,
+        v2: int,
+    ) -> Binding | None:
+        """Click stays. Graph attach is the closest existing triangle edge, not a far vertex."""
+        q = (lon_f, lat_f)
+        verts: list[tuple[int, tuple[float, float]]] = []
+        for vid in (v0, v1, v2):
+            xy = self.coords.get(mesh_node(area_id, part, vid))
+            if xy is not None:
+                verts.append((vid, xy))
+        if len(verts) < 2:
+            return None
+        best_d = float("inf")
+        best_attach: tuple[float, float] | None = None
+        best_edge: tuple[int, int] | None = None
+        n = len(verts)
+        for i in range(n):
+            for j in range(i + 1, n):
+                lo_id, lo_xy = verts[i]
+                hi_id, hi_xy = verts[j]
+                attach, _t, d = closest_point_on_segment(q, lo_xy, hi_xy)
+                edge = (lo_id, hi_id) if lo_id <= hi_id else (hi_id, lo_id)
+                if d < best_d or (
+                    abs(d - best_d) < 1e-9
+                    and (best_edge is None or edge < best_edge)
+                ):
+                    best_d = d
+                    best_attach = attach
+                    best_edge = edge
+        if best_attach is None or best_edge is None:
+            return None
+        e0, e1 = best_edge
+        e0_xy = self.coords.get(mesh_node(area_id, part, e0))
+        e1_xy = self.coords.get(mesh_node(area_id, part, e1))
+        if e0_xy is None or e1_xy is None:
+            return None
+        d0 = haversine_m(q, e0_xy)
+        d1 = haversine_m(q, e1_xy)
+        closer = e0 if d0 < d1 or (abs(d0 - d1) < 1e-9 and e0 < e1) else e1
+        cid = self._component_mesh(area_id, part, closer)
+        return Binding(
+            kind="mesh",
+            lon=lon_f,
+            lat=lat_f,
+            dist_m=best_d,
+            area_id=area_id,
+            part=part,
+            vertex_id=closer,
+            triangle_id=triangle_id,
+            snap_lon=best_attach[0],
+            snap_lat=best_attach[1],
+            edge_v0=e0,
+            edge_v1=e1,
+            physical_component_id=cid,
+        )
+
+    def _click_on_mapped_water_part(
+        self, lon_f: float, lat_f: float
+    ) -> tuple[int, int] | None:
+        """Meshed wrg_areas MultiPolygon part that contains the click in geography metres."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT a.area_id, n AS part
+            FROM water.wrg_areas a
+            JOIN LATERAL generate_series(1, GREATEST(ST_NumGeometries(a.geom), 1)) n ON TRUE
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.00002)
+              AND ST_DWithin(
+                    ST_GeometryN(a.geom, n)::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
+                  )
+              AND EXISTS (
+                    SELECT 1 FROM water.wrg_mesh_vertices v
+                    WHERE v.wrg_build_id = a.wrg_build_id
+                      AND v.area_id = a.area_id
+                      AND v.part = n
+                  )
+            ORDER BY ST_Area(ST_GeometryN(a.geom, n)), a.area_id, n
+            LIMIT 1
+            """,
+            (self.wrg_build_id, lon_f, lat_f, lon_f, lat_f, PIP_GEOGRAPHY_EPS_M),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return int(row[0]), int(row[1])
+
+    def _click_on_land_near_mapped_water(self, lon_f: float, lat_f: float) -> bool:
+        """True on a mapped-lake bank: close in metres but not on the polygon. Not a river E1 bind."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM water.wrg_areas a
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.001)
+              AND NOT ST_DWithin(
+                    a.geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
+                  )
+              AND ST_DWithin(
+                    a.geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
+                  )
+            LIMIT 1
+            """,
+            (
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+                lon_f,
+                lat_f,
+                BIND_MAX_M,
+            ),
+        )
+        return cur.fetchone() is not None
+
+    def _click_in_water_hole(self, lon_f: float, lat_f: float) -> bool:
+        """True when the click is land inside a wrg_areas ring (island / hole)."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM water.wrg_areas a
+            CROSS JOIN LATERAL ST_Dump(a.geom) d
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+              AND ST_Contains(
+                    ST_MakePolygon(ST_ExteriorRing(d.geom)),
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                  )
+              AND NOT ST_DWithin(
+                    d.geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
+                  )
+            LIMIT 1
+            """,
+            (
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+            ),
+        )
+        return cur.fetchone() is not None
+
+    def _replace_mesh_run_line(
+        self,
+        run: dict[str, Any],
+        mesh_runs: list[dict[str, Any]],
+        geom_parts: list[LineString],
+        new_line: LineString,
+    ) -> None:
+        i = int(run["part_index"])
+        n = int(run["n_parts"])
+        geom_parts[i : i + n] = [new_line]
+        delta = n - 1
+        run["n_parts"] = 1
+        if delta:
+            for other in mesh_runs:
+                if other is not run and int(other["part_index"]) > i:
+                    other["part_index"] = int(other["part_index"]) - delta
+
+    def _attach_click_endpoints(
+        self, geometry: LineString | None, ba: Binding, bb: Binding
+    ) -> LineString | None:
+        """Keep the line at the user click when the stub is CoveredBy the bind part."""
+        if geometry is None or geometry.is_empty:
+            return geometry
+        geom = geometry
+        if ba.kind == "mesh" and ba.area_id is not None and ba.part is not None:
+            click = (float(ba.lon), float(ba.lat))
+            first = (float(geom.coords[0][0]), float(geom.coords[0][1]))
+            if not xy_close(click, first, FUNNEL_ENDPOINT_MAX_M):
+                stub = LineString([click, first])
+                leftover = self._line_leftover_m(stub, int(ba.area_id), int(ba.part))
+                if leftover is not None and leftover <= FUNNEL_COVER_MAX_M:
+                    geom = LineString(
+                        [click] + [(float(x), float(y)) for x, y in geom.coords]
+                    )
+        if bb.kind == "mesh" and bb.area_id is not None and bb.part is not None:
+            click = (float(bb.lon), float(bb.lat))
+            last = (float(geom.coords[-1][0]), float(geom.coords[-1][1]))
+            if not xy_close(click, last, FUNNEL_ENDPOINT_MAX_M):
+                stub = LineString([last, click])
+                leftover = self._line_leftover_m(stub, int(bb.area_id), int(bb.part))
+                if leftover is not None and leftover <= FUNNEL_COVER_MAX_M:
+                    geom = LineString(
+                        [(float(x), float(y)) for x, y in geom.coords] + [click]
+                    )
+        return geom
+
     def bind(self, lon: float, lat: float) -> Binding | None:
         cur = self.conn.cursor()
         lon_f, lat_f = float(lon), float(lat)
@@ -584,18 +888,39 @@ class WrgRouter:
             SELECT t.area_id, t.part, t.triangle_id, t.v0, t.v1, t.v2
             FROM water.wrg_mesh_triangles t
             WHERE t.wrg_build_id = %s
-              AND ST_Covers(
-                    t.geom,
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+              AND t.geom && ST_Expand(
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.00002
                   )
-            ORDER BY t.area_id, t.part, t.triangle_id
+              AND (
+                    ST_Intersects(
+                      t.geom,
+                      ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                    )
+                    OR ST_DWithin(
+                      t.geom::geography,
+                      ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                      %s
+                    )
+                  )
+            ORDER BY ST_Area(t.geom), t.area_id, t.part, t.triangle_id
             LIMIT 1
             """,
-            (self.wrg_build_id, lon_f, lat_f),
+            (
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+            ),
         )
         tri = cur.fetchone()
         if tri is not None:
-            area_id, part, triangle_id, v0, v1, v2 = (
+            bound = self._binding_from_mesh_triangle(
+                lon_f,
+                lat_f,
                 int(tri[0]),
                 int(tri[1]),
                 int(tri[2]),
@@ -603,85 +928,20 @@ class WrgRouter:
                 int(tri[4]),
                 int(tri[5]),
             )
-            q = (lon_f, lat_f)
-            best_vid = None
-            best_xy = None
-            best_d = float("inf")
-            for vid in (v0, v1, v2):
-                xy = self.coords.get(mesh_node(area_id, part, vid))
-                if xy is None:
-                    continue
-                d = haversine_m(q, xy)
-                if d < best_d or (abs(d - best_d) < 1e-9 and (best_vid is None or vid < best_vid)):
-                    best_d, best_vid, best_xy = d, vid, xy
-            if best_vid is not None and best_xy is not None:
-                cid = self._component_mesh(area_id, part, best_vid)
-                return Binding(
-                    kind="mesh",
-                    lon=lon_f,
-                    lat=lat_f,
-                    dist_m=best_d,
-                    area_id=area_id,
-                    part=part,
-                    vertex_id=best_vid,
-                    triangle_id=triangle_id,
-                    snap_lon=best_xy[0],
-                    snap_lat=best_xy[1],
-                    physical_component_id=cid,
-                )
+            if bound is not None:
+                return bound
 
-        cur.execute(
-            """
-            SELECT a.area_id, n AS part
-            FROM water.wrg_areas a
-            JOIN LATERAL generate_series(1, GREATEST(ST_NumGeometries(a.geom), 1)) n ON TRUE
-            WHERE a.wrg_build_id = %s
-              AND a.geom && ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-              AND ST_Covers(
-                    ST_GeometryN(a.geom, n),
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-                  )
-              AND EXISTS (
-                    SELECT 1 FROM water.wrg_mesh_vertices v
-                    WHERE v.wrg_build_id = a.wrg_build_id
-                      AND v.area_id = a.area_id
-                      AND v.part = n
-                  )
-            ORDER BY a.area_id, n
-            LIMIT 1
-            """,
-            (self.wrg_build_id, lon_f, lat_f, lon_f, lat_f),
-        )
-        cover = cur.fetchone()
-        if cover is not None:
-            area_id, part = int(cover[0]), int(cover[1])
-            cur.execute(
-                """
-                SELECT vertex_id, ST_X(geom), ST_Y(geom)
-                FROM water.wrg_mesh_vertices
-                WHERE wrg_build_id = %s AND area_id = %s AND part = %s
-                ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326), vertex_id
-                LIMIT 1
-                """,
-                (self.wrg_build_id, area_id, part, lon_f, lat_f),
-            )
-            vrow = cur.fetchone()
-            if vrow is not None:
-                vid = int(vrow[0])
-                xy = (float(vrow[1]), float(vrow[2]))
-                cid = self._component_mesh(area_id, part, vid)
-                return Binding(
-                    kind="mesh",
-                    lon=lon_f,
-                    lat=lat_f,
-                    dist_m=haversine_m((lon_f, lat_f), xy),
-                    area_id=area_id,
-                    part=part,
-                    vertex_id=vid,
-                    snap_lon=xy[0],
-                    snap_lat=xy[1],
-                    physical_component_id=cid,
-                )
+        # On accepted water geometry but no covering triangle: honest miss.
+        # Do not KNN another triangle of the same area_id, and do not E1-steal.
+        if self._click_on_mapped_water_part(lon_f, lat_f) is not None:
+            return None
+
+        # Island / hole: honest ENDPOINT_NOT_ON_WATER. Do not E1-steal across land.
+        if self._click_in_water_hole(lon_f, lat_f):
+            return None
+        # Lake bank: inside 25 m of mapped water but not on it. Do not turn land into water.
+        if self._click_on_land_near_mapped_water(lon_f, lat_f):
+            return None
 
         # Strict E1 bind: metres, bbox-limited. Not the production 3/10/25 km snap.
         expand_deg = 0.001  # ~111 m latitude; still filtered by BIND_MAX_M
@@ -738,6 +998,239 @@ class WrgRouter:
                 physical_component_id=cid,
             )
         return None
+
+    def diagnose_bind(self, lon: float, lat: float) -> dict[str, Any]:
+        """Click-layer dump: PIP, MP part, mesh, E1, rejects. Does not change topology."""
+        lon_f, lat_f = float(lon), float(lat)
+        cur = self.conn.cursor()
+        rejected: list[str] = []
+        cur.execute(
+            """
+            SELECT a.area_id, a.osm_id, n AS part,
+                   ST_Covers(
+                     ST_GeometryN(a.geom, n),
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                   ) AS covers_4326,
+                   ST_Intersects(
+                     ST_GeometryN(a.geom, n),
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                   ) AS intersects_4326,
+                   ST_DWithin(
+                     ST_GeometryN(a.geom, n)::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                     %s
+                   ) AS dwithin_eps,
+                   ST_Distance(
+                     ST_GeometryN(a.geom, n)::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   ) AS dist_m,
+                   ST_NumInteriorRings(ST_GeometryN(a.geom, n)) AS holes,
+                   ST_SRID(a.geom) AS srid
+            FROM water.wrg_areas a
+            JOIN LATERAL generate_series(1, GREATEST(ST_NumGeometries(a.geom), 1)) n ON TRUE
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.002)
+              AND ST_DWithin(
+                    ST_GeometryN(a.geom, n)::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    50
+                  )
+            ORDER BY dist_m, a.area_id, n
+            LIMIT 8
+            """,
+            (
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+                lon_f,
+                lat_f,
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+            ),
+        )
+        area_keys = [
+            "area_id",
+            "osm_id",
+            "part",
+            "covers_4326",
+            "intersects_4326",
+            "dwithin_eps",
+            "dist_m",
+            "holes",
+            "srid",
+        ]
+        areas = []
+        for row in cur.fetchall():
+            item = dict(zip(area_keys, row))
+            item["dist_m"] = None if item["dist_m"] is None else round(float(item["dist_m"]), 6)
+            areas.append(item)
+            if not item["dwithin_eps"]:
+                rejected.append(
+                    f"area {item['area_id']} part {item['part']}: geography dist {item['dist_m']} m"
+                )
+        cur.execute(
+            """
+            SELECT t.area_id, t.part, t.triangle_id,
+                   ST_Area(t.geom::geography) AS area_m2,
+                   ST_Covers(t.geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) AS covers_4326,
+                   ST_Intersects(t.geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) AS intersects_4326,
+                   ST_Distance(
+                     t.geom::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   ) AS dist_m
+            FROM water.wrg_mesh_triangles t
+            WHERE t.wrg_build_id = %s
+              AND t.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.002)
+            ORDER BY t.geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326), t.triangle_id
+            LIMIT 6
+            """,
+            (
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+            ),
+        )
+        tris = []
+        for i, row in enumerate(cur.fetchall()):
+            item = {
+                "area_id": int(row[0]),
+                "part": int(row[1]),
+                "triangle_id": int(row[2]),
+                "area_m2": round(float(row[3]), 1),
+                "covers_4326": bool(row[4]),
+                "intersects_4326": bool(row[5]),
+                "dist_m": round(float(row[6]), 6),
+            }
+            tris.append(item)
+            if i > 0:
+                rejected.append(
+                    f"triangle {item['triangle_id']}: larger/farther "
+                    f"(dist {item['dist_m']} m, area {item['area_m2']} m²)"
+                )
+        water_part = self._click_on_mapped_water_part(lon_f, lat_f)
+        bound = self.bind(lon_f, lat_f)
+        nearest_vertex = None
+        if water_part is not None:
+            cur.execute(
+                """
+                SELECT vertex_id,
+                       ST_Distance(
+                         geom::geography,
+                         ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                       ) AS dist_m,
+                       ST_X(geom), ST_Y(geom)
+                FROM water.wrg_mesh_vertices
+                WHERE wrg_build_id = %s AND area_id = %s AND part = %s
+                ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                LIMIT 1
+                """,
+                (
+                    lon_f,
+                    lat_f,
+                    self.wrg_build_id,
+                    water_part[0],
+                    water_part[1],
+                    lon_f,
+                    lat_f,
+                ),
+            )
+            vrow = cur.fetchone()
+            if vrow is not None:
+                nearest_vertex = {
+                    "vertex_id": int(vrow[0]),
+                    "dist_m": round(float(vrow[1]), 3),
+                    "lon": float(vrow[2]),
+                    "lat": float(vrow[3]),
+                }
+        cur.execute(
+            """
+            SELECT e.edge_id,
+                   ST_Distance(
+                     e.geom::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   ) AS dist_m
+            FROM water.wg_edges e
+            WHERE e.build_id = 1
+              AND e.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.02)
+            ORDER BY e.geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+            LIMIT 1
+            """,
+            (lon_f, lat_f, lon_f, lat_f, lon_f, lat_f),
+        )
+        e1row = cur.fetchone()
+        e1_near = None if e1row is None else {"edge_id": int(e1row[0]), "dist_m": round(float(e1row[1]), 3)}
+        if bound is None:
+            if self._click_in_water_hole(lon_f, lat_f):
+                rejected.append("hole: island interior, no E1 steal")
+            elif water_part is not None:
+                rejected.append("on mapped water but no covering triangle; no KNN, no E1")
+            elif self._click_on_land_near_mapped_water(lon_f, lat_f):
+                rejected.append("bank: within 25 m of wrg_areas but not on polygon")
+            elif e1_near is not None and e1_near["dist_m"] > BIND_MAX_M:
+                rejected.append(f"E1 edge {e1_near['edge_id']} at {e1_near['dist_m']} m > {BIND_MAX_M} m")
+            else:
+                rejected.append("unbound: not on mapped water and no E1 within 25 m")
+        else:
+            if bound.kind == "mesh":
+                rejected.append("E1 skipped: covering mesh triangle won")
+            if nearest_vertex is not None and bound.kind == "mesh":
+                rejected.append(
+                    f"nearest vertex {nearest_vertex['vertex_id']} at "
+                    f"{nearest_vertex['dist_m']} m not used; closest triangle edge used"
+                )
+        chosen_part = None
+        if bound is not None and bound.kind == "mesh":
+            chosen_part = bound.part
+        elif water_part is not None:
+            chosen_part = water_part[1]
+        elif areas:
+            chosen_part = areas[0]["part"]
+        pip = {
+            "covers_4326": bool(areas[0]["covers_4326"]) if areas else False,
+            "intersects_4326": bool(areas[0]["intersects_4326"]) if areas else False,
+            "dwithin_eps": bool(areas[0]["dwithin_eps"]) if areas else False,
+            "geography_dist_m": None if not areas else areas[0]["dist_m"],
+            "srid": None if not areas else areas[0]["srid"],
+            "distance_units": "metres (geography) / degrees (4326 geom &&)",
+        }
+        return {
+            "click_lon": lon_f,
+            "click_lat": lat_f,
+            "wrg_area": None
+            if not areas
+            else {
+                "area_id": areas[0]["area_id"],
+                "osm_id": areas[0]["osm_id"],
+                "part": chosen_part,
+            },
+            "multipolygon_part": chosen_part,
+            "point_in_polygon": pip,
+            "area_candidates": areas,
+            "nearest_mesh_triangles": tris,
+            "nearest_mesh_vertex": nearest_vertex,
+            "nearest_e1": e1_near,
+            "bind": None if bound is None else bound.as_dict(),
+            "physical_component_id": None if bound is None else bound.physical_component_id,
+            "hole": self._click_in_water_hole(lon_f, lat_f),
+            "bank": self._click_on_land_near_mapped_water(lon_f, lat_f),
+            "rejected": rejected,
+            "router_version": ROUTER_VERSION,
+        }
 
     def _edge_substring(self, edge_id: int, t0: float, t1: float) -> LineString | None:
         wkb = self.edge_wkb.get(int(edge_id))
@@ -829,9 +1322,10 @@ class WrgRouter:
             and bb.kind == "mesh"
             and ba.area_id == bb.area_id
             and ba.part == bb.part
-            and ba.vertex_id == bb.vertex_id
+            and ba.triangle_id is not None
+            and ba.triangle_id == bb.triangle_id
         ):
-            xy = (ba.snap_lon or ba.lon, ba.snap_lat or ba.lat)
+            geom, dist = self._same_mesh_vertex_geometry(ba, bb)
             res = RouteResult(
                 status=STATUS_ROUTE_FOUND,
                 bind_a=ba,
@@ -840,16 +1334,18 @@ class WrgRouter:
                 component_b=cb,
                 path_nodes=[mesh_node(int(ba.area_id or 0), int(ba.part or 0), int(ba.vertex_id or 0))],
                 path_type=("mesh",),
-                distance_m=0.0,
-                geometry=LineString([xy, xy]),
+                mesh_hops=1 if dist > FUNNEL_ENDPOINT_MAX_M else 0,
+                distance_m=dist,
+                geometry=geom,
+                mesh_lines=[] if geom is None else [geom],
                 bind_ms=bind_ms,
                 runtime_ms=(time.perf_counter() - t_all) * 1000.0,
-                detail="same_mesh_vertex",
+                detail="same_mesh_triangle",
             )
             res.geometry_validation = self._local_geom_validation(res)
             return res
 
-        dest_xy = (float(bb.snap_lon or bb.lon), float(bb.snap_lat or bb.lat))
+        dest_xy = (float(bb.lon), float(bb.lat))
 
         def heuristic(node: Hashable) -> float:
             if node == GOAL or node == START:
@@ -874,8 +1370,15 @@ class WrgRouter:
             goal_rev.append((node, via, cost))
 
         if ba.kind == "mesh":
-            n = mesh_node(int(ba.area_id or 0), int(ba.part or 0), int(ba.vertex_id or 0))
-            link_start(n, 0.0, Via("start_stub"))
+            vids = {int(ba.vertex_id or 0)}
+            if ba.edge_v0 is not None:
+                vids.add(int(ba.edge_v0))
+            if ba.edge_v1 is not None:
+                vids.add(int(ba.edge_v1))
+            for vid in sorted(vids):
+                n = mesh_node(int(ba.area_id or 0), int(ba.part or 0), vid)
+                if n in self.adj or n in self.coords:
+                    link_start(n, 0.0, Via("start_stub"))
         else:
             L = float(ba.length_m or 0.0)
             t = float(ba.t or 0.0)
@@ -884,8 +1387,15 @@ class WrgRouter:
             link_start(e1_node(int(ba.to_node_id or 0)), (1.0 - t) * L, Via("start_stub", eid, t, 1.0))
 
         if bb.kind == "mesh":
-            n = mesh_node(int(bb.area_id or 0), int(bb.part or 0), int(bb.vertex_id or 0))
-            link_goal(n, 0.0, Via("goal_stub"))
+            vids = {int(bb.vertex_id or 0)}
+            if bb.edge_v0 is not None:
+                vids.add(int(bb.edge_v0))
+            if bb.edge_v1 is not None:
+                vids.add(int(bb.edge_v1))
+            for vid in sorted(vids):
+                n = mesh_node(int(bb.area_id or 0), int(bb.part or 0), vid)
+                if n in self.adj or n in self.coords:
+                    link_goal(n, 0.0, Via("goal_stub"))
         else:
             L = float(bb.length_m or 0.0)
             t = float(bb.t or 0.0)
@@ -1055,7 +1565,7 @@ class WrgRouter:
                 mesh_lines = vertex_mesh_lines
 
         geometry_ms = (time.perf_counter() - t_geom) * 1000.0
-        geometry = concat_lines(geom_parts)
+        geometry = self._attach_click_endpoints(concat_lines(geom_parts), ba, bb)
         path_type = compress_layers(nodes)
         if funnel_meta.get("geometry_source") == "funnel":
             funnel_mesh = 0.0
@@ -1131,23 +1641,84 @@ class WrgRouter:
         if line is None or line.is_empty:
             return None
         cur = self.conn.cursor()
+        wkb = bytes(line.wkb)
+        # ST_Covers first: ST_Difference on axis-aligned 4326 chords can
+        # return the whole line even when the polygon covers it.
+        cur.execute(
+            """
+            SELECT
+              CASE
+                WHEN ST_Covers(
+                       ST_GeometryN(a.geom, %s),
+                       ST_SetSRID(ST_GeomFromWKB(%s), 4326)
+                     )
+                THEN 0::double precision
+                ELSE ST_Length(
+                       ST_Difference(
+                         ST_SetSRID(ST_GeomFromWKB(%s), 4326),
+                         ST_GeometryN(a.geom, %s)
+                       )::geography
+                     )
+              END AS leftover_m
+            FROM water.wrg_areas a
+            WHERE a.wrg_build_id = %s AND a.area_id = %s
+            """,
+            (
+                int(part),
+                wkb,
+                wkb,
+                int(part),
+                self.wrg_build_id,
+                int(area_id),
+            ),
+        )
+        row = cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        leftover = float(row[0])
+        if leftover <= FUNNEL_COVER_MAX_M:
+            return leftover
+        # 4326 PIP jitter: a geography-on-water shoreline chord can sit just
+        # outside ST_Covers. Buffer only a local clip, not the whole lake.
         cur.execute(
             """
             SELECT ST_Length(
                      ST_Difference(
                        ST_SetSRID(ST_GeomFromWKB(%s), 4326),
-                       ST_GeometryN(a.geom, %s)
+                       ST_Buffer(
+                         ST_Intersection(
+                           ST_GeometryN(a.geom, %s),
+                           ST_Expand(
+                             ST_SetSRID(ST_GeomFromWKB(%s), 4326),
+                             0.001
+                           )
+                         )::geography,
+                         %s
+                       )::geometry
                      )::geography
-                   ) AS leftover_m
+                   )
             FROM water.wrg_areas a
             WHERE a.wrg_build_id = %s AND a.area_id = %s
+              AND ST_Intersects(
+                    ST_GeometryN(a.geom, %s),
+                    ST_Expand(ST_SetSRID(ST_GeomFromWKB(%s), 4326), 0.001)
+                  )
             """,
-            (bytes(line.wkb), int(part), self.wrg_build_id, int(area_id)),
+            (
+                wkb,
+                int(part),
+                wkb,
+                PIP_GEOGRAPHY_EPS_M,
+                self.wrg_build_id,
+                int(area_id),
+                int(part),
+                wkb,
+            ),
         )
         row = cur.fetchone()
-        if row is None or row[0] is None:
-            return None
-        return float(row[0])
+        if row is not None and row[0] is not None and float(row[0]) <= FUNNEL_COVER_MAX_M:
+            return 0.0
+        return leftover
 
     def _line_ok(
         self,
@@ -1214,6 +1785,35 @@ class WrgRouter:
             end_tid = bb.triangle_id
         return start_xy, end_xy, start_tid, end_tid
 
+    def _same_mesh_vertex_geometry(
+        self, ba: Binding, bb: Binding
+    ) -> tuple[LineString, float]:
+        """Two clicks that bind to the same vertex: keep the clicks, never collapse to the node."""
+        start = (float(ba.lon), float(ba.lat))
+        end = (float(bb.lon), float(bb.lat))
+        snap = (
+            float(ba.snap_lon if ba.snap_lon is not None else ba.lon),
+            float(ba.snap_lat if ba.snap_lat is not None else ba.lat),
+        )
+        area_id, part = int(ba.area_id or 0), int(ba.part or 0)
+        if ba.triangle_id is not None and ba.triangle_id == bb.triangle_id:
+            # CDT triangle is water; lon/lat chord stays in the triangle if both
+            # clicks were ST_Covers'd. Do not collapse to the shared vertex.
+            return LineString([start, end]), haversine_m(start, end)
+        direct = LineString([start, end])
+        ok_direct, _ = self._line_ok(direct, area_id, part, start, end)
+        if ok_direct:
+            return direct, haversine_m(start, end)
+        via_coords = [start]
+        if not xy_close(start, snap, FUNNEL_ENDPOINT_MAX_M):
+            via_coords.append(snap)
+        if not xy_close(via_coords[-1], end, FUNNEL_ENDPOINT_MAX_M):
+            via_coords.append(end)
+        if len(via_coords) < 2:
+            via_coords = [start, end]
+        via = LineString(via_coords)
+        return via, polyline_length_m([(float(x), float(y)) for x, y in via.coords])
+
     def _apply_funnel(
         self,
         ba: Binding,
@@ -1268,28 +1868,39 @@ class WrgRouter:
                     run["end_xy"],
                 )
             run_info["vertex_validation"] = vertex_val
-            if funnel_ok and funnel_line is not None and vertex_line is not None:
+            if funnel_ok and funnel_line is not None:
                 flen = polyline_length_m(
                     [(float(x), float(y)) for x, y in funnel_line.coords]
                 )
-                vlen = polyline_length_m(
-                    [(float(x), float(y)) for x, y in vertex_line.coords]
-                )
-                if flen > vlen + FUNNEL_COVER_MAX_M:
+                # Compare against the vertex path with the same click endpoints.
+                # The raw A* polyline omits click→vertex stubs, so a correct
+                # click-to-click funnel was previously rejected as "longer".
+                comparable = pulled.vertex_path_fallback or [
+                    (float(x), float(y)) for x, y in (vertex_line.coords if vertex_line else [])
+                ]
+                vlen = polyline_length_m(comparable) if comparable else 0.0
+                run_info["vertex_path_with_endpoints_m"] = round(vlen, 3)
+                if vlen > 0.0 and flen > vlen + FUNNEL_COVER_MAX_M:
                     funnel_ok = False
                     run_info["funnel_rejected"] = "longer_than_vertex_path"
             if funnel_ok and funnel_line is not None:
-                geom_parts[i : i + n] = [funnel_line]
-                delta = n - 1
-                run["n_parts"] = 1
-                if delta:
-                    for other in mesh_runs:
-                        if other is not run and int(other["part_index"]) > i:
-                            other["part_index"] = int(other["part_index"]) - delta
+                self._replace_mesh_run_line(run, mesh_runs, geom_parts, funnel_line)
                 any_applied = True
                 extra["geometry_source"] = "funnel"
                 run_info["used"] = "funnel"
-            elif vertex_ok:
+            elif vertex_ok and vertex_line is not None:
+                stubbed = splice_line_endpoints(vertex_line, start_xy, end_xy)
+                ok_s, val_s = self._line_ok(
+                    stubbed,
+                    int(run["area_id"]),
+                    int(run["part"]),
+                    start_xy,
+                    end_xy,
+                )
+                run_info["endpoint_splice_validation"] = val_s
+                self._replace_mesh_run_line(
+                    run, mesh_runs, geom_parts, stubbed if ok_s else vertex_line
+                )
                 run_info["used"] = "mesh_vertex_fallback"
                 extra.setdefault("geometry_source", "mesh_vertex_fallback")
             else:
@@ -1364,16 +1975,31 @@ class WrgRouter:
             return out
         cur.execute(
             """
-            SELECT ST_Length(
-                     ST_Difference(
-                       ST_SetSRID(ST_GeomFromWKB(%s), 4326),
-                       ST_GeometryN(a.geom, %s)
-                     )::geography
-                   ) AS leftover_m
+            SELECT
+              CASE
+                WHEN ST_Covers(
+                       ST_GeometryN(a.geom, %s),
+                       ST_SetSRID(ST_GeomFromWKB(%s), 4326)
+                     )
+                THEN 0::double precision
+                ELSE ST_Length(
+                       ST_Difference(
+                         ST_SetSRID(ST_GeomFromWKB(%s), 4326),
+                         ST_GeometryN(a.geom, %s)
+                       )::geography
+                     )
+              END AS leftover_m
             FROM water.wrg_areas a
             WHERE a.wrg_build_id = %s AND a.area_id = %s
             """,
-            (bytes(wkb), int(part), self.wrg_build_id, int(area_id)),
+            (
+                int(part),
+                bytes(wkb),
+                bytes(wkb),
+                int(part),
+                self.wrg_build_id,
+                int(area_id),
+            ),
         )
         row = cur.fetchone()
         leftover = None if row is None or row[0] is None else float(row[0])
@@ -1530,6 +2156,13 @@ def main() -> int:
     parser.add_argument("coords", nargs="*", type=float, help="A_LON A_LAT B_LON B_LAT")
     parser.add_argument("--validate", action="store_true", help="run the 5 WRG-004 cases")
     parser.add_argument(
+        "--diagnose",
+        nargs=2,
+        type=float,
+        metavar=("LON", "LAT"),
+        help="print bind diagnosis JSON for one click (no topology change)",
+    )
+    parser.add_argument(
         "--stdio-json",
         action="store_true",
         help="demo adapter: JSON lines on stdin/stdout (does not change routing)",
@@ -1539,8 +2172,13 @@ def main() -> int:
     parser.add_argument("--json-out", type=Path, default=None)
     parser.add_argument("--no-geometry-coords", action="store_true")
     args = parser.parse_args()
-    if not args.validate and not args.stdio_json and len(args.coords) != 4:
-        parser.error("need A_LON A_LAT B_LON B_LAT, or --validate / --stdio-json")
+    if (
+        not args.validate
+        and not args.stdio_json
+        and args.diagnose is None
+        and len(args.coords) != 4
+    ):
+        parser.error("need A_LON A_LAT B_LON B_LAT, or --validate / --stdio-json / --diagnose")
 
     import psycopg2
 
@@ -1557,6 +2195,14 @@ def main() -> int:
             f"portals={router.stats['portals']}",
             file=sys.stderr,
         )
+        if args.diagnose is not None:
+            dump = router.diagnose_bind(args.diagnose[0], args.diagnose[1])
+            text = json.dumps(dump, indent=2, ensure_ascii=False)
+            print(text)
+            if args.json_out:
+                args.json_out.parent.mkdir(parents=True, exist_ok=True)
+                args.json_out.write_text(text + "\n", encoding="utf-8")
+            return 0 if dump.get("bind") is not None else 2
         if args.validate:
             report = run_validation(router)
             text = json.dumps(report, indent=2, ensure_ascii=False)
