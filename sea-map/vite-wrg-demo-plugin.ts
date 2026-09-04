@@ -151,6 +151,17 @@ function attach(server: {
   httpServer?: { on: (event: string, listener: () => void) => void } | null;
 }, bridge: WrgStdioBridge): void {
   server.middlewares.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && origin.length > 0) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
+      res.setHeader('Vary', 'Origin');
+    }
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
     const url = req.url ?? '';
     if (!url.startsWith('/wrg-demo/')) {
       next();

@@ -78,10 +78,7 @@
     </style>
   </head>
   <body>
-    <div id="boot-fallback" role="alert">
-      Не удалось загрузить AquaRoute в этом браузере. Обновите браузер или откройте страницу в
-      Chrome, Firefox, Safari, Edge или Яндекс&nbsp;Браузере.
-    </div>
+    <div id="boot-fallback" role="alert"></div>
 
     <div id="app" data-booting="1">
       <div id="map" aria-label="Карта мира"></div>
@@ -241,44 +238,52 @@
     </noscript>
 
     <script>
-      // Slow networks: wait longer before declaring the browser unsupported.
-      // Clear the message if the map mounts later.
+      // Slow tunnels / CORS: never hide #app and never call a slow load
+      // an "unsupported browser". Keep waiting for Leaflet to mount.
       (function () {
-        var shown = false;
+        var fallback = document.getElementById('boot-fallback');
+        var app = document.getElementById('app');
         function mapReady() {
           var map = document.getElementById('map');
           return !!(map && map.classList.contains('leaflet-container'));
         }
-        function showFallback() {
-          var fallback = document.getElementById('boot-fallback');
-          var app = document.getElementById('app');
-          if (!fallback || mapReady()) return;
-          shown = true;
-          fallback.setAttribute('data-show', '1');
-          if (app) app.style.display = 'none';
-        }
         function hideFallback() {
-          var fallback = document.getElementById('boot-fallback');
-          var app = document.getElementById('app');
           if (fallback) fallback.removeAttribute('data-show');
           if (app) {
             app.style.display = '';
             app.removeAttribute('data-booting');
           }
-          shown = false;
         }
-        var started = Date.now();
+        function showHint(text) {
+          if (!fallback || mapReady()) return;
+          fallback.textContent = text;
+          fallback.setAttribute('data-show', '1');
+        }
         var timer = window.setInterval(function () {
           if (mapReady()) {
             hideFallback();
             window.clearInterval(timer);
-            return;
           }
-          if (!shown && Date.now() - started > 20000) showFallback();
-        }, 400);
+        }, 300);
         window.setTimeout(function () {
-          if (!mapReady()) showFallback();
+          if (!mapReady()) {
+            showHint(
+              'Карта ещё загружается. На медленном соединении это может занять минуту — не закрывайте вкладку.',
+            );
+          }
         }, 20000);
+        window.addEventListener(
+          'error',
+          function (ev) {
+            var t = ev.target;
+            if (!t || t === window) return;
+            var tag = t.tagName;
+            if (tag === 'SCRIPT' || tag === 'LINK') {
+              showHint('Не удалось загрузить файлы AquaRoute. Проверьте сеть и обновите страницу.');
+            }
+          },
+          true,
+        );
       })();
     </script>
     <script type="module" src="/src/map-boot.ts"></script>
