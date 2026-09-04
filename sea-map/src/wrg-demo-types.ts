@@ -40,14 +40,37 @@ export type WrgDemoRouteResult = {
   detail?: string | null;
 };
 
-export type WrgDemoPhase = 'off' | 'pick-a' | 'pick-b' | 'routing' | 'result';
+export type WrgDemoPhase =
+  | 'off'
+  | 'pick-a'
+  | 'pick-b'
+  | 'pick-via'
+  | 'pick-finish'
+  | 'routing'
+  | 'result';
+
+export type WrgDemoSegment = {
+  from: WrgDemoPoint;
+  to: WrgDemoPoint;
+  result: WrgDemoRouteResult;
+};
+
+export type WrgDemoChainResult = {
+  status: WrgDemoStatus;
+  distance_m: number | null;
+  segments: WrgDemoSegment[];
+};
 
 export type WrgDemoState = {
   enabled: boolean;
   phase: WrgDemoPhase;
+  /** When true, extra clicks are C1, C2… until Finish. Default A→B is unchanged. */
+  viaMode: boolean;
   a: WrgDemoPoint | null;
+  vias: WrgDemoPoint[];
   b: WrgDemoPoint | null;
   result: WrgDemoRouteResult | null;
+  segments: WrgDemoSegment[];
   error: string | null;
 };
 

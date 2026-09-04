@@ -14,9 +14,11 @@ export const WRG_FREE_ROUTE_VIEW = {
 
 export const WRG_FREE_ROUTE_UI = {
   title: 'Free Route',
-  hint: 'Первый клик = A, второй = B. Маршрут строится сам. Clear — новая пара.',
+  hint: 'Первый клик = Start (A), второй = Finish (B). «Промежуточные точки» — C1, C2… затем Finish. Clear — новый тест.',
   examplesLabel: 'Tests / Examples',
   examplesOpenByDefault: false,
+  viaToggleLabel: 'Промежуточные точки',
+  finishLabel: 'Finish',
 } as const;
 
 export const WRG_DEMO_CASES: WrgDemoCase[] = [

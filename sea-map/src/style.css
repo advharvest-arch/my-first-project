@@ -1111,7 +1111,8 @@ body {
 .wrg-demo__toggle,
 .wrg-demo__body,
 .wrg-demo__btn,
-.wrg-demo__examples {
+.wrg-demo__examples,
+.wrg-demo__via-toggle {
   pointer-events: auto;
 }
 .wrg-demo__toggle {
@@ -1161,10 +1162,34 @@ body {
   opacity: 0.92;
 }
 .wrg-demo__btn--clear {
-  width: 100%;
+  flex: 1;
   text-align: center;
-  margin-bottom: 0.55rem;
   border-color: rgba(34, 211, 238, 0.35);
+}
+.wrg-demo__via-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.45rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+.wrg-demo__actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+}
+.wrg-demo__btn--finish {
+  flex: 1;
+  text-align: center;
+}
+.wrg-demo__btn--finish:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.wrg-demo__btn--finish.is-armed {
+  background: rgba(34, 211, 238, 0.25);
+  border-color: #22d3ee;
 }
 .wrg-demo__examples {
   margin: 0;

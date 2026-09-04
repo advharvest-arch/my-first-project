@@ -44,7 +44,9 @@ export class WrgDemoLayers {
   render(opts: {
     a: WrgDemoPoint | null;
     b: WrgDemoPoint | null;
+    vias?: WrgDemoPoint[];
     routeLatLngs: Array<[number, number]> | null;
+    routeSegments?: Array<Array<[number, number]>>;
   }): void {
     this.clear();
     if (opts.a) {
@@ -54,12 +56,26 @@ export class WrgDemoLayers {
         keyboard: false,
       }).addTo(this.group);
     }
+    (opts.vias ?? []).forEach((via, i) => {
+      L.marker([via.lat, via.lon], {
+        icon: markerIcon(String(i + 1), '#67e8f9'),
+        interactive: false,
+        keyboard: false,
+      }).addTo(this.group);
+    });
     if (opts.b) {
       L.marker([opts.b.lat, opts.b.lon], {
         icon: markerIcon('B', '#0284c7'),
         interactive: false,
         keyboard: false,
       }).addTo(this.group);
+    }
+    const segs = (opts.routeSegments ?? []).filter((line) => line.length >= 2);
+    if (segs.length > 0) {
+      for (const line of segs) {
+        L.polyline(line, ROUTE_STYLE).addTo(this.group);
+      }
+      return;
     }
     if (opts.routeLatLngs && opts.routeLatLngs.length >= 2) {
       L.polyline(opts.routeLatLngs, ROUTE_STYLE).addTo(this.group);

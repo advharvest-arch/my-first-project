@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { WRG_DEMO_CASES, WRG_FREE_ROUTE_UI, WRG_FREE_ROUTE_VIEW } from '../wrg-demo-cases';
-import { requestWrgDemoRoute } from '../wrg-demo-client';
+import { requestWrgDemoChain, requestWrgDemoRoute } from '../wrg-demo-client';
 import {
   WrgDemoController,
   formatWrgDemoPanel,
@@ -151,6 +151,8 @@ describe('WaterGraph Demo clear/reset', () => {
     expect(s.enabled).toBe(true);
     expect(s.a).toBeNull();
     expect(s.b).toBeNull();
+    expect(s.vias).toEqual([]);
+    expect(s.segments).toEqual([]);
     expect(s.result).toBeNull();
     expect(s.phase).toBe('pick-a');
     expect(wrgDemoMapView(s).routeLatLngs).toBeNull();
@@ -177,7 +179,9 @@ describe('WaterGraph Demo clear/reset', () => {
     expect(wrgDemoMapView(c.getState())).toEqual({
       a: null,
       b: null,
+      vias: [],
       routeLatLngs: null,
+      routeSegments: [],
     });
   });
 });
@@ -357,5 +361,132 @@ describe('WaterGraph Demo panel vs production', () => {
     expect(shouldBlockProductionWaypointClick(true, false)).toBe(true);
     expect(shouldBlockProductionWaypointClick(false, true)).toBe(true);
     expect(shouldBlockProductionWaypointClick(false, false)).toBe(false);
+  });
+});
+
+describe('Free Route via points', () => {
+  it('default mode is still click A then B without vias', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    expect(c.isViaMode()).toBe(false);
+    c.click(37.42, 60.29);
+    expect(c.click(37.48, 60.31).kind).toBe('set-b-and-route');
+    expect(c.getState().vias).toEqual([]);
+  });
+
+  it('via mode: Start, C1, Finish click routes A→C1→B', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.setViaMode(true);
+    expect(c.click(37.40, 60.28).kind).toBe('set-a');
+    expect(c.getState().phase).toBe('pick-via');
+    expect(c.click(37.44, 60.29).kind).toBe('add-via');
+    expect(c.getState().vias).toEqual([{ lon: 37.44, lat: 60.29 }]);
+    c.armFinish();
+    expect(c.getState().phase).toBe('pick-finish');
+    const fin = c.click(37.50, 60.32);
+    expect(fin.kind).toBe('set-finish-and-route');
+    if (fin.kind !== 'set-finish-and-route') return;
+    expect(fin.points).toEqual([
+      { lon: 37.40, lat: 60.28 },
+      { lon: 37.44, lat: 60.29 },
+      { lon: 37.50, lat: 60.32 },
+    ]);
+  });
+
+  it('via mode: several intermediate points before Finish', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.setViaMode(true);
+    c.click(1, 1);
+    c.click(2, 2);
+    c.click(3, 3);
+    c.armFinish();
+    const fin = c.click(4, 4);
+    expect(fin.kind).toBe('set-finish-and-route');
+    if (fin.kind !== 'set-finish-and-route') return;
+    expect(fin.points).toHaveLength(4);
+    expect(c.getState().vias).toHaveLength(2);
+  });
+
+  it('failed chain leg is omitted from drawable geometry', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.setViaMode(true);
+    c.click(37.4, 60.28);
+    c.click(37.44, 60.29);
+    c.armFinish();
+    c.click(30.23, 59.94);
+    c.applyChain({
+      status: 'NO_WATER_CONNECTION',
+      distance_m: 1000,
+      segments: [
+        {
+          from: { lon: 37.4, lat: 60.28 },
+          to: { lon: 37.44, lat: 60.29 },
+          result: line,
+        },
+        {
+          from: { lon: 37.44, lat: 60.29 },
+          to: { lon: 30.23, lat: 59.94 },
+          result: { status: 'NO_WATER_CONNECTION', geometry: line.geometry },
+        },
+      ],
+    });
+    const view = wrgDemoMapView(c.getState());
+    expect(view.routeSegments).toHaveLength(1);
+    expect(view.routeLatLngs).toBeNull();
+    expect(formatWrgDemoPanel(c.getState())).toContain('status: NO_WATER_CONNECTION');
+    expect(formatWrgDemoPanel(c.getState())).toContain('seg 2: NO_WATER_CONNECTION');
+  });
+
+  it('Clear drops vias and lets a new chain start immediately', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    c.setViaMode(true);
+    c.click(1, 1);
+    c.click(2, 2);
+    c.armFinish();
+    c.click(3, 3);
+    c.applyChain({ status: 'ROUTE_FOUND', distance_m: 10, segments: [] });
+    c.clear();
+    expect(c.getState().vias).toEqual([]);
+    expect(c.getState().a).toBeNull();
+    expect(c.isViaMode()).toBe(true);
+    expect(c.click(4, 4).kind).toBe('set-a');
+    expect(c.click(5, 5).kind).toBe('add-via');
+  });
+});
+
+describe('WaterGraph Demo chain client', () => {
+  it('calls existing /wrg-demo/route once per consecutive pair', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'ROUTE_FOUND',
+        distance_m: 100,
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [1, 2],
+            [3, 4],
+          ],
+        },
+      }),
+    }));
+    const chain = await requestWrgDemoChain(
+      [
+        { lon: 1, lat: 2 },
+        { lon: 3, lat: 4 },
+        { lon: 5, lat: 6 },
+      ],
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('/wrg-demo/route');
+    expect(chain.status).toBe('ROUTE_FOUND');
+    expect(chain.segments).toHaveLength(2);
+    expect(chain.distance_m).toBe(200);
   });
 });
