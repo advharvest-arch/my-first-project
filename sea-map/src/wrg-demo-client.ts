@@ -6,7 +6,12 @@
  * Do not invent a production HTTP API here.
  */
 
-import type { WrgDemoPoint, WrgDemoRouteResult } from './wrg-demo-types';
+import type {
+  WrgDemoChainResult,
+  WrgDemoPoint,
+  WrgDemoRouteResult,
+  WrgDemoSegment,
+} from './wrg-demo-types';
 
 const ROUTE_PATH = '/wrg-demo/route';
 
@@ -54,4 +59,42 @@ export async function requestWrgDemoRoute(
     return { status: 'RUNTIME_UNAVAILABLE', detail: `HTTP ${res.status}: invalid JSON` };
   }
   return body;
+}
+
+function overallChainStatus(segments: WrgDemoSegment[]): WrgDemoRouteResult['status'] {
+  for (const seg of segments) {
+    if (seg.result.status !== 'ROUTE_FOUND') return seg.result.status;
+  }
+  return 'ROUTE_FOUND';
+}
+
+/**
+ * Sequential A→C1→…→B using the existing `/wrg-demo/route` A→B call.
+ * Not a new backend. Failed legs keep their WRG status and have no drawable line.
+ */
+export async function requestWrgDemoChain(
+  points: WrgDemoPoint[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<WrgDemoChainResult> {
+  if (points.length < 2) {
+    return { status: 'BAD_REQUEST', distance_m: null, segments: [] };
+  }
+  const segments: WrgDemoSegment[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const from = points[i]!;
+    const to = points[i + 1]!;
+    const result = await requestWrgDemoRoute(from, to, fetchImpl);
+    segments.push({ from, to, result });
+  }
+  const status = overallChainStatus(segments);
+  let foundSum = 0;
+  let anyFound = false;
+  for (const seg of segments) {
+    if (seg.result.status === 'ROUTE_FOUND' && seg.result.distance_m != null) {
+      foundSum += seg.result.distance_m;
+      anyFound = true;
+    }
+  }
+  const distance_m = status === 'ROUTE_FOUND' ? foundSum : anyFound ? foundSum : null;
+  return { status, distance_m, segments };
 }

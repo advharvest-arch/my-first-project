@@ -1,12 +1,13 @@
 /**
  * WaterGraph Demo / Shadow UI on the existing Leaflet map.
- * Free Route is the primary mode. Five validation cases live under Tests / Examples.
+ * Free Route is the primary mode. Vias use sequential /wrg-demo/route legs.
+ * Five validation cases live under Tests / Examples.
  * Does not call measureWaterChain, BRouter, or production drawLayer.
  */
 
 import type { Map as LeafletMap } from 'leaflet';
 import { WRG_DEMO_CASES, WRG_FREE_ROUTE_UI, WRG_FREE_ROUTE_VIEW } from './wrg-demo-cases';
-import { requestWrgDemoRoute } from './wrg-demo-client';
+import { requestWrgDemoChain, requestWrgDemoRoute } from './wrg-demo-client';
 import {
   WrgDemoController,
   formatWrgDemoPanel,
@@ -50,8 +51,23 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   const title = el('h2', 'wrg-demo__title', WRG_FREE_ROUTE_UI.title);
   const hint = el('p', 'wrg-demo__hint', WRG_FREE_ROUTE_UI.hint);
   const resultEl = el('pre', 'wrg-demo__result', '');
+
+  const viaRow = el('label', 'wrg-demo__via-toggle');
+  const viaCheck = el('input') as HTMLInputElement;
+  viaCheck.type = 'checkbox';
+  viaCheck.checked = false;
+  viaRow.append(viaCheck, document.createTextNode(` ${WRG_FREE_ROUTE_UI.viaToggleLabel}`));
+
+  const actions = el('div', 'wrg-demo__actions');
+  const finishBtn = el(
+    'button',
+    'wrg-demo__btn wrg-demo__btn--finish',
+    WRG_FREE_ROUTE_UI.finishLabel,
+  ) as HTMLButtonElement;
+  finishBtn.type = 'button';
   const clearBtn = el('button', 'wrg-demo__btn wrg-demo__btn--clear', 'Clear') as HTMLButtonElement;
   clearBtn.type = 'button';
+  actions.append(finishBtn, clearBtn);
 
   const examples = el('details', 'wrg-demo__examples');
   examples.open = WRG_FREE_ROUTE_UI.examplesOpenByDefault;
@@ -65,33 +81,18 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
   }
   examples.append(summary, casesWrap);
 
-  body.append(title, hint, resultEl, clearBtn, examples);
+  body.append(title, hint, resultEl, viaRow, actions, examples);
   root.append(toggle, body);
   document.body.append(root);
 
-  const sync = (state: WrgDemoState) => {
-    root.classList.toggle('is-on', state.enabled);
-    document.body.classList.toggle('wrg-demo-on', state.enabled);
-    toggle.classList.toggle('is-active', state.enabled);
-    toggle.setAttribute('aria-pressed', state.enabled ? 'true' : 'false');
-    resultEl.textContent = formatWrgDemoPanel(state);
-    layers.render(wrgDemoMapView(state));
-    setSuppressMapClick(state.enabled);
-  };
-
-  const runRoute = async (a: WrgDemoPoint, b: WrgDemoPoint) => {
-    resultEl.textContent = formatWrgDemoPanel(controller.getState());
-    const res: WrgDemoRouteResult = await requestWrgDemoRoute(a, b);
-    if (isWrgDemoHttpErrorStatus(res.status)) {
-      sync(controller.applyError(String(res.detail ?? res.status)));
-      layers.render(wrgDemoMapView(controller.getState()));
-      return;
-    }
-    sync(controller.applyResult(res));
-    const view = wrgDemoMapView(controller.getState());
-    if (view.routeLatLngs && view.routeLatLngs.length >= 2) {
+  const fitRoute = (state: WrgDemoState, a: WrgDemoPoint, b: WrgDemoPoint) => {
+    const view = wrgDemoMapView(state);
+    const all = view.routeSegments.flat();
+    if (all.length >= 2) {
+      map.fitBounds(all, { padding: [48, 48], maxZoom: 13 });
+    } else if (view.routeLatLngs && view.routeLatLngs.length >= 2) {
       map.fitBounds(view.routeLatLngs, { padding: [48, 48], maxZoom: 13 });
-    } else if (a && b) {
+    } else {
       map.fitBounds(
         [
           [a.lat, a.lon],
@@ -102,9 +103,59 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
     }
   };
 
+  const sync = (state: WrgDemoState) => {
+    root.classList.toggle('is-on', state.enabled);
+    document.body.classList.toggle('wrg-demo-on', state.enabled);
+    toggle.classList.toggle('is-active', state.enabled);
+    toggle.setAttribute('aria-pressed', state.enabled ? 'true' : 'false');
+    viaCheck.checked = state.viaMode;
+    const canArmFinish =
+      state.enabled &&
+      state.viaMode &&
+      !!state.a &&
+      !state.b &&
+      state.phase !== 'routing' &&
+      state.phase !== 'result';
+    finishBtn.disabled = !canArmFinish;
+    finishBtn.classList.toggle('is-armed', state.phase === 'pick-finish');
+    resultEl.textContent = formatWrgDemoPanel(state);
+    layers.render(wrgDemoMapView(state));
+    setSuppressMapClick(state.enabled);
+  };
+
+  const runRoute = async (a: WrgDemoPoint, b: WrgDemoPoint) => {
+    resultEl.textContent = formatWrgDemoPanel(controller.getState());
+    const res: WrgDemoRouteResult = await requestWrgDemoRoute(a, b);
+    if (isWrgDemoHttpErrorStatus(res.status)) {
+      sync(controller.applyError(String(res.detail ?? res.status)));
+      return;
+    }
+    const state = controller.applyResult(res);
+    sync(state);
+    fitRoute(state, a, b);
+  };
+
+  const runChain = async (points: WrgDemoPoint[]) => {
+    resultEl.textContent = formatWrgDemoPanel(controller.getState());
+    const chain = await requestWrgDemoChain(points);
+    const state = controller.applyChain(chain);
+    sync(state);
+    const first = points[0]!;
+    const last = points[points.length - 1]!;
+    fitRoute(state, first, last);
+  };
+
   toggle.addEventListener('click', () => {
     if (controller.isEnabled()) sync(controller.disable());
     else sync(controller.enable());
+  });
+
+  viaCheck.addEventListener('change', () => {
+    sync(controller.setViaMode(viaCheck.checked));
+  });
+
+  finishBtn.addEventListener('click', () => {
+    sync(controller.armFinish());
   });
 
   clearBtn.addEventListener('click', () => {
@@ -129,6 +180,8 @@ export function mountWrgDemo(hooks: WrgDemoHooks): WrgDemoController {
     sync(controller.getState());
     if (effect.kind === 'set-b-and-route') {
       void runRoute(effect.a, effect.b);
+    } else if (effect.kind === 'set-finish-and-route') {
+      void runChain(effect.points);
     }
   });
 
