@@ -342,6 +342,19 @@ describe('WaterGraph Demo panel vs production', () => {
     expect(text).not.toMatch(/Белое|Выгозеро|Стрелка|Ковжа/);
   });
 
+  it('shows click→line ΔA/ΔB metres from endpoint_debug', () => {
+    const c = new WrgDemoController();
+    c.setPoints({ lon: 34.675285, lat: 63.554196 }, { lon: 34.738552, lat: 63.554195 });
+    c.applyResult({
+      status: 'ROUTE_FOUND',
+      distance_m: 3133,
+      geometry: line.geometry,
+      endpoint_debug: { click_a_to_geom_start_m: 0, click_b_to_geom_end_m: 0.4 },
+    });
+    const text = formatWrgDemoPanel(c.getState());
+    expect(text).toContain('line ΔA=0 м ΔB=0 м');
+  });
+
   it('shows A/B lon lat and routing status, not http_error, for WRG statuses', () => {
     const c = new WrgDemoController();
     c.setPoints({ lon: 37.42, lat: 60.29 }, { lon: 37.48, lat: 60.31 });

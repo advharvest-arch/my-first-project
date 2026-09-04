@@ -38,6 +38,12 @@ export type WrgDemoRouteResult = {
   geometry?: WrgDemoLineString | { type: string; n_coords?: number } | null;
   geometry_validation?: Record<string, unknown>;
   detail?: string | null;
+  endpoint_debug?: {
+    click_a_to_geom_start_m?: number;
+    click_b_to_geom_end_m?: number;
+    first_hop_m?: number;
+    last_hop_m?: number;
+  };
 };
 
 export type WrgDemoPhase =

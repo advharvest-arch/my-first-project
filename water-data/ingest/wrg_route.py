@@ -9,12 +9,13 @@ WRG-005 post-process: A* vertex path → triangle corridor → string-pull.
 Does not write wg_edges. Does not call production routing, BRouter,
 measureWaterChain, Area-Bridge, sea, river_area, or any UI.
 
-Bind rule: click stays the display/input coordinate. If the click ST_Covers a
-mesh triangle / wrg_areas part, routing attaches to the closest existing
-triangle edge (local stub, not a far CDT vertex or centroid). E1 within
-BIND_MAX_M only when the click is not on mapped-lake land (holes and banks
-are ENDPOINT_NOT_ON_WATER). No 3/10/25 km snap. No proximity topology edges.
-Geometry starts/ends at the click when the stub is CoveredBy the same water part.
+Bind rule: click stays the display/input coordinate. A click is on water when
+the meshed wrg_areas part / covering triangle ST_Intersects it in 4326 or
+lies within PIP_GEOGRAPHY_EPS_M in geography (4326 PIP jitter on complex
+rings — not a snap radius). Attach to the closest edge of the smallest
+covering triangle. Do not KNN-snap another triangle of the same area_id, and
+do not E1-steal a fairway after a mesh miss on mapped water. Holes and banks
+are ENDPOINT_NOT_ON_WATER. No 3/10/25 km snap. No proximity topology edges.
 
     python3 ingest/wrg_route.py A_LON A_LAT B_LON B_LAT
     python3 ingest/wrg_route.py --validate
@@ -45,8 +46,11 @@ from wrg_funnel import (
     polyline_length_m,
 )
 
-ROUTER_VERSION = "wrg-005-3"
+ROUTER_VERSION = "wrg-005-4"
 BIND_MAX_M = 25.0  # metres — not kilometres
+# 4326 ST_Intersects/ST_Covers miss boundary points whose geography distance is 0
+# on Vygozero's 1290-hole MultiPolygon. This is PIP jitter, not a waypoint radius.
+PIP_GEOGRAPHY_EPS_M = 0.05
 EARTH_M = 6371000.0
 ZERO_T = 1e-12
 FUNNEL_COVER_MAX_M = 1.0
@@ -367,7 +371,33 @@ class RouteResult:
             "search_ms": round(self.search_ms, 1),
             "geometry_ms": round(self.geometry_ms, 1),
             "detail": self.detail,
+            "endpoint_debug": self._endpoint_debug(),
         }
+
+    def _endpoint_debug(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        coords: list[tuple[float, float]] = []
+        if self.geometry is not None and not self.geometry.is_empty:
+            coords = [(float(x), float(y)) for x, y in self.geometry.coords]
+        if coords:
+            out["geom_start"] = [coords[0][0], coords[0][1]]
+            out["geom_end"] = [coords[-1][0], coords[-1][1]]
+            if len(coords) >= 2:
+                out["first_hop_m"] = round(haversine_m(coords[0], coords[1]), 3)
+                out["last_hop_m"] = round(haversine_m(coords[-2], coords[-1]), 3)
+        if self.bind_a is not None:
+            click = (float(self.bind_a.lon), float(self.bind_a.lat))
+            out["click_a"] = [click[0], click[1]]
+            out["click_a_to_attach_m"] = round(float(self.bind_a.dist_m), 3)
+            if coords:
+                out["click_a_to_geom_start_m"] = round(haversine_m(click, coords[0]), 3)
+        if self.bind_b is not None:
+            click = (float(self.bind_b.lon), float(self.bind_b.lat))
+            out["click_b"] = [click[0], click[1]]
+            out["click_b_to_attach_m"] = round(float(self.bind_b.dist_m), 3)
+            if coords:
+                out["click_b_to_geom_end_m"] = round(haversine_m(click, coords[-1]), 3)
+        return out
 
 
 def astar(
@@ -702,8 +732,41 @@ class WrgRouter:
             physical_component_id=cid,
         )
 
+    def _click_on_mapped_water_part(
+        self, lon_f: float, lat_f: float
+    ) -> tuple[int, int] | None:
+        """Meshed wrg_areas MultiPolygon part that contains the click in geography metres."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT a.area_id, n AS part
+            FROM water.wrg_areas a
+            JOIN LATERAL generate_series(1, GREATEST(ST_NumGeometries(a.geom), 1)) n ON TRUE
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.00002)
+              AND ST_DWithin(
+                    ST_GeometryN(a.geom, n)::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
+                  )
+              AND EXISTS (
+                    SELECT 1 FROM water.wrg_mesh_vertices v
+                    WHERE v.wrg_build_id = a.wrg_build_id
+                      AND v.area_id = a.area_id
+                      AND v.part = n
+                  )
+            ORDER BY ST_Area(ST_GeometryN(a.geom, n)), a.area_id, n
+            LIMIT 1
+            """,
+            (self.wrg_build_id, lon_f, lat_f, lon_f, lat_f, PIP_GEOGRAPHY_EPS_M),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return int(row[0]), int(row[1])
+
     def _click_on_land_near_mapped_water(self, lon_f: float, lat_f: float) -> bool:
-        """True on a mapped-lake bank: close to wrg_areas but not covered. Not a river E1 bind."""
+        """True on a mapped-lake bank: close in metres but not on the polygon. Not a river E1 bind."""
         cur = self.conn.cursor()
         cur.execute(
             """
@@ -711,9 +774,10 @@ class WrgRouter:
             FROM water.wrg_areas a
             WHERE a.wrg_build_id = %s
               AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.001)
-              AND NOT ST_Covers(
-                    a.geom,
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+              AND NOT ST_DWithin(
+                    a.geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
                   )
               AND ST_DWithin(
                     a.geom::geography,
@@ -728,6 +792,7 @@ class WrgRouter:
                 lat_f,
                 lon_f,
                 lat_f,
+                PIP_GEOGRAPHY_EPS_M,
                 lon_f,
                 lat_f,
                 BIND_MAX_M,
@@ -749,13 +814,23 @@ class WrgRouter:
                     ST_MakePolygon(ST_ExteriorRing(d.geom)),
                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                   )
-              AND NOT ST_Covers(
-                    d.geom,
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+              AND NOT ST_DWithin(
+                    d.geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
                   )
             LIMIT 1
             """,
-            (self.wrg_build_id, lon_f, lat_f, lon_f, lat_f, lon_f, lat_f),
+            (
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+            ),
         )
         return cur.fetchone() is not None
 
@@ -813,14 +888,33 @@ class WrgRouter:
             SELECT t.area_id, t.part, t.triangle_id, t.v0, t.v1, t.v2
             FROM water.wrg_mesh_triangles t
             WHERE t.wrg_build_id = %s
-              AND ST_Covers(
-                    t.geom,
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+              AND t.geom && ST_Expand(
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.00002
                   )
-            ORDER BY t.area_id, t.part, t.triangle_id
+              AND (
+                    ST_Intersects(
+                      t.geom,
+                      ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                    )
+                    OR ST_DWithin(
+                      t.geom::geography,
+                      ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                      %s
+                    )
+                  )
+            ORDER BY ST_Area(t.geom), t.area_id, t.part, t.triangle_id
             LIMIT 1
             """,
-            (self.wrg_build_id, lon_f, lat_f),
+            (
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+            ),
         )
         tri = cur.fetchone()
         if tri is not None:
@@ -837,57 +931,10 @@ class WrgRouter:
             if bound is not None:
                 return bound
 
-        cur.execute(
-            """
-            SELECT a.area_id, n AS part
-            FROM water.wrg_areas a
-            JOIN LATERAL generate_series(1, GREATEST(ST_NumGeometries(a.geom), 1)) n ON TRUE
-            WHERE a.wrg_build_id = %s
-              AND a.geom && ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-              AND ST_Covers(
-                    ST_GeometryN(a.geom, n),
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
-                  )
-              AND EXISTS (
-                    SELECT 1 FROM water.wrg_mesh_vertices v
-                    WHERE v.wrg_build_id = a.wrg_build_id
-                      AND v.area_id = a.area_id
-                      AND v.part = n
-                  )
-            ORDER BY a.area_id, n
-            LIMIT 1
-            """,
-            (self.wrg_build_id, lon_f, lat_f, lon_f, lat_f),
-        )
-        cover = cur.fetchone()
-        if cover is not None:
-            area_id, part = int(cover[0]), int(cover[1])
-            # Nearest covering-part triangle (not nearest vertex of the whole part).
-            cur.execute(
-                """
-                SELECT triangle_id, v0, v1, v2
-                FROM water.wrg_mesh_triangles
-                WHERE wrg_build_id = %s AND area_id = %s AND part = %s
-                ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326),
-                         triangle_id
-                LIMIT 1
-                """,
-                (self.wrg_build_id, area_id, part, lon_f, lat_f),
-            )
-            trow = cur.fetchone()
-            if trow is not None:
-                bound = self._binding_from_mesh_triangle(
-                    lon_f,
-                    lat_f,
-                    area_id,
-                    part,
-                    int(trow[0]),
-                    int(trow[1]),
-                    int(trow[2]),
-                    int(trow[3]),
-                )
-                if bound is not None:
-                    return bound
+        # On accepted water geometry but no covering triangle: honest miss.
+        # Do not KNN another triangle of the same area_id, and do not E1-steal.
+        if self._click_on_mapped_water_part(lon_f, lat_f) is not None:
+            return None
 
         # Island / hole: honest ENDPOINT_NOT_ON_WATER. Do not E1-steal across land.
         if self._click_in_water_hole(lon_f, lat_f):
@@ -951,6 +998,239 @@ class WrgRouter:
                 physical_component_id=cid,
             )
         return None
+
+    def diagnose_bind(self, lon: float, lat: float) -> dict[str, Any]:
+        """Click-layer dump: PIP, MP part, mesh, E1, rejects. Does not change topology."""
+        lon_f, lat_f = float(lon), float(lat)
+        cur = self.conn.cursor()
+        rejected: list[str] = []
+        cur.execute(
+            """
+            SELECT a.area_id, a.osm_id, n AS part,
+                   ST_Covers(
+                     ST_GeometryN(a.geom, n),
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                   ) AS covers_4326,
+                   ST_Intersects(
+                     ST_GeometryN(a.geom, n),
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                   ) AS intersects_4326,
+                   ST_DWithin(
+                     ST_GeometryN(a.geom, n)::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                     %s
+                   ) AS dwithin_eps,
+                   ST_Distance(
+                     ST_GeometryN(a.geom, n)::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   ) AS dist_m,
+                   ST_NumInteriorRings(ST_GeometryN(a.geom, n)) AS holes,
+                   ST_SRID(a.geom) AS srid
+            FROM water.wrg_areas a
+            JOIN LATERAL generate_series(1, GREATEST(ST_NumGeometries(a.geom), 1)) n ON TRUE
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.002)
+              AND ST_DWithin(
+                    ST_GeometryN(a.geom, n)::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    50
+                  )
+            ORDER BY dist_m, a.area_id, n
+            LIMIT 8
+            """,
+            (
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                PIP_GEOGRAPHY_EPS_M,
+                lon_f,
+                lat_f,
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+            ),
+        )
+        area_keys = [
+            "area_id",
+            "osm_id",
+            "part",
+            "covers_4326",
+            "intersects_4326",
+            "dwithin_eps",
+            "dist_m",
+            "holes",
+            "srid",
+        ]
+        areas = []
+        for row in cur.fetchall():
+            item = dict(zip(area_keys, row))
+            item["dist_m"] = None if item["dist_m"] is None else round(float(item["dist_m"]), 6)
+            areas.append(item)
+            if not item["dwithin_eps"]:
+                rejected.append(
+                    f"area {item['area_id']} part {item['part']}: geography dist {item['dist_m']} m"
+                )
+        cur.execute(
+            """
+            SELECT t.area_id, t.part, t.triangle_id,
+                   ST_Area(t.geom::geography) AS area_m2,
+                   ST_Covers(t.geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) AS covers_4326,
+                   ST_Intersects(t.geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) AS intersects_4326,
+                   ST_Distance(
+                     t.geom::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   ) AS dist_m
+            FROM water.wrg_mesh_triangles t
+            WHERE t.wrg_build_id = %s
+              AND t.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.002)
+            ORDER BY t.geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326), t.triangle_id
+            LIMIT 6
+            """,
+            (
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+            ),
+        )
+        tris = []
+        for i, row in enumerate(cur.fetchall()):
+            item = {
+                "area_id": int(row[0]),
+                "part": int(row[1]),
+                "triangle_id": int(row[2]),
+                "area_m2": round(float(row[3]), 1),
+                "covers_4326": bool(row[4]),
+                "intersects_4326": bool(row[5]),
+                "dist_m": round(float(row[6]), 6),
+            }
+            tris.append(item)
+            if i > 0:
+                rejected.append(
+                    f"triangle {item['triangle_id']}: larger/farther "
+                    f"(dist {item['dist_m']} m, area {item['area_m2']} m²)"
+                )
+        water_part = self._click_on_mapped_water_part(lon_f, lat_f)
+        bound = self.bind(lon_f, lat_f)
+        nearest_vertex = None
+        if water_part is not None:
+            cur.execute(
+                """
+                SELECT vertex_id,
+                       ST_Distance(
+                         geom::geography,
+                         ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                       ) AS dist_m,
+                       ST_X(geom), ST_Y(geom)
+                FROM water.wrg_mesh_vertices
+                WHERE wrg_build_id = %s AND area_id = %s AND part = %s
+                ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                LIMIT 1
+                """,
+                (
+                    lon_f,
+                    lat_f,
+                    self.wrg_build_id,
+                    water_part[0],
+                    water_part[1],
+                    lon_f,
+                    lat_f,
+                ),
+            )
+            vrow = cur.fetchone()
+            if vrow is not None:
+                nearest_vertex = {
+                    "vertex_id": int(vrow[0]),
+                    "dist_m": round(float(vrow[1]), 3),
+                    "lon": float(vrow[2]),
+                    "lat": float(vrow[3]),
+                }
+        cur.execute(
+            """
+            SELECT e.edge_id,
+                   ST_Distance(
+                     e.geom::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   ) AS dist_m
+            FROM water.wg_edges e
+            WHERE e.build_id = 1
+              AND e.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.02)
+            ORDER BY e.geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+            LIMIT 1
+            """,
+            (lon_f, lat_f, lon_f, lat_f, lon_f, lat_f),
+        )
+        e1row = cur.fetchone()
+        e1_near = None if e1row is None else {"edge_id": int(e1row[0]), "dist_m": round(float(e1row[1]), 3)}
+        if bound is None:
+            if self._click_in_water_hole(lon_f, lat_f):
+                rejected.append("hole: island interior, no E1 steal")
+            elif water_part is not None:
+                rejected.append("on mapped water but no covering triangle; no KNN, no E1")
+            elif self._click_on_land_near_mapped_water(lon_f, lat_f):
+                rejected.append("bank: within 25 m of wrg_areas but not on polygon")
+            elif e1_near is not None and e1_near["dist_m"] > BIND_MAX_M:
+                rejected.append(f"E1 edge {e1_near['edge_id']} at {e1_near['dist_m']} m > {BIND_MAX_M} m")
+            else:
+                rejected.append("unbound: not on mapped water and no E1 within 25 m")
+        else:
+            if bound.kind == "mesh":
+                rejected.append("E1 skipped: covering mesh triangle won")
+            if nearest_vertex is not None and bound.kind == "mesh":
+                rejected.append(
+                    f"nearest vertex {nearest_vertex['vertex_id']} at "
+                    f"{nearest_vertex['dist_m']} m not used; closest triangle edge used"
+                )
+        chosen_part = None
+        if bound is not None and bound.kind == "mesh":
+            chosen_part = bound.part
+        elif water_part is not None:
+            chosen_part = water_part[1]
+        elif areas:
+            chosen_part = areas[0]["part"]
+        pip = {
+            "covers_4326": bool(areas[0]["covers_4326"]) if areas else False,
+            "intersects_4326": bool(areas[0]["intersects_4326"]) if areas else False,
+            "dwithin_eps": bool(areas[0]["dwithin_eps"]) if areas else False,
+            "geography_dist_m": None if not areas else areas[0]["dist_m"],
+            "srid": None if not areas else areas[0]["srid"],
+            "distance_units": "metres (geography) / degrees (4326 geom &&)",
+        }
+        return {
+            "click_lon": lon_f,
+            "click_lat": lat_f,
+            "wrg_area": None
+            if not areas
+            else {
+                "area_id": areas[0]["area_id"],
+                "osm_id": areas[0]["osm_id"],
+                "part": chosen_part,
+            },
+            "multipolygon_part": chosen_part,
+            "point_in_polygon": pip,
+            "area_candidates": areas,
+            "nearest_mesh_triangles": tris,
+            "nearest_mesh_vertex": nearest_vertex,
+            "nearest_e1": e1_near,
+            "bind": None if bound is None else bound.as_dict(),
+            "physical_component_id": None if bound is None else bound.physical_component_id,
+            "hole": self._click_in_water_hole(lon_f, lat_f),
+            "bank": self._click_on_land_near_mapped_water(lon_f, lat_f),
+            "rejected": rejected,
+            "router_version": ROUTER_VERSION,
+        }
 
     def _edge_substring(self, edge_id: int, t0: float, t1: float) -> LineString | None:
         wkb = self.edge_wkb.get(int(edge_id))
@@ -1832,6 +2112,13 @@ def main() -> int:
     parser.add_argument("coords", nargs="*", type=float, help="A_LON A_LAT B_LON B_LAT")
     parser.add_argument("--validate", action="store_true", help="run the 5 WRG-004 cases")
     parser.add_argument(
+        "--diagnose",
+        nargs=2,
+        type=float,
+        metavar=("LON", "LAT"),
+        help="print bind diagnosis JSON for one click (no topology change)",
+    )
+    parser.add_argument(
         "--stdio-json",
         action="store_true",
         help="demo adapter: JSON lines on stdin/stdout (does not change routing)",
@@ -1841,8 +2128,13 @@ def main() -> int:
     parser.add_argument("--json-out", type=Path, default=None)
     parser.add_argument("--no-geometry-coords", action="store_true")
     args = parser.parse_args()
-    if not args.validate and not args.stdio_json and len(args.coords) != 4:
-        parser.error("need A_LON A_LAT B_LON B_LAT, or --validate / --stdio-json")
+    if (
+        not args.validate
+        and not args.stdio_json
+        and args.diagnose is None
+        and len(args.coords) != 4
+    ):
+        parser.error("need A_LON A_LAT B_LON B_LAT, or --validate / --stdio-json / --diagnose")
 
     import psycopg2
 
@@ -1859,6 +2151,14 @@ def main() -> int:
             f"portals={router.stats['portals']}",
             file=sys.stderr,
         )
+        if args.diagnose is not None:
+            dump = router.diagnose_bind(args.diagnose[0], args.diagnose[1])
+            text = json.dumps(dump, indent=2, ensure_ascii=False)
+            print(text)
+            if args.json_out:
+                args.json_out.parent.mkdir(parents=True, exist_ok=True)
+                args.json_out.write_text(text + "\n", encoding="utf-8")
+            return 0 if dump.get("bind") is not None else 2
         if args.validate:
             report = run_validation(router)
             text = json.dumps(report, indent=2, ensure_ascii=False)
