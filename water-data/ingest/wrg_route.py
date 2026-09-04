@@ -9,12 +9,12 @@ WRG-005 post-process: A* vertex path → triangle corridor → string-pull.
 Does not write wg_edges. Does not call production routing, BRouter,
 measureWaterChain, Area-Bridge, sea, river_area, or any UI.
 
-Bind rule: click stays the display/input coordinate. Routing uses an
-existing mesh vertex (covering triangle) or E1 edge within BIND_MAX_M.
-A click inside a wrg_areas hole (island / land) is ENDPOINT_NOT_ON_WATER
-— E1 must not steal it. No 3/10/25 km snap. No proximity topology edges.
-Geometry starts/ends at the click when the click→graph stub is CoveredBy
-the same water part (temporary endpoint connection, not a stored edge).
+Bind rule: click stays the display/input coordinate. If the click ST_Covers a
+mesh triangle / wrg_areas part, routing attaches to the closest existing
+triangle edge (local stub, not a far CDT vertex or centroid). E1 within
+BIND_MAX_M only when the click is not on mapped-lake land (holes and banks
+are ENDPOINT_NOT_ON_WATER). No 3/10/25 km snap. No proximity topology edges.
+Geometry starts/ends at the click when the stub is CoveredBy the same water part.
 
     python3 ingest/wrg_route.py A_LON A_LAT B_LON B_LAT
     python3 ingest/wrg_route.py --validate
@@ -38,13 +38,14 @@ from shapely import LineString, Point, from_wkb
 from shapely.ops import substring
 
 from wrg_funnel import (
+    LocalFrame,
     MeshPartIndex,
     funnel_debug,
     funnel_mesh_run,
     polyline_length_m,
 )
 
-ROUTER_VERSION = "wrg-005-2"
+ROUTER_VERSION = "wrg-005-3"
 BIND_MAX_M = 25.0  # metres — not kilometres
 EARTH_M = 6371000.0
 ZERO_T = 1e-12
@@ -156,6 +157,27 @@ def xy_close(
     return haversine_m(a, b) <= max_m
 
 
+def closest_point_on_segment(
+    p: tuple[float, float],
+    a: tuple[float, float],
+    b: tuple[float, float],
+) -> tuple[tuple[float, float], float, float]:
+    """Closest point on segment ab to p in a local metric frame. t in [0, 1]."""
+    frame = LocalFrame.from_points([p, a, b])
+    px, py = frame.to_xy(*p)
+    ax, ay = frame.to_xy(*a)
+    bx, by = frame.to_xy(*b)
+    vx, vy = bx - ax, by - ay
+    len2 = vx * vx + vy * vy
+    if len2 <= 1e-18:
+        return a, 0.0, haversine_m(p, a)
+    t = ((px - ax) * vx + (py - ay) * vy) / len2
+    t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+    qx, qy = ax + t * vx, ay + t * vy
+    q = frame.to_lonlat(qx, qy)
+    return q, t, haversine_m(p, q)
+
+
 def splice_line_endpoints(
     line: LineString | None,
     start_xy: tuple[float, float],
@@ -246,6 +268,8 @@ class Binding:
     length_m: float | None = None
     snap_lon: float | None = None
     snap_lat: float | None = None
+    edge_v0: int | None = None
+    edge_v1: int | None = None
     physical_component_id: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -262,7 +286,10 @@ class Binding:
                     "part": self.part,
                     "vertex_id": self.vertex_id,
                     "triangle_id": self.triangle_id,
+                    "edge_v0": self.edge_v0,
+                    "edge_v1": self.edge_v1,
                     "snap": [self.snap_lon, self.snap_lat],
+                    "bind": "covering_triangle_closest_edge",
                 }
             )
         else:
@@ -622,23 +649,43 @@ class WrgRouter:
         v1: int,
         v2: int,
     ) -> Binding | None:
-        """Display coords stay at the click. Routing node is an existing triangle vertex."""
+        """Click stays. Graph attach is the closest existing triangle edge, not a far vertex."""
         q = (lon_f, lat_f)
-        best_vid = None
-        best_xy = None
-        best_d = float("inf")
+        verts: list[tuple[int, tuple[float, float]]] = []
         for vid in (v0, v1, v2):
             xy = self.coords.get(mesh_node(area_id, part, vid))
-            if xy is None:
-                continue
-            d = haversine_m(q, xy)
-            if d < best_d or (
-                abs(d - best_d) < 1e-9 and (best_vid is None or vid < best_vid)
-            ):
-                best_d, best_vid, best_xy = d, vid, xy
-        if best_vid is None or best_xy is None:
+            if xy is not None:
+                verts.append((vid, xy))
+        if len(verts) < 2:
             return None
-        cid = self._component_mesh(area_id, part, best_vid)
+        best_d = float("inf")
+        best_attach: tuple[float, float] | None = None
+        best_edge: tuple[int, int] | None = None
+        n = len(verts)
+        for i in range(n):
+            for j in range(i + 1, n):
+                lo_id, lo_xy = verts[i]
+                hi_id, hi_xy = verts[j]
+                attach, _t, d = closest_point_on_segment(q, lo_xy, hi_xy)
+                edge = (lo_id, hi_id) if lo_id <= hi_id else (hi_id, lo_id)
+                if d < best_d or (
+                    abs(d - best_d) < 1e-9
+                    and (best_edge is None or edge < best_edge)
+                ):
+                    best_d = d
+                    best_attach = attach
+                    best_edge = edge
+        if best_attach is None or best_edge is None:
+            return None
+        e0, e1 = best_edge
+        e0_xy = self.coords.get(mesh_node(area_id, part, e0))
+        e1_xy = self.coords.get(mesh_node(area_id, part, e1))
+        if e0_xy is None or e1_xy is None:
+            return None
+        d0 = haversine_m(q, e0_xy)
+        d1 = haversine_m(q, e1_xy)
+        closer = e0 if d0 < d1 or (abs(d0 - d1) < 1e-9 and e0 < e1) else e1
+        cid = self._component_mesh(area_id, part, closer)
         return Binding(
             kind="mesh",
             lon=lon_f,
@@ -646,12 +693,47 @@ class WrgRouter:
             dist_m=best_d,
             area_id=area_id,
             part=part,
-            vertex_id=best_vid,
+            vertex_id=closer,
             triangle_id=triangle_id,
-            snap_lon=best_xy[0],
-            snap_lat=best_xy[1],
+            snap_lon=best_attach[0],
+            snap_lat=best_attach[1],
+            edge_v0=e0,
+            edge_v1=e1,
             physical_component_id=cid,
         )
+
+    def _click_on_land_near_mapped_water(self, lon_f: float, lat_f: float) -> bool:
+        """True on a mapped-lake bank: close to wrg_areas but not covered. Not a river E1 bind."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            SELECT 1
+            FROM water.wrg_areas a
+            WHERE a.wrg_build_id = %s
+              AND a.geom && ST_Expand(ST_SetSRID(ST_MakePoint(%s, %s), 4326), 0.001)
+              AND NOT ST_Covers(
+                    a.geom,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                  )
+              AND ST_DWithin(
+                    a.geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    %s
+                  )
+            LIMIT 1
+            """,
+            (
+                self.wrg_build_id,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                lon_f,
+                lat_f,
+                BIND_MAX_M,
+            ),
+        )
+        return cur.fetchone() is not None
 
     def _click_in_water_hole(self, lon_f: float, lat_f: float) -> bool:
         """True when the click is land inside a wrg_areas ring (island / hole)."""
@@ -810,6 +892,9 @@ class WrgRouter:
         # Island / hole: honest ENDPOINT_NOT_ON_WATER. Do not E1-steal across land.
         if self._click_in_water_hole(lon_f, lat_f):
             return None
+        # Lake bank: inside 25 m of mapped water but not on it. Do not turn land into water.
+        if self._click_on_land_near_mapped_water(lon_f, lat_f):
+            return None
 
         # Strict E1 bind: metres, bbox-limited. Not the production 3/10/25 km snap.
         expand_deg = 0.001  # ~111 m latitude; still filtered by BIND_MAX_M
@@ -957,7 +1042,8 @@ class WrgRouter:
             and bb.kind == "mesh"
             and ba.area_id == bb.area_id
             and ba.part == bb.part
-            and ba.vertex_id == bb.vertex_id
+            and ba.triangle_id is not None
+            and ba.triangle_id == bb.triangle_id
         ):
             geom, dist = self._same_mesh_vertex_geometry(ba, bb)
             res = RouteResult(
@@ -974,12 +1060,12 @@ class WrgRouter:
                 mesh_lines=[] if geom is None else [geom],
                 bind_ms=bind_ms,
                 runtime_ms=(time.perf_counter() - t_all) * 1000.0,
-                detail="same_mesh_vertex",
+                detail="same_mesh_triangle",
             )
             res.geometry_validation = self._local_geom_validation(res)
             return res
 
-        dest_xy = (float(bb.snap_lon or bb.lon), float(bb.snap_lat or bb.lat))
+        dest_xy = (float(bb.lon), float(bb.lat))
 
         def heuristic(node: Hashable) -> float:
             if node == GOAL or node == START:
@@ -1004,8 +1090,15 @@ class WrgRouter:
             goal_rev.append((node, via, cost))
 
         if ba.kind == "mesh":
-            n = mesh_node(int(ba.area_id or 0), int(ba.part or 0), int(ba.vertex_id or 0))
-            link_start(n, 0.0, Via("start_stub"))
+            vids = {int(ba.vertex_id or 0)}
+            if ba.edge_v0 is not None:
+                vids.add(int(ba.edge_v0))
+            if ba.edge_v1 is not None:
+                vids.add(int(ba.edge_v1))
+            for vid in sorted(vids):
+                n = mesh_node(int(ba.area_id or 0), int(ba.part or 0), vid)
+                if n in self.adj or n in self.coords:
+                    link_start(n, 0.0, Via("start_stub"))
         else:
             L = float(ba.length_m or 0.0)
             t = float(ba.t or 0.0)
@@ -1014,8 +1107,15 @@ class WrgRouter:
             link_start(e1_node(int(ba.to_node_id or 0)), (1.0 - t) * L, Via("start_stub", eid, t, 1.0))
 
         if bb.kind == "mesh":
-            n = mesh_node(int(bb.area_id or 0), int(bb.part or 0), int(bb.vertex_id or 0))
-            link_goal(n, 0.0, Via("goal_stub"))
+            vids = {int(bb.vertex_id or 0)}
+            if bb.edge_v0 is not None:
+                vids.add(int(bb.edge_v0))
+            if bb.edge_v1 is not None:
+                vids.add(int(bb.edge_v1))
+            for vid in sorted(vids):
+                n = mesh_node(int(bb.area_id or 0), int(bb.part or 0), vid)
+                if n in self.adj or n in self.coords:
+                    link_goal(n, 0.0, Via("goal_stub"))
         else:
             L = float(bb.length_m or 0.0)
             t = float(bb.t or 0.0)

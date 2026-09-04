@@ -18,6 +18,7 @@ from wrg_route import (
     VALIDATION_CASES,
     Via,
     astar,
+    closest_point_on_segment,
     compress_layers,
     concat_lines,
     count_e1_mesh_transitions,
@@ -93,6 +94,13 @@ class WrgRouteOfflineTests(unittest.TestCase):
         self.assertEqual(g.coords[0], click_a)
         self.assertEqual(g.coords[-1], click_b)
         self.assertGreater(len(g.coords), 2)
+
+    def test_closest_point_on_segment_is_local(self) -> None:
+        a, b = (0.0, 0.0), (1.0, 0.0)
+        q, t, d = closest_point_on_segment((0.5, 0.01), a, b)
+        self.assertAlmostEqual(t, 0.5, places=3)
+        self.assertLess(abs(q[0] - 0.5), 0.02)
+        self.assertLess(d, 2000.0)
 
     def test_astar_portal_not_geodesic_teleport(self) -> None:
         """Portal cost is along-edge (5+5), not a 100 m chord between far ends."""
@@ -246,7 +254,10 @@ class WrgRouteLiveTests(unittest.TestCase):
         self.assertIsNotNone(bb)
         assert ba is not None and bb is not None
         self.assertEqual(ba.kind, "mesh")
-        self.assertGreater(ba.dist_m, 100.0)
+        attach = (float(ba.snap_lon), float(ba.snap_lat))
+        self.assertLess(ba.dist_m, 400.0)
+        self.assertLess(haversine_m(a, attach), 400.0)
+        self.assertEqual(ba.as_dict().get("bind"), "covering_triangle_closest_edge")
         res = router.route(a[0], a[1], b[0], b[1])
         self.assertEqual(res.status, STATUS_ROUTE_FOUND)
         start, end = self._geom_ends(res)
@@ -267,7 +278,6 @@ class WrgRouteLiveTests(unittest.TestCase):
         self.assertIsNotNone(bb)
         assert ba is not None and bb is not None
         self.assertEqual(ba.triangle_id, bb.triangle_id)
-        self.assertEqual(ba.vertex_id, bb.vertex_id)
         res = router.route(a[0], a[1], b[0], b[1])
         self.assertEqual(res.status, STATUS_ROUTE_FOUND)
         start, end = self._geom_ends(res)
@@ -332,6 +342,102 @@ class WrgRouteLiveTests(unittest.TestCase):
         payload = f"{int(n)}|{s}"
         self.assertEqual(hashlib.sha256(payload.encode()).hexdigest()[:16], "33f7f14a3dc26e44")
         self.assertEqual(int(n), 175173)
+
+    def test_live_waypoint_near_shore_attach_is_local(self) -> None:
+        """Beloye, ~20 m inside the shoreline: attach to closest mesh edge, not a far CDT vertex."""
+        router = self.router
+        assert router is not None
+        a = (37.62388214905415, 60.32138103)
+        b = (37.42, 60.29)
+        ba = router.bind(*a)
+        self.assertIsNotNone(ba)
+        assert ba is not None
+        self.assertEqual(ba.kind, "mesh")
+        self.assertEqual((ba.lon, ba.lat), a)
+        self.assertLess(ba.dist_m, 15.0)
+        self.assertLess(
+            haversine_m(a, (float(ba.snap_lon), float(ba.snap_lat))),
+            15.0,
+        )
+        self.assertIsNotNone(ba.edge_v0)
+        self.assertIsNotNone(ba.edge_v1)
+        res = router.route(a[0], a[1], b[0], b[1])
+        self.assertEqual(res.status, STATUS_ROUTE_FOUND)
+        start, end = self._geom_ends(res)
+        self.assertLessEqual(haversine_m(a, start), FUNNEL_ENDPOINT_MAX_M)
+        self.assertLessEqual(haversine_m(b, end), FUNNEL_ENDPOINT_MAX_M)
+        water = router.validate_mesh_in_area(res, osm_id=1603199)
+        self.assertLessEqual(float(water.get("mesh_leftover_m") or 0), 1.0)
+        self.assertLess(res.bind_ms, 250.0)
+
+    def test_live_waypoint_vygozero_near_shore(self) -> None:
+        router = self.router
+        assert router is not None
+        a = (34.66068261774758, 63.532727429000005)
+        b = (34.3220777, 63.8827376)
+        ba = router.bind(*a)
+        self.assertIsNotNone(ba)
+        assert ba is not None
+        self.assertEqual(ba.kind, "mesh")
+        self.assertEqual(ba.part, 2)
+        self.assertEqual(ba.physical_component_id, 151)
+        self.assertEqual((ba.lon, ba.lat), a)
+        self.assertLess(ba.dist_m, 10.0)
+        res = router.route(a[0], a[1], b[0], b[1])
+        self.assertEqual(res.status, STATUS_ROUTE_FOUND)
+        start, end = self._geom_ends(res)
+        self.assertLessEqual(haversine_m(a, start), FUNNEL_ENDPOINT_MAX_M)
+        self.assertLessEqual(haversine_m(b, end), FUNNEL_ENDPOINT_MAX_M)
+        water = router.validate_mesh_in_area(res)
+        self.assertLessEqual(float(water.get("mesh_leftover_m") or 0), 1.0)
+
+    def test_live_land_near_shore_is_not_on_water(self) -> None:
+        """25 m E1 radius must not turn a lake bank into water."""
+        router = self.router
+        assert router is not None
+        cur = router.conn.cursor()
+        cur.execute(
+            """
+            WITH a AS (
+              SELECT ST_GeometryN(geom, 1) AS g
+              FROM water.wrg_areas
+              WHERE wrg_build_id = %s AND osm_id = 1603199
+            )
+            SELECT ST_X(p), ST_Y(p)
+            FROM a,
+            LATERAL ST_ClosestPoint(
+              ST_Boundary(g),
+              ST_SetSRID(ST_MakePoint(37.42, 60.29), 4326)
+            ) AS bpt,
+            LATERAL ST_Translate(
+              bpt,
+              (ST_X(bpt) - ST_X(ST_Centroid(g))) * 0.0000004,
+              (ST_Y(bpt) - ST_Y(ST_Centroid(g))) * 0.0000004
+            ) AS p
+            """,
+            (router.wrg_build_id,),
+        )
+        row = cur.fetchone()
+        self.assertIsNotNone(row)
+        lon, lat = float(row[0]), float(row[1])
+        cur.execute(
+            """
+            SELECT ST_Covers(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)),
+                   ST_Distance(
+                     geom::geography,
+                     ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                   )
+            FROM water.wrg_areas
+            WHERE wrg_build_id = %s AND osm_id = 1603199
+            """,
+            (lon, lat, lon, lat, router.wrg_build_id),
+        )
+        covers, dist = cur.fetchone()
+        self.assertFalse(bool(covers))
+        self.assertLess(float(dist), BIND_MAX_M)
+        self.assertIsNone(router.bind(lon, lat))
+        res = router.route(lon, lat, 37.42, 60.29)
+        self.assertEqual(res.status, STATUS_ENDPOINT_NOT_ON_WATER)
 
 
 if __name__ == "__main__":
