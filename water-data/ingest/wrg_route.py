@@ -1641,6 +1641,7 @@ class WrgRouter:
         if line is None or line.is_empty:
             return None
         cur = self.conn.cursor()
+        wkb = bytes(line.wkb)
         # ST_Covers first: ST_Difference on axis-aligned 4326 chords can
         # return the whole line even when the polygon covers it.
         cur.execute(
@@ -1664,8 +1665,8 @@ class WrgRouter:
             """,
             (
                 int(part),
-                bytes(line.wkb),
-                bytes(line.wkb),
+                wkb,
+                wkb,
                 int(part),
                 self.wrg_build_id,
                 int(area_id),
@@ -1674,7 +1675,50 @@ class WrgRouter:
         row = cur.fetchone()
         if row is None or row[0] is None:
             return None
-        return float(row[0])
+        leftover = float(row[0])
+        if leftover <= FUNNEL_COVER_MAX_M:
+            return leftover
+        # 4326 PIP jitter: a geography-on-water shoreline chord can sit just
+        # outside ST_Covers. Buffer only a local clip, not the whole lake.
+        cur.execute(
+            """
+            SELECT ST_Length(
+                     ST_Difference(
+                       ST_SetSRID(ST_GeomFromWKB(%s), 4326),
+                       ST_Buffer(
+                         ST_Intersection(
+                           ST_GeometryN(a.geom, %s),
+                           ST_Expand(
+                             ST_SetSRID(ST_GeomFromWKB(%s), 4326),
+                             0.001
+                           )
+                         )::geography,
+                         %s
+                       )::geometry
+                     )::geography
+                   )
+            FROM water.wrg_areas a
+            WHERE a.wrg_build_id = %s AND a.area_id = %s
+              AND ST_Intersects(
+                    ST_GeometryN(a.geom, %s),
+                    ST_Expand(ST_SetSRID(ST_GeomFromWKB(%s), 4326), 0.001)
+                  )
+            """,
+            (
+                wkb,
+                int(part),
+                wkb,
+                PIP_GEOGRAPHY_EPS_M,
+                self.wrg_build_id,
+                int(area_id),
+                int(part),
+                wkb,
+            ),
+        )
+        row = cur.fetchone()
+        if row is not None and row[0] is not None and float(row[0]) <= FUNNEL_COVER_MAX_M:
+            return 0.0
+        return leftover
 
     def _line_ok(
         self,

@@ -415,18 +415,22 @@ class WrgRouteLiveTests(unittest.TestCase):
               SELECT ST_GeometryN(geom, 1) AS g
               FROM water.wrg_areas
               WHERE wrg_build_id = %s AND osm_id = 1603199
+            ),
+            bpt AS (
+              SELECT ST_ClosestPoint(
+                       ST_Boundary(g),
+                       ST_SetSRID(ST_MakePoint(37.42, 60.29), 4326)
+                     ) AS p,
+                     g
+              FROM a
             )
-            SELECT ST_X(p), ST_Y(p)
-            FROM a,
-            LATERAL ST_ClosestPoint(
-              ST_Boundary(g),
-              ST_SetSRID(ST_MakePoint(37.42, 60.29), 4326)
-            ) AS bpt,
-            LATERAL ST_Translate(
-              bpt,
-              (ST_X(bpt) - ST_X(ST_Centroid(g))) * 0.0000004,
-              (ST_Y(bpt) - ST_Y(ST_Centroid(g))) * 0.0000004
-            ) AS p
+            SELECT ST_X(outp::geometry), ST_Y(outp::geometry)
+            FROM bpt,
+            LATERAL ST_Project(
+              p::geography,
+              8.0,
+              ST_Azimuth(ST_Centroid(g), p)
+            ) AS outp
             """,
             (router.wrg_build_id,),
         )
@@ -447,6 +451,7 @@ class WrgRouteLiveTests(unittest.TestCase):
         )
         covers, dist = cur.fetchone()
         self.assertFalse(bool(covers))
+        self.assertGreater(float(dist), 1.0)
         self.assertLess(float(dist), BIND_MAX_M)
         self.assertIsNone(router.bind(lon, lat))
         res = router.route(lon, lat, 37.42, 60.29)
