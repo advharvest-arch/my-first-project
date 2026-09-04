@@ -77,6 +77,32 @@ describe('WaterGraph Demo A/B selection', () => {
     expect(c.getState().result).toBeNull();
     expect(wrgDemoMapView(c.getState()).routeLatLngs).toBeNull();
   });
+
+  it('A/B stay on click coordinates even if GeoJSON starts at a bind vertex', () => {
+    const c = new WrgDemoController();
+    c.enable();
+    const a = { lon: 37.42, lat: 60.29 };
+    const b = { lon: 37.48, lat: 60.31 };
+    c.click(a.lon, a.lat);
+    c.click(b.lon, b.lat);
+    c.applyResult({
+      ...line,
+      bind_a: { kind: 'mesh', snap: [37.39, 60.28] },
+      bind_b: { kind: 'mesh', snap: [37.50, 60.32] },
+      geometry: {
+        type: 'LineString',
+        coordinates: [
+          [37.39, 60.28],
+          [37.45, 60.30],
+          [37.50, 60.32],
+        ],
+      },
+    });
+    const view = wrgDemoMapView(c.getState());
+    expect(view.a).toEqual(a);
+    expect(view.b).toEqual(b);
+    expect(view.a).not.toEqual({ lon: 37.39, lat: 60.28 });
+  });
 });
 
 describe('WaterGraph Demo route rendering', () => {
