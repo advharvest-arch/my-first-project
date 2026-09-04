@@ -37,8 +37,15 @@ export default defineConfig({
   },
   preview: {
     allowedHosts: true,
+    // Vite's default CORS allowlist is localhost-only. Production module
+    // scripts are emitted with `crossorigin`, so a public tunnel Origin
+    // (lhr.life / trycloudflare / serveo) gets no ACAO and Safari / Yandex
+    // refuse to execute the bundle — the boot fallback then looks like an
+    // "unsupported browser". Reflect any Origin on preview + dev.
+    cors: { origin: true },
   },
   server: {
     allowedHosts: true,
+    cors: { origin: true },
   },
 });
