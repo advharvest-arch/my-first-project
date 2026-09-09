@@ -31,9 +31,9 @@
 
 ## C. Confirmed connections
 
-- confirmed edges: **210**
+- confirmed edges: **209**
   - DIRECT_OSM: 189
-  - WATERWAY_CONNECTOR: 21
+  - WATERWAY_CONNECTOR: 20
 
 ## D. Candidate connections
 
@@ -469,27 +469,26 @@
 | `w906802024` | `w906802025` | DIRECT_OSM | `[]` | sharedNodes=1; ids=8420373162; w906802024 and w906802025 share OSM node 8420373162 |
 | `w927079942` | `w927079943` | DIRECT_OSM | `[]` | sharedNodes=1; ids=8601858524; w927079942 and w927079943 share OSM node 8601858524 |
 | `w979432568` | `w979432569` | DIRECT_OSM | `[]` | sharedNodes=1; ids=9061270661; w979432568 and w979432569 share OSM node 9061270661 |
-| `r1159264` | `r399081` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 81323084, "key": "w81323084"}]` | connector=w81323084; r1159264 and r399081 share no requirement of a common node; open waterway w81323084 shares OSM nodes with both |
-| `r1203668` | `r399081` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 32487402, "key": "w32487402"}]` | connector=w906802023; r1203668 and r399081 share no requirement of a common node; open waterway w906802023 shares OSM nodes with both |
-| `r17001378` | `r399081` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 1238091262, "key": "w1238091262"}]` | connector=w1238091262; r399081 and r17001378 share no requirement of a common node; open waterway w1238091262 shares OSM nodes with both |
-| `r399081` | `r399614` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 195929170, "key": "w195929170"}]` | connector=w195929170; r399614 and r399081 share no requirement of a common node; open waterway w195929170 shares OSM nodes with both |
-| `r399081` | `r9617478` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 32487176, "key": "w32487176"}]` | connector=w32487176; r399081 and r9617478 share no requirement of a common node; open waterway w32487176 shares OSM nodes with both |
-| `r399081` | `w20542134` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 167688573, "key": "w167688573"}]` | connector=w167688573; r399081 and w20542134 share no requirement of a common node; open waterway w167688573 shares OSM nodes with both |
-| `r399081` | `w261237885` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 103320388, "key": "w103320388"}]` | connector=w103320388; r399081 and w261237885 share no requirement of a common node; open waterway w103320388 shares OSM nodes with both |
-| `r399081` | `w30164445` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 82331216, "key": "w82331216"}]` | connector=w82331216; r399081 and w30164445 share no requirement of a common node; open waterway w82331216 shares OSM nodes with both |
-| `r399081` | `w30196364` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 30196495, "key": "w30196495"}]` | connector=w30196495; r399081 and w30196364 share no requirement of a common node; open waterway w30196495 shares OSM nodes with both |
-| `r399081` | `w308145402` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 308145403, "key": "w308145403"}]` | connector=w308145403; r399081 and w308145402 share no requirement of a common node; open waterway w308145403 shares OSM nodes with both |
-| `r399081` | `w308319722` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 308319728, "key": "w308319728"}]` | connector=w308319728; w308319722 and r399081 share no requirement of a common node; open waterway w308319728 shares OSM nodes with both |
-| `r399081` | `w308676450` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 790979304, "key": "w790979304"}]` | connector=w790979304; w308676450 and r399081 share no requirement of a common node; open waterway w790979304 shares OSM nodes with both |
-| `r399081` | `w32486887` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 1347279844, "key": "w1347279844"}]` | connector=w1347279844; r399081 and w32486887 share no requirement of a common node; open waterway w1347279844 shares OSM nodes with both |
-| `r399081` | `w49220132` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 848485110, "key": "w848485110"}]` | connector=w848485110; r399081 and w49220132 share no requirement of a common node; open waterway w848485110 shares OSM nodes with both |
-| `r399081` | `w49220133` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 288428252, "key": "w288428252"}]` | connector=w288428252; w49220133 and r399081 share no requirement of a common node; open waterway w288428252 shares OSM nodes with both |
-| `r399081` | `w691693544` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 234067887, "key": "w234067887"}]` | connector=w234067887; w691693544 and r399081 share no requirement of a common node; open waterway w234067887 shares OSM nodes with both |
-| `r399081` | `w76207976` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 229644709, "key": "w229644709"}]` | connector=w229644709; w76207976 and r399081 share no requirement of a common node; open waterway w229644709 shares OSM nodes with both |
-| `r399081` | `w78343141` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 81759425, "key": "w81759425"}]` | connector=w81759425; r399081 and w78343141 share no requirement of a common node; open waterway w81759425 shares OSM nodes with both |
-| `r399081` | `w81303076` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 81732492, "key": "w81732492"}]` | connector=w81732492; w81303076 and r399081 share no requirement of a common node; open waterway w81732492 shares OSM nodes with both |
-| `r399081` | `w81753515` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 32487176, "key": "w32487176"}]` | connector=w906802025; w81753515 and r399081 share no requirement of a common node; open waterway w906802025 shares OSM nodes with both |
-| `r9617478` | `w81753515` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 32487176, "key": "w32487176"}]` | connector=w906802027; w81753515 and r9617478 share no requirement of a common node; open waterway w906802027 shares OSM nodes with both |
+| `r1159264` | `r399081` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 81323084, "key": "w81323084"}]` | connector=w81323084; r399081 and r1159264 are the only confirmed water areas that share OSM nodes with open waterway w81323084 |
+| `r1203668` | `r399081` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 32487402, "key": "w32487402"}]` | connector=w906802023; r1203668 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w906802023 |
+| `r17001378` | `r399081` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 1238091262, "key": "w1238091262"}]` | connector=w1238091262; r17001378 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w1238091262 |
+| `r399081` | `r399614` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 195929170, "key": "w195929170"}]` | connector=w195929170; r399081 and r399614 are the only confirmed water areas that share OSM nodes with open waterway w195929170 |
+| `r399081` | `w20542134` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 167688573, "key": "w167688573"}]` | connector=w167688573; w20542134 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w167688573 |
+| `r399081` | `w261237885` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 103320388, "key": "w103320388"}]` | connector=w103320388; r399081 and w261237885 are the only confirmed water areas that share OSM nodes with open waterway w103320388 |
+| `r399081` | `w30164445` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 82331216, "key": "w82331216"}]` | connector=w82331216; w30164445 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w82331216 |
+| `r399081` | `w30196364` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 30196495, "key": "w30196495"}]` | connector=w30196495; w30196364 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w30196495 |
+| `r399081` | `w308145402` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 308145403, "key": "w308145403"}]` | connector=w308145403; w308145402 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w308145403 |
+| `r399081` | `w308319722` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 308319728, "key": "w308319728"}]` | connector=w308319728; w308319722 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w308319728 |
+| `r399081` | `w308676450` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 790979304, "key": "w790979304"}]` | connector=w790979304; w308676450 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w790979304 |
+| `r399081` | `w32486887` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 1347279844, "key": "w1347279844"}]` | connector=w1347279844; w32486887 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w1347279844 |
+| `r399081` | `w49220132` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 848485110, "key": "w848485110"}]` | connector=w848485110; w49220132 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w848485110 |
+| `r399081` | `w49220133` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 288428252, "key": "w288428252"}]` | connector=w288428252; w49220133 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w288428252 |
+| `r399081` | `w691693544` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 234067887, "key": "w234067887"}]` | connector=w234067887; w691693544 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w234067887 |
+| `r399081` | `w76207976` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 229644709, "key": "w229644709"}]` | connector=w229644709; w76207976 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w229644709 |
+| `r399081` | `w78343141` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 81759425, "key": "w81759425"}]` | connector=w81759425; w78343141 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w81759425 |
+| `r399081` | `w81303076` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 81732492, "key": "w81732492"}]` | connector=w81732492; w81303076 and r399081 are the only confirmed water areas that share OSM nodes with open waterway w81732492 |
+| `r399081` | `w81753515` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 906802025, "key": "w906802025"}]` | connector=w906802025; r399081 and w81753515 are the only confirmed water areas that share OSM nodes with open waterway w906802025 |
+| `r9617478` | `w81753515` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 906802027, "key": "w906802027"}]` | connector=w906802027; r9617478 and w81753515 are the only confirmed water areas that share OSM nodes with open waterway w906802027 |
 
 ## Notes
 
