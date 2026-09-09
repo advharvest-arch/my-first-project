@@ -12,6 +12,7 @@ if __package__ is None or __package__ == "":
     from water_topology.discover import discover_water_graph, parse_seed
     from water_topology.dumps import load_compact_store, load_seliger_audit_dumps, save_compact_store
     from water_topology.export import write_outputs
+    from water_topology.export_visual import write_visual_geojson
     from water_topology.fetch import fetch_seed_and_bbox_catalog
     from water_topology.osm_store import OsmStore
     from water_topology.rings import reconstruct_relation_geometry
@@ -20,6 +21,7 @@ else:
     from .discover import discover_water_graph, parse_seed
     from .dumps import load_compact_store, load_seliger_audit_dumps, save_compact_store
     from .export import write_outputs
+    from .export_visual import write_visual_geojson
     from .fetch import fetch_seed_and_bbox_catalog
     from .osm_store import OsmStore
     from .rings import reconstruct_relation_geometry
@@ -38,9 +40,37 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--stem", default="seliger-topology-discovery")
     p.add_argument("--save-store", help="write compact store snapshot (optionally .json.gz)")
     p.add_argument("--validate", action="store_true", help="write topology validation report")
+    p.add_argument(
+        "--visual-out",
+        help="write frontend-friendly GeoJSON from existing discovery files (no rediscovery)",
+    )
+    p.add_argument(
+        "--discovery-json",
+        default="water-data/docs/seliger-topology-discovery.json",
+        help="PR #86 discovery JSON (used with --visual-out)",
+    )
+    p.add_argument(
+        "--discovery-geojson",
+        default="water-data/docs/seliger-topology-discovery.geojson",
+        help="PR #86 discovery GeoJSON (used with --visual-out)",
+    )
     p.add_argument("--nearby-m", type=float, default=250.0)
     p.add_argument("--portage-m", type=float, default=100.0)
     args = p.parse_args(argv)
+
+    if args.visual_out:
+        store_path = Path(args.store) if args.store else (
+            Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "seliger_store.json.gz"
+        )
+        props = write_visual_geojson(
+            discovery_json_path=Path(args.discovery_json),
+            discovery_geojson_path=Path(args.discovery_geojson),
+            store_path=store_path,
+            out_path=Path(args.visual_out),
+        )
+        print("visual", args.visual_out)
+        print("props", props)
+        return 0
 
     seed_type, seed_id = parse_seed(args.seed)
     store: OsmStore

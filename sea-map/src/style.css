@@ -1094,3 +1094,168 @@ body {
     max-height: 42vh;
   }
 }
+
+/* —— Seliger OSM 399081 diagnostic overlay (?seligerDebug=1) —— */
+.seliger-debug-legend {
+  position: absolute;
+  z-index: 1100;
+  top: 0.7rem;
+  right: 0.7rem;
+  max-width: 18rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(7, 24, 33, 0.86);
+  color: #e8f4f2;
+  font: 500 0.75rem/1.4 var(--sans, system-ui, sans-serif);
+  pointer-events: none;
+}
+.seliger-debug-legend strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.82rem;
+}
+.seliger-debug-label {
+  background: none !important;
+  border: none !important;
+}
+.seliger-debug-label span {
+  display: inline-block;
+  padding: 0.08rem 0.28rem;
+  border-radius: 4px;
+  font: 700 0.62rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+  color: #0b1820;
+  background: rgba(255, 236, 179, 0.92);
+  box-shadow: 0 0 0 1px rgba(11, 24, 32, 0.25);
+}
+.seliger-debug-label--outer span {
+  background: rgba(186, 230, 253, 0.94);
+  font-size: 0.72rem;
+}
+.seliger-debug-popup {
+  font: 500 0.8rem/1.4 system-ui, sans-serif;
+  max-height: 22rem;
+  overflow: auto;
+}
+.seliger-debug-popup p {
+  margin: 0 0 0.35rem;
+}
+.seliger-debug-way {
+  margin: 0.25rem 0 0.45rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(11, 24, 32, 0.06);
+}
+.seliger-debug-popup code {
+  font-size: 0.72rem;
+}
+
+/* —— Seliger topology visual overlay (?seligerTopologyDebug=1) —— */
+.seliger-topo-legend {
+  position: absolute;
+  z-index: 1100;
+  top: 0.7rem;
+  right: 0.7rem;
+  width: min(19.5rem, calc(100vw - 1.2rem));
+  max-height: calc(100vh - 1.4rem);
+  overflow: auto;
+  padding: 0.7rem 0.8rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(7, 24, 33, 0.9);
+  color: #e8f4f2;
+  font: 500 0.75rem/1.4 var(--sans, system-ui, sans-serif);
+  pointer-events: auto;
+}
+.seliger-topo-legend strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.84rem;
+}
+.seliger-topo-legend label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.18rem 0;
+  cursor: pointer;
+}
+.seliger-topo-muted {
+  color: rgba(232, 244, 242, 0.72);
+  margin: 0.2rem 0 0.45rem;
+  font-size: 0.7rem;
+}
+.seliger-topo-swatches {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0.45rem 0 0.35rem;
+}
+.seliger-topo-swatches div {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.seliger-topo-swatches i {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  flex: none;
+}
+.seliger-topo-focus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  margin-top: 0.45rem;
+}
+.seliger-topo-jump {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font: 650 0.62rem/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+  color: #0b1820;
+  background: #bae6fd;
+}
+.seliger-topo-jump--nearby {
+  background: #fbbf24;
+}
+.seliger-topo-jump--island-water {
+  background: #e879f9;
+}
+.seliger-topo-label {
+  background: none !important;
+  border: none !important;
+}
+.seliger-topo-label span {
+  display: inline-block;
+  padding: 0.08rem 0.28rem;
+  border-radius: 4px;
+  font: 700 0.62rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+  color: #0b1820;
+  background: rgba(186, 230, 253, 0.94);
+  box-shadow: 0 0 0 1px rgba(11, 24, 32, 0.28);
+}
+.seliger-topo-label--nearby span {
+  background: rgba(251, 191, 36, 0.95);
+}
+.seliger-topo-label--island-water span {
+  background: rgba(232, 121, 249, 0.95);
+}
+.seliger-topo-popup {
+  font: 500 0.8rem/1.4 system-ui, sans-serif;
+  max-height: 24rem;
+  overflow: auto;
+}
+.seliger-topo-popup p {
+  margin: 0 0 0.32rem;
+}
+.seliger-topo-popup pre {
+  margin: 0.2rem 0 0;
+  max-height: 10rem;
+  overflow: auto;
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+}
+.seliger-topo-popup code {
+  font-size: 0.72rem;
+}
