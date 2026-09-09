@@ -15,6 +15,7 @@ if __package__ is None or __package__ == "":
     from water_topology.fetch import fetch_seed_and_bbox_catalog
     from water_topology.osm_store import OsmStore
     from water_topology.rings import reconstruct_relation_geometry
+    from water_topology.validate import validate_graph, write_validation_outputs
 else:
     from .discover import discover_water_graph, parse_seed
     from .dumps import load_compact_store, load_seliger_audit_dumps, save_compact_store
@@ -22,6 +23,7 @@ else:
     from .fetch import fetch_seed_and_bbox_catalog
     from .osm_store import OsmStore
     from .rings import reconstruct_relation_geometry
+    from .validate import validate_graph, write_validation_outputs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out-dir", default="water-data/docs")
     p.add_argument("--stem", default="seliger-topology-discovery")
     p.add_argument("--save-store", help="write compact store snapshot (optionally .json.gz)")
+    p.add_argument("--validate", action="store_true", help="write topology validation report")
     p.add_argument("--nearby-m", type=float, default=250.0)
     p.add_argument("--portage-m", type=float, default=100.0)
     args = p.parse_args(argv)
@@ -71,6 +74,13 @@ def main(argv: list[str] | None = None) -> int:
         nearby_m=args.nearby_m,
         portage_m=args.portage_m,
     )
+    if args.validate:
+        report = validate_graph(graph, store)
+        vpaths = write_validation_outputs(report, graph, Path(args.out_dir))
+        print("validation", report["summary"])
+        for kind, path in vpaths.items():
+            print(kind, path)
+        return 0
     paths = write_outputs(graph, Path(args.out_dir), store=store, stem=args.stem)
     if args.save_store:
         save_compact_store(store, Path(args.save_store))

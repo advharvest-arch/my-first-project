@@ -465,22 +465,28 @@ def discover_water_graph(
         if ck not in confirmed_keys:
             continue
         area_ends = [n for n in adj[ck] if is_area_obj(n) and n in confirmed_keys]
-        for i, a in enumerate(area_ends):
-            for b in area_ends[i + 1 :]:
-                add_edge(
-                    a,
-                    b,
-                    "WATERWAY_CONNECTOR",
-                    "confirmed",
-                    connectors=[{"osmType": cobj["osm_type"], "osmId": cobj["osm_id"], "key": ck}],
-                    evidence={
-                        "connector": ck,
-                        "sharedNodesWithFrom": sorted(shared_nodes[ck][a])[:8],
-                        "sharedNodesWithTo": sorted(shared_nodes[ck][b])[:8],
-                        "why": f"{a} and {b} share no requirement of a common node; "
-                        f"open waterway {ck} shares OSM nodes with both",
-                    },
-                )
+        # Pairwise shortcuts among 3+ areas on the same way skip intermediates
+        # (e.g. Seliger—Sereymo via the Knyazha axis way, hiding Knyazha).
+        # Keep the waterway as a vertex (DIRECT_OSM) instead.
+        if len(area_ends) != 2:
+            continue
+        a, b = area_ends[0], area_ends[1]
+        add_edge(
+            a,
+            b,
+            "WATERWAY_CONNECTOR",
+            "confirmed",
+            connectors=[{"osmType": cobj["osm_type"], "osmId": cobj["osm_id"], "key": ck}],
+            evidence={
+                "connector": ck,
+                "sharedNodesWithFrom": sorted(shared_nodes[ck][a])[:8],
+                "sharedNodesWithTo": sorted(shared_nodes[ck][b])[:8],
+                "why": (
+                    f"{a} and {b} are the only confirmed water areas that share "
+                    f"OSM nodes with open waterway {ck}"
+                ),
+            },
+        )
 
     # Spatial index of area geometries for C/D/islands (not N×N of all objects)
     area_keys = [k for k, o in objects.items() if is_area_obj(k) and k in geoms]

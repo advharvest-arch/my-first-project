@@ -23,9 +23,7 @@ class SyntheticDiscoveryTests(unittest.TestCase):
     def test_bfs_follows_shared_nodes_and_connectors_not_names(self):
         store = OsmStore()
         # Seed lake: unnamed relation, two outers would be overkill here — one outer way.
-        _add_closed_way(
-            store, 1, (0.0, 0.0), {"natural": "water", "water": "lake"}, size=0.05
-        )
+        _add_closed_way(store, 1, (0.0, 0.0), {}, size=0.05)
         # Attach seed as relation so membership is tested.
         store.relations[9] = RelRec(
             9,
