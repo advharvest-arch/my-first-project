@@ -3,6 +3,12 @@
  * No Leaflet / WRG / routing / topology inference.
  */
 
+declare global {
+  interface Window {
+    __AQUAROUTE_OSM_INSPECT__?: boolean;
+  }
+}
+
 /** Below this, live Overpass is not used; catalog bboxes still show. */
 export const OSM_WATER_INSPECT_MIN_ZOOM = 5;
 /** Viewport wider than this uses named majors, not every pond. */
@@ -130,6 +136,31 @@ export function russiaWaterTopologyDebugEnabledFromSearchParams(
   const params =
     typeof search === 'string' ? new URLSearchParams(search) : search;
   return params.get('russiaWaterTopologyDebug') === '1';
+}
+
+/** Hosted htmlpreview has no usable query string; open.html sets a window flag. */
+export function russiaWaterTopologyDebugEnabledFromHost(opts: {
+  inspectFlag?: boolean;
+  search?: string;
+  hash?: string;
+}): boolean {
+  if (opts.inspectFlag === true) return true;
+  if (opts.search && russiaWaterTopologyDebugEnabledFromSearchParams(opts.search)) {
+    return true;
+  }
+  const raw = opts.hash?.startsWith('#') ? opts.hash.slice(1) : (opts.hash ?? '');
+  return raw ? russiaWaterTopologyDebugEnabledFromSearchParams(raw) : false;
+}
+
+export function russiaWaterTopologyDebugEnabled(): boolean {
+  if (typeof window === 'undefined' || typeof window.location === 'undefined') {
+    return false;
+  }
+  return russiaWaterTopologyDebugEnabledFromHost({
+    inspectFlag: window.__AQUAROUTE_OSM_INSPECT__,
+    search: window.location.search,
+    hash: window.location.hash,
+  });
 }
 
 export function spanTooWide(south: number, west: number, north: number, east: number): boolean {

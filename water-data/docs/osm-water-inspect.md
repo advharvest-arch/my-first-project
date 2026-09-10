@@ -3,6 +3,12 @@
 Исследовательский debug `?russiaWaterTopologyDebug=1`. **Не WRG, не routing, не topology graph.**
 `wg_edges` в репозитории нет и не создавался. `?seligerDebug=1` / `?seligerTopologyDebug=1` не менялись.
 
+## Как открыть без туннеля
+
+jsDelivr отдаёт HTML как `text/plain`, GitHub Pages этой ветки не деплоим (это production `main`). Рабочая страница — `docs/osm-water-inspect-preview/open.html`: HTML через htmlpreview, модули с jsDelivr.
+
+После пуша ссылка в PR #88. Inspect включается флагом `window.__AQUAROUTE_OSM_INSPECT__` внутри `open.html` (у htmlpreview query string занят URL репозитория).
+
 ## Как устроен Seliger debug (найденный прецедент)
 
 | Режим | Данные | Backend |

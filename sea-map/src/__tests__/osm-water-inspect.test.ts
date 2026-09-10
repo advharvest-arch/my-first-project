@@ -6,6 +6,7 @@ import {
   formatInspectPopup,
   inspectDetailLevel,
   parseOverpassToInspectFeatures,
+  russiaWaterTopologyDebugEnabledFromHost,
   russiaWaterTopologyDebugEnabledFromSearchParams,
   simplifyInspectFeatureForDisplay,
   spanTooWide,
@@ -21,6 +22,19 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(russiaWaterTopologyDebugEnabledFromSearchParams('?seligerTopologyDebug=1')).toBe(false);
     expect(seligerTopologyDebugEnabledFromSearchParams('?russiaWaterTopologyDebug=1')).toBe(false);
     expect(seligerDebugEnabledFromSearchParams('?russiaWaterTopologyDebug=1')).toBe(false);
+  });
+
+  it('enables hosted preview via window flag or hash when query string is unusable', () => {
+    expect(russiaWaterTopologyDebugEnabledFromHost({ inspectFlag: true })).toBe(true);
+    expect(
+      russiaWaterTopologyDebugEnabledFromHost({ hash: '#russiaWaterTopologyDebug=1' }),
+    ).toBe(true);
+    expect(
+      russiaWaterTopologyDebugEnabledFromHost({
+        search: '?https://github.com/example/open.html',
+      }),
+    ).toBe(false);
+    expect(russiaWaterTopologyDebugEnabledFromHost({})).toBe(false);
   });
 
   it('classifies lake polygon vs river/canal centerline vs hole', () => {
