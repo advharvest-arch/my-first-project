@@ -150,6 +150,7 @@ describe('russiaWaterTopologyDebug inspect', () => {
     const q = buildInspectOverpassQuery(59.98, 29.8, 61.75, 33.2, 'major');
     expect(q).toContain('["name"]');
     expect(q).toContain('out tags bb');
+    expect(q).toContain('water"~"^(lake|reservoir)$');
     expect(q).not.toContain('out geom');
     expect(q).not.toContain('waterway=stream');
     expect(q).not.toContain('way["waterway"]');

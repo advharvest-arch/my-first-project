@@ -538,11 +538,9 @@ export function buildInspectOverpassQuery(
   if (detail === 'major') {
     return `[out:json][timeout:40];
 (
-  relation["natural"="water"]["name"](${bb});
-  relation["landuse"="reservoir"](${bb});
-  relation["waterway"~"^(river|canal)$"](${bb});
-  way["natural"="water"]["name"](${bb});
-  way["landuse"="reservoir"]["name"](${bb});
+  relation["natural"="water"]["name"]["water"~"^(lake|reservoir)$"](${bb});
+  relation["landuse"="reservoir"]["name"](${bb});
+  way["natural"="water"]["name"]["water"~"^(lake|reservoir)$"](${bb});
 );
 out tags bb;`;
   }

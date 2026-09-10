@@ -59,7 +59,7 @@ Postgres в этой среде не запущен (`:5433` нет). Цифры
 | кадр | что видно |
 |---|---|
 | обзор Европейской России (span > 10° или z < 5) | справочные bbox из `water-bodies.json` (**не OSM-геометрия**) |
-| z ≥ 5, span ≤ 10° | live OSM **named majors** как Overpass **bbox** (быстро; не полное кольцо). Приблизьте для geom. |
+| z ≥ 5, span ≤ 10° | live OSM bbox named **lake/reservoir** (не полное кольцо, без нарезки river ways) |
 | z ≥ 7, span ≤ 3° | все water polygons + river/canal centerlines |
 | z ≥ 11, span ≤ 2.5° | плюс stream/ditch |
 
