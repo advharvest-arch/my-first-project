@@ -41,6 +41,10 @@ import {
   isHybridWaterGraphEnabled,
   statusWithRouterSource,
 } from './hybrid-router-ui';
+import { seligerDebugEnabledFromSearchParams } from './seliger-debug';
+import { mountSeligerDebugOverlay } from './seliger-debug-overlay';
+import { seligerTopologyDebugEnabledFromSearchParams } from './seliger-topology-debug';
+import { mountSeligerTopologyDebugOverlay } from './seliger-topology-debug-overlay';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -1800,6 +1804,22 @@ gpxExportBtn.addEventListener('click', () => {
 });
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
+  if (seligerDebugEnabledFromSearchParams(params)) {
+    setStatus('Селигер: диагностика OSM 399081 (без WRG). Включите подложку «Спутник».');
+    void mountSeligerDebugOverlay(map).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(`Селигер debug: не удалось загрузить геометрию. ${msg}`, true);
+    });
+    return;
+  }
+  if (seligerTopologyDebugEnabledFromSearchParams(params)) {
+    setStatus('Селигер: визуальная проверка topology graph PR #86 (без WRG).');
+    void mountSeligerTopologyDebugOverlay(map).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(`Селигер topology debug: не удалось загрузить GeoJSON. ${msg}`, true);
+    });
+    return;
+  }
   // E2.15/E2.16 pilot: ?wg=1 enables Hybrid WaterGraph (WaterGraph → BRouter fallback).
   // Default remains USE_WATER_GRAPH=false.
   if (hybridEnabledFromSearchParams(params)) {
