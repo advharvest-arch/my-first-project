@@ -153,6 +153,7 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(q).not.toContain('out geom');
     expect(q).not.toContain('waterway=stream');
     expect(q).not.toContain('way["waterway"]');
+    expect(q).not.toContain('way["waterway"~"^(river|canal)$"]');
     const full = buildInspectOverpassQuery(57.0, 32.8, 57.6, 33.4, 'full');
     expect(full).not.toContain('stream');
     const streams = buildInspectOverpassQuery(57.1, 33.0, 57.3, 33.2, 'streams');

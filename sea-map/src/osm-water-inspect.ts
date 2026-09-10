@@ -541,8 +541,8 @@ export function buildInspectOverpassQuery(
   relation["natural"="water"]["name"](${bb});
   relation["landuse"="reservoir"](${bb});
   relation["waterway"~"^(river|canal)$"](${bb});
-  way["waterway"~"^(river|canal)$"]["name"](${bb});
   way["natural"="water"]["name"](${bb});
+  way["landuse"="reservoir"]["name"](${bb});
 );
 out tags bb;`;
   }
