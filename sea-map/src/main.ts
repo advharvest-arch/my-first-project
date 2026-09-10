@@ -45,6 +45,8 @@ import { seligerDebugEnabledFromSearchParams } from './seliger-debug';
 import { mountSeligerDebugOverlay } from './seliger-debug-overlay';
 import { seligerTopologyDebugEnabledFromSearchParams } from './seliger-topology-debug';
 import { mountSeligerTopologyDebugOverlay } from './seliger-topology-debug-overlay';
+import { russiaWaterTopologyDebugEnabledFromSearchParams } from './osm-water-inspect';
+import { mountOsmWaterInspectOverlay } from './osm-water-inspect-overlay';
 
 type AppMode = 'water' | 'ruler';
 type Waypoint = { id: string; lon: number; lat: number; name: string };
@@ -1817,6 +1819,14 @@ function bootFromQuery(): void {
     void mountSeligerTopologyDebugOverlay(map).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus(`Селигер topology debug: не удалось загрузить GeoJSON. ${msg}`, true);
+    });
+    return;
+  }
+  if (russiaWaterTopologyDebugEnabledFromSearchParams(params)) {
+    setStatus('OSM water inspect: Европейская Россия, исходные объекты (без WRG/topology).');
+    void mountOsmWaterInspectOverlay(map).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(`OSM water inspect: ${msg}`, true);
     });
     return;
   }
