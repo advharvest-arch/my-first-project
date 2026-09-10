@@ -5,9 +5,9 @@
 
 ## Как открыть без туннеля
 
-jsDelivr отдаёт HTML как `text/plain`, GitHub Pages этой ветки не деплоим (это production `main`). Рабочая страница — `docs/osm-water-inspect-preview/open.html`: HTML через htmlpreview, модули с jsDelivr по commit SHA.
+jsDelivr отдаёт HTML как `text/plain`, GitHub Pages этой ветки не деплоим (это production `main`). htmlpreview не исполняет Vite `type=module`, поэтому `open.html` грузит классический IIFE `inspect-iife.js` (fetch + eval).
 
-Inspect включается флагом `window.__AQUAROUTE_OSM_INSPECT__` внутри `open.html` (у htmlpreview query string занят URL репозитория). Актуальная ссылка — в PR #88.
+Inspect включается флагом `window.__AQUAROUTE_OSM_INSPECT__` внутри `open.html`. Актуальная ссылка — в PR #88. Не production Pages.
 
 ## Как устроен Seliger debug (найденный прецедент)
 
