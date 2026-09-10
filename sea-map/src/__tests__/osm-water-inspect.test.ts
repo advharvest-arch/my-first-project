@@ -10,6 +10,7 @@ import {
   russiaWaterTopologyDebugEnabledFromSearchParams,
   simplifyInspectFeatureForDisplay,
   spanTooWide,
+  buildInspectViewportStats,
   type OverpassInspectElement,
 } from '../osm-water-inspect';
 import { seligerTopologyDebugEnabledFromSearchParams } from '../seliger-topology-debug';
@@ -195,6 +196,10 @@ describe('russiaWaterTopologyDebug inspect', () => {
     const html = formatInspectPopup(features[0].properties);
     expect(html).toContain('не OSM-геометрия');
     expect(html).toContain('Ладожское озеро');
+    const stats = buildInspectViewportStats(features, 'catalog');
+    expect(stats.catalog_bboxes).toBe(1);
+    expect(stats.lake_polygons).toBe(0);
+    expect(stats.multipolygon_relations).toBe(0);
   });
 
   it('parses Overpass bbox-only elements as OSM extents, not invented links', () => {
@@ -342,14 +347,213 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(short!.properties.relation_role).toBe('outer');
     expect(short!.properties.relation_id).toBe(2406778);
     expect(formatInspectPopup(short!.properties)).toContain('не waterway=river centerline');
+    expect(formatInspectPopup(short!.properties)).toContain('NOT a waterway centerline');
     expect(formatInspectPopup(short!.properties)).toContain('way/180396592');
+    expect(formatInspectPopup(short!.properties)).toContain('vertices: 3');
+    expect(formatInspectPopup(short!.properties)).toContain('open LineString');
+    expect(short!.properties.start).toEqual([33.545707, 56.812748]);
+    expect(short!.properties.in_relation ?? short!.properties.osm_memberships?.length).toBeTruthy();
     const areaHtml = formatInspectPopup(area[0].properties);
     expect(areaHtml).toContain('relation/2406778');
+    expect(areaHtml).toContain('OUTER');
+    expect(areaHtml).toContain('INNER');
     expect(areaHtml).toContain('outer 5');
     expect(areaHtml).toContain('inner 1');
     expect(areaHtml).toContain('way/180396592');
+    expect(areaHtml).toContain('OSM FAMILY');
+    expect(areaHtml).toContain('НЕ ИСКАТЬ автоматически');
+    expect(areaHtml).toContain('place=islet');
     expect(center).toHaveLength(1);
     expect(center[0].properties.osm_id).toBe(28237778);
     expect(center[0].properties.tags.waterway).toBe('river');
+  });
+
+  it('shows waterway relation anatomy as OSM membership, not computed polygon links', () => {
+    const els: OverpassInspectElement[] = [
+      {
+        type: 'relation',
+        id: 379295,
+        tags: { type: 'waterway', waterway: 'river', name: 'Селижаровка' },
+        members: [
+          {
+            type: 'way',
+            ref: 28838371,
+            role: 'main_stream',
+            geometry: [
+              { lon: 33.3, lat: 57.0 },
+              { lon: 33.35, lat: 56.95 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 28237780,
+            role: 'main_stream',
+            geometry: [
+              { lon: 33.35, lat: 56.95 },
+              { lon: 33.45, lat: 56.88 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 28237778,
+            role: 'main_stream',
+            geometry: [
+              { lon: 33.45, lat: 56.88 },
+              { lon: 33.55, lat: 56.81 },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'way',
+        id: 28237778,
+        tags: { waterway: 'river', name: 'Селижаровка' },
+        geometry: [
+          { lon: 33.45, lat: 56.88 },
+          { lon: 33.55, lat: 56.81 },
+        ],
+      },
+    ];
+    const features = parseOverpassToInspectFeatures(els);
+    const center = features.filter((f) => f.properties.layer === 'centerline-river');
+    expect(center).toHaveLength(3);
+    expect(features.filter((f) => f.properties.layer.startsWith('polygon'))).toHaveLength(0);
+    expect(features.filter((f) => f.properties.layer === 'centerline-other')).toHaveLength(0);
+    const mouth = center.find((f) => f.properties.osm_id === 28237778);
+    expect(mouth).toBeTruthy();
+    expect(mouth!.properties.relation_id).toBe(379295);
+    expect(mouth!.properties.relation_role).toBe('main_stream');
+    expect(mouth!.properties.osm_memberships?.some((m) => m.relation_id === 379295)).toBe(true);
+    expect(mouth!.properties.family?.is_waterway_relation).toBe(true);
+    expect(mouth!.properties.family?.is_water_polygon).toBe(false);
+    expect(mouth!.properties.family?.centerline_member_count).toBe(3);
+    const html = formatInspectPopup(mouth!.properties);
+    expect(html).toContain('relation/379295');
+    expect(html).toContain('MAIN_STREAM');
+    expect(html).toContain('way/28838371');
+    expect(html).toContain('way/28237780');
+    expect(html).toContain('way/28237778');
+    expect(html).toContain('role: <code>main_stream</code>');
+    expect(html).toContain('OSM relation membership');
+    expect(html).toContain('не вычисленная topology');
+    expect(html).toContain('НЕ ИСКАТЬ автоматически');
+    expect(html).toContain('не вычисляются');
+    expect(html).not.toContain('nearest');
+    expect(html).not.toContain('same water body');
+    expect(html).not.toContain('belongs to polygon');
+    expect(html.toLowerCase()).not.toContain('st_dwithin');
+  });
+
+  it('keeps a large river-area of unclosed LineString outers as MP boundary, not centerline', () => {
+    const members: NonNullable<OverpassInspectElement['members']> = [
+      {
+        type: 'way',
+        ref: 258000001,
+        role: 'outer',
+        geometry: [
+          { lon: 33.27, lat: 56.9 },
+          { lon: 33.43, lat: 56.9 },
+        ],
+      },
+      {
+        type: 'way',
+        ref: 258000002,
+        role: 'outer',
+        geometry: [
+          { lon: 33.43, lat: 56.9 },
+          { lon: 33.43, lat: 57.03 },
+        ],
+      },
+      {
+        type: 'way',
+        ref: 258000003,
+        role: 'outer',
+        geometry: [
+          { lon: 33.43, lat: 57.03 },
+          { lon: 33.27, lat: 57.03 },
+        ],
+      },
+      {
+        type: 'way',
+        ref: 258000004,
+        role: 'outer',
+        geometry: [
+          { lon: 33.27, lat: 57.03 },
+          { lon: 33.27, lat: 56.9 },
+        ],
+      },
+    ];
+    for (let i = 0; i < 4; i += 1) {
+      const lon = 33.28 + i * 0.02;
+      members.push({
+        type: 'way',
+        ref: 258000010 + i,
+        role: 'outer',
+        geometry: [
+          { lon, lat: 56.94 },
+          { lon: lon + 0.004, lat: 56.941 },
+          { lon: lon + 0.008, lat: 56.942 },
+        ],
+      });
+    }
+    members.push({
+      type: 'way',
+      ref: 258000099,
+      role: 'inner',
+      geometry: [
+        { lon: 33.33, lat: 56.96 },
+        { lon: 33.331, lat: 56.96 },
+        { lon: 33.331, lat: 56.961 },
+        { lon: 33.33, lat: 56.961 },
+        { lon: 33.33, lat: 56.96 },
+      ],
+    });
+    const features = parseOverpassToInspectFeatures([
+      {
+        type: 'relation',
+        id: 2580469,
+        tags: { type: 'multipolygon', natural: 'water', water: 'river' },
+        members,
+      },
+    ]);
+    expect(features.filter((f) => f.properties.layer.startsWith('centerline'))).toHaveLength(0);
+    expect(features.filter((f) => f.properties.layer === 'mp-outer')).toHaveLength(8);
+    expect(features.filter((f) => f.properties.layer === 'mp-inner')).toHaveLength(1);
+    expect(features.filter((f) => f.properties.layer === 'polygon-river-area').length).toBeGreaterThanOrEqual(1);
+    const stats = buildInspectViewportStats(features, 'overpass');
+    expect(stats.river_area_polygons).toBeGreaterThanOrEqual(1);
+    expect(stats.multipolygon_relations).toBe(1);
+    expect(stats.waterway_relations).toBe(0);
+    expect(stats.outer_members).toBe(8);
+    expect(stats.inner_members).toBe(1);
+    expect(stats.river_centerlines).toBe(0);
+  });
+
+  it('attaches OSM membership to a standalone centerline way without inventing a polygon family', () => {
+    const features = parseOverpassToInspectFeatures([
+      {
+        type: 'way',
+        id: 10,
+        tags: { waterway: 'river', name: 'река' },
+        geometry: [
+          { lon: 1, lat: 1 },
+          { lon: 2, lat: 2 },
+        ],
+      },
+      {
+        type: 'relation',
+        id: 99,
+        tags: { type: 'waterway', waterway: 'river', name: 'река' },
+        members: [{ type: 'way', ref: 10, role: 'main_stream' }],
+      },
+    ]);
+    const way = features.find((f) => f.properties.osm_id === 10);
+    expect(way?.properties.layer).toBe('centerline-river');
+    expect(way?.properties.osm_memberships).toEqual([
+      expect.objectContaining({ relation_id: 99, role: 'main_stream' }),
+    ]);
+    const html = formatInspectPopup(way!.properties);
+    expect(html).toContain('OSM relation membership');
+    expect(html).not.toContain('Water polygon:<br>1 outer');
   });
 });
