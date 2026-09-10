@@ -96,6 +96,8 @@ export type InspectProps = {
   waterway?: string;
   water?: string;
   natural?: string;
+  vertex_count?: number;
+  vertex_count_drawn?: number;
 };
 
 export type InspectFeature = {
@@ -114,6 +116,72 @@ export function russiaWaterTopologyDebugEnabledFromSearchParams(
 
 export function spanTooWide(south: number, west: number, north: number, east: number): boolean {
   return inspectViewportSpanDeg(south, west, north, east) > OSM_WATER_INSPECT_MAX_SPAN_DEG;
+}
+
+/** Display-only: keep OSM shape/holes, drop vertices so Leaflet can draw Ladoga-scale geom. */
+export const INSPECT_DISPLAY_MAX_RING_VERTICES = 500;
+
+export function decimateLine(coords: number[][], maxVertices = INSPECT_DISPLAY_MAX_RING_VERTICES): number[][] {
+  if (coords.length <= maxVertices) return coords;
+  const step = Math.max(1, Math.ceil((coords.length - 1) / (maxVertices - 1)));
+  const out: number[][] = [];
+  for (let i = 0; i < coords.length - 1; i += step) out.push(coords[i]);
+  const last = coords[coords.length - 1];
+  const prev = out[out.length - 1];
+  if (!prev || prev[0] !== last[0] || prev[1] !== last[1]) out.push(last);
+  return out;
+}
+
+export function decimateRing(ring: number[][], maxVertices = INSPECT_DISPLAY_MAX_RING_VERTICES): number[][] {
+  if (ring.length <= maxVertices) return ring;
+  const closed =
+    ring.length > 1 &&
+    ring[0][0] === ring[ring.length - 1][0] &&
+    ring[0][1] === ring[ring.length - 1][1];
+  const open = closed ? ring.slice(0, -1) : ring;
+  const sampled = decimateLine(open, Math.max(4, maxVertices - 1));
+  const first = sampled[0];
+  const last = sampled[sampled.length - 1];
+  if (!first) return ring;
+  if (!last || last[0] !== first[0] || last[1] !== first[1]) sampled.push(first);
+  return sampled;
+}
+
+function countGeometryVertices(geometry: GeoJSON.Geometry): number {
+  if (geometry.type === 'LineString') return geometry.coordinates.length;
+  if (geometry.type === 'Polygon') return geometry.coordinates.reduce((n, ring) => n + ring.length, 0);
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.reduce(
+      (n, poly) => n + poly.reduce((m, ring) => m + ring.length, 0),
+      0,
+    );
+  }
+  return 0;
+}
+
+export function simplifyInspectFeatureForDisplay(feature: InspectFeature): InspectFeature {
+  const geom = feature.geometry;
+  const vertex_count = countGeometryVertices(geom);
+  let next: GeoJSON.Geometry = geom;
+  if (geom.type === 'LineString') {
+    next = { type: 'LineString', coordinates: decimateLine(geom.coordinates) };
+  } else if (geom.type === 'Polygon') {
+    next = { type: 'Polygon', coordinates: geom.coordinates.map((ring) => decimateRing(ring)) };
+  } else if (geom.type === 'MultiPolygon') {
+    next = {
+      type: 'MultiPolygon',
+      coordinates: geom.coordinates.map((poly) => poly.map((ring) => decimateRing(ring))),
+    };
+  }
+  return {
+    ...feature,
+    properties: {
+      ...feature.properties,
+      vertex_count,
+      vertex_count_drawn: countGeometryVertices(next),
+    },
+    geometry: next,
+  };
 }
 
 export function catalogFeaturesFromBodies(
@@ -414,6 +482,15 @@ export function formatInspectPopup(props: InspectProps): string {
 <p>geometry: <code>${escapeHtml(props.geometry_type)}</code></p>
 <p>parts: ${props.part_count} · holes/inners: ${props.hole_count}</p>
 <p>OSM members: ${escapeHtml(members)}</p>
+${
+  typeof props.vertex_count === 'number'
+    ? `<p>vertices: OSM ${props.vertex_count}${
+        typeof props.vertex_count_drawn === 'number' && props.vertex_count_drawn !== props.vertex_count
+          ? `, на карте ${props.vertex_count_drawn} (inspect simplify, не topology)`
+          : ''
+      }</p>`
+    : ''
+}
 <p>centerline «связи»: не вычисляются (нет topology)</p>
 <p>теги:</p>
 ${formatTags(props.tags)}
@@ -431,11 +508,11 @@ export function buildInspectOverpassQuery(
   if (detail === 'major') {
     return `[out:json][timeout:90];
 (
-  relation["natural"="water"]["name"](if: length()>8000)(${bb});
-  relation["landuse"="reservoir"](if: length()>8000)(${bb});
+  relation["natural"="water"]["name"](if: length()>20000)(${bb});
+  relation["landuse"="reservoir"](if: length()>20000)(${bb});
   relation["waterway"~"^(river|canal)$"](${bb});
-  way["waterway"~"^(river|canal)$"]["name"](if: length()>8000)(${bb});
-  way["natural"="water"]["name"](if: length()>8000)(${bb});
+  way["waterway"~"^(river|canal)$"]["name"](if: length()>20000)(${bb});
+  way["natural"="water"]["name"](if: length()>20000)(${bb});
 );
 out geom;`;
   }

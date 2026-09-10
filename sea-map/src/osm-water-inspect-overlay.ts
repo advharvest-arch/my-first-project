@@ -15,6 +15,7 @@ import {
   inspectDetailLevel,
   parseOverpassToInspectFeatures,
   russiaWaterTopologyDebugEnabledFromSearchParams,
+  simplifyInspectFeatureForDisplay,
   type InspectDetail,
   type InspectFeature,
   type InspectLayer,
@@ -259,7 +260,10 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
 
   const render = (features: InspectFeature[]) => {
     dataGroup.clearLayers();
-    const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+    const fc: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: features.map(simplifyInspectFeatureForDisplay),
+    };
     L.geoJSON(fc, {
       pane: 'osmInspectFill',
       filter: (f) => {

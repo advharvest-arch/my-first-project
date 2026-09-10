@@ -7,6 +7,7 @@ import {
   inspectDetailLevel,
   parseOverpassToInspectFeatures,
   russiaWaterTopologyDebugEnabledFromSearchParams,
+  simplifyInspectFeatureForDisplay,
   spanTooWide,
   type OverpassInspectElement,
 } from '../osm-water-inspect';
@@ -148,7 +149,7 @@ describe('russiaWaterTopologyDebug inspect', () => {
   it('major Overpass query is named waters only and has no streams', () => {
     const q = buildInspectOverpassQuery(59.98, 29.8, 61.75, 33.2, 'major');
     expect(q).toContain('["name"]');
-    expect(q).toContain('length()>8000');
+    expect(q).toContain('length()>20000');
     expect(q).not.toContain('waterway=stream');
     expect(q).not.toContain('way["waterway"]');
     const full = buildInspectOverpassQuery(57.0, 32.8, 57.6, 33.4, 'full');
@@ -168,5 +169,30 @@ describe('russiaWaterTopologyDebug inspect', () => {
     const html = formatInspectPopup(features[0].properties);
     expect(html).toContain('не OSM-геометрия');
     expect(html).toContain('Ладожское озеро');
+  });
+
+  it('display simplify keeps closed rings but drops vertices for Leaflet', () => {
+    const ring: number[][] = [];
+    for (let i = 0; i < 2000; i += 1) ring.push([30 + i / 10000, 60]);
+    ring.push(ring[0]);
+    const simplified = simplifyInspectFeatureForDisplay({
+      type: 'Feature',
+      properties: {
+        layer: 'polygon-lake',
+        osm_type: 'way',
+        osm_id: 1,
+        tags: {},
+        geometry_type: 'Polygon',
+        part_count: 1,
+        hole_count: 0,
+      },
+      geometry: { type: 'Polygon', coordinates: [ring] },
+    });
+    const drawn = (simplified.geometry as GeoJSON.Polygon).coordinates[0];
+    expect(simplified.properties.vertex_count).toBe(2001);
+    expect(drawn.length).toBeLessThan(600);
+    expect(drawn[0]).toEqual(drawn[drawn.length - 1]);
+    const html = formatInspectPopup(simplified.properties);
+    expect(html).toContain('inspect simplify');
   });
 });
