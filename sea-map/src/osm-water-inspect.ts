@@ -49,6 +49,7 @@ export const INSPECT_LEGEND = {
   CENTERLINE_CANAL: '#16a34a',
   CENTERLINE_STREAM: '#eab308',
   INNER: '#fb7185',
+  OUTER: '#c026d3',
   EXTRACT: '#64748b',
   CATALOG: '#94a3b8',
 } as const;
@@ -76,9 +77,22 @@ export type InspectLayer =
   | 'polygon-reservoir'
   | 'polygon-river-area'
   | 'polygon-other'
+  | 'mp-outer'
   | 'mp-inner'
   | 'catalog-water'
   | 'extract-coverage';
+
+export type InspectGeomKind = 'line' | 'polygon' | 'inner' | 'outer';
+
+export type InspectMemberInfo = {
+  role: string;
+  osm_type: string;
+  osm_id: number;
+  tags: Record<string, string>;
+  geometry_type: string;
+  vertex_count: number;
+  closed: boolean;
+};
 
 export type InspectProps = {
   layer: InspectLayer;
@@ -93,6 +107,10 @@ export type InspectProps = {
   member_roles?: string[];
   relation_id?: number;
   relation_role?: string;
+  relation_tags?: Record<string, string>;
+  member_tags?: Record<string, string>;
+  members_detail?: InspectMemberInfo[];
+  closed?: boolean;
   waterway?: string;
   water?: string;
   natural?: string;
@@ -230,7 +248,10 @@ export type OverpassInspectElement = {
   geometry?: Array<{ lat: number; lon: number }>;
   members?: Array<{
     type: string;
+    ref?: number;
+    id?: number;
     role?: string;
+    tags?: Record<string, string>;
     geometry?: Array<{ lat: number; lon: number }>;
   }>;
 };
@@ -260,12 +281,79 @@ function isAreaTags(tags: Record<string, string>): boolean {
   return false;
 }
 
+function sameCoord(a: number[], b: number[]): boolean {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+function toLine(coords: Array<{ lat: number; lon: number }>): number[][] {
+  return coords.map((p) => [p.lon, p.lat]);
+}
+
+function memberRef(m: { ref?: number; id?: number }): number {
+  return m.ref ?? m.id ?? 0;
+}
+
+/** Join unclosed MP member ways that share endpoints into closed rings. Not topology between water objects. */
+export function assembleClosedRings(lines: number[][][]): number[][][] {
+  const rings: number[][][] = [];
+  const unused = lines
+    .filter((line) => line.length >= 2)
+    .map((line) => line.map((c) => [c[0], c[1]]));
+  const open: number[][][] = [];
+  for (const line of unused) {
+    if (line.length >= 4 && sameCoord(line[0], line[line.length - 1])) rings.push(line);
+    else open.push(line);
+  }
+  while (open.length) {
+    let chain = open.pop()!;
+    let progressed = true;
+    while (progressed) {
+      progressed = false;
+      for (let i = 0; i < open.length; i += 1) {
+        const cand = open[i];
+        const head = chain[0];
+        const tail = chain[chain.length - 1];
+        const c0 = cand[0];
+        const c1 = cand[cand.length - 1];
+        if (sameCoord(tail, c0)) {
+          chain = chain.concat(cand.slice(1));
+          open.splice(i, 1);
+          progressed = true;
+          break;
+        }
+        if (sameCoord(tail, c1)) {
+          chain = chain.concat(cand.slice(0, -1).reverse());
+          open.splice(i, 1);
+          progressed = true;
+          break;
+        }
+        if (sameCoord(head, c1)) {
+          chain = cand.slice(0, -1).concat(chain);
+          open.splice(i, 1);
+          progressed = true;
+          break;
+        }
+        if (sameCoord(head, c0)) {
+          chain = cand.slice().reverse().slice(0, -1).concat(chain);
+          open.splice(i, 1);
+          progressed = true;
+          break;
+        }
+      }
+    }
+    if (chain.length >= 4 && sameCoord(chain[0], chain[chain.length - 1])) rings.push(chain);
+  }
+  return rings;
+}
+
 export function classifyInspectLayer(
   tags: Record<string, string>,
-  kind: 'line' | 'polygon' | 'inner',
+  kind: InspectGeomKind,
 ): InspectLayer {
   if (kind === 'inner') return 'mp-inner';
+  if (kind === 'outer') return 'mp-outer';
   if (kind === 'line') {
+    if (tags.type === 'multipolygon' && isAreaTags(tags)) return 'mp-outer';
     const w = tags.waterway || '';
     if (w === 'canal' || w === 'ship_canal') return 'centerline-canal';
     if (w === 'river' || w === 'fairway') return 'centerline-river';
@@ -278,9 +366,19 @@ export function classifyInspectLayer(
   return 'polygon-other';
 }
 
+function isMultipolygonArea(tags: Record<string, string>): boolean {
+  if (tags.type === 'waterway') return false;
+  return tags.type === 'multipolygon' || tags.type === 'water' || isAreaTags(tags);
+}
+
 export function parseOverpassToInspectFeatures(
   elements: OverpassInspectElement[],
 ): InspectFeature[] {
+  const wayTags = new Map<number, Record<string, string>>();
+  for (const el of elements) {
+    if (el.type === 'way') wayTags.set(el.id, el.tags ?? {});
+  }
+
   const out: InspectFeature[] = [];
   for (const el of elements) {
     const tags = el.tags ?? {};
@@ -297,8 +395,8 @@ export function parseOverpassToInspectFeatures(
 
     if (el.bounds && !el.geometry && !(el.members && el.members.some((m) => m.geometry && m.geometry.length >= 2))) {
       const b = el.bounds;
-      const kind: 'line' | 'polygon' = tags.waterway && !isAreaTags(tags) ? 'line' : 'polygon';
-      const ring = [
+      const kind: InspectGeomKind = tags.waterway && !isAreaTags(tags) ? 'line' : 'polygon';
+      const bboxRing = [
         [b.minlon, b.minlat],
         [b.maxlon, b.minlat],
         [b.maxlon, b.maxlat],
@@ -314,7 +412,7 @@ export function parseOverpassToInspectFeatures(
           part_count: 1,
           hole_count: 0,
         },
-        geometry: { type: 'Polygon', coordinates: [ring] },
+        geometry: { type: 'Polygon', coordinates: [bboxRing] },
       });
       continue;
     }
@@ -331,6 +429,8 @@ export function parseOverpassToInspectFeatures(
             geometry_type: 'Polygon',
             part_count: 1,
             hole_count: 0,
+            vertex_count: el.geometry.length,
+            closed: true,
           },
           geometry: { type: 'Polygon', coordinates: [coords] },
         });
@@ -343,6 +443,8 @@ export function parseOverpassToInspectFeatures(
             geometry_type: 'LineString',
             part_count: 1,
             hole_count: 0,
+            vertex_count: el.geometry.length,
+            closed: closed(el.geometry),
           },
           geometry: {
             type: 'LineString',
@@ -355,91 +457,145 @@ export function parseOverpassToInspectFeatures(
 
     if (el.type !== 'relation' || !el.members) continue;
     const members = el.members.filter((m) => m.geometry && m.geometry.length >= 2);
+    if (!members.length) continue;
     const roles = members.map((m) => m.role || '');
-    const outers = members.filter((m) => (m.role || 'outer') === 'outer' || m.role === '');
-    const inners = members.filter((m) => m.role === 'inner');
-    const isMp =
-      tags.type === 'multipolygon' || isAreaTags(tags) || tags.type === 'water';
+    const details: InspectMemberInfo[] = members.map((m) => {
+      const geom = m.geometry!;
+      const isClosed = closed(geom);
+      const mTags = wayTags.get(memberRef(m)) ?? m.tags ?? {};
+      return {
+        role: m.role || (isClosed ? 'outer' : ''),
+        osm_type: m.type || 'way',
+        osm_id: memberRef(m),
+        tags: mTags,
+        geometry_type: isClosed ? 'Polygon' : 'LineString',
+        vertex_count: geom.length,
+        closed: isClosed,
+      };
+    });
+    const outerMembers = members.filter((m) => (m.role || 'outer') === 'outer' || m.role === '');
+    const innerMembers = members.filter((m) => m.role === 'inner');
 
-    if (isMp && (outers.length > 0 || inners.length > 0 || members.some((m) => closed(m.geometry!)))) {
-      const outerParts = (outers.length ? outers : members.filter((m) => closed(m.geometry!))).filter(
-        (m) => m.geometry && m.geometry.length >= 2,
-      );
-      for (let i = 0; i < outerParts.length; i += 1) {
-        const geom = outerParts[i].geometry!;
-        const coords = closed(geom) ? ring(geom) : geom.map((p) => [p.lon, p.lat]);
-        if (coords.length < 4) {
-          out.push({
-            type: 'Feature',
-            properties: {
-              ...base,
-              layer: classifyInspectLayer(tags, 'line'),
-              geometry_type: 'LineString',
-              part_count: outerParts.length,
-              hole_count: inners.length,
-              member_count: members.length,
-              member_roles: roles,
-              relation_role: outerParts[i].role || 'outer',
-            },
-            geometry: { type: 'LineString', coordinates: geom.map((p) => [p.lon, p.lat]) },
-          });
-          continue;
-        }
+    if (isMultipolygonArea(tags)) {
+      for (const m of outerMembers) {
+        const geom = m.geometry!;
+        const mTags = wayTags.get(memberRef(m)) ?? m.tags ?? {};
+        out.push({
+          type: 'Feature',
+          properties: {
+            name,
+            osm_type: m.type || 'way',
+            osm_id: memberRef(m),
+            tags: mTags,
+            member_tags: mTags,
+            waterway: mTags.waterway,
+            water: tags.water,
+            natural: tags.natural,
+            layer: 'mp-outer',
+            geometry_type: 'LineString',
+            part_count: outerMembers.length,
+            hole_count: innerMembers.length,
+            member_count: members.length,
+            member_roles: roles,
+            relation_id: el.id,
+            relation_role: m.role || 'outer',
+            relation_tags: tags,
+            members_detail: details,
+            vertex_count: geom.length,
+            closed: closed(geom),
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: geom.map((p) => [p.lon, p.lat]),
+          },
+        });
+      }
+      for (const m of innerMembers) {
+        const geom = m.geometry!;
+        const mTags = wayTags.get(memberRef(m)) ?? m.tags ?? {};
+        const isClosed = closed(geom);
+        out.push({
+          type: 'Feature',
+          properties: {
+            name,
+            osm_type: m.type || 'way',
+            osm_id: memberRef(m),
+            tags: mTags,
+            member_tags: mTags,
+            waterway: mTags.waterway,
+            water: tags.water,
+            natural: tags.natural,
+            layer: 'mp-inner',
+            geometry_type: isClosed ? 'Polygon-inner' : 'LineString',
+            part_count: outerMembers.length,
+            hole_count: innerMembers.length,
+            member_count: members.length,
+            member_roles: roles,
+            relation_id: el.id,
+            relation_role: 'inner',
+            relation_tags: tags,
+            members_detail: details,
+            vertex_count: geom.length,
+            closed: isClosed,
+          },
+          geometry: isClosed
+            ? { type: 'Polygon', coordinates: [ring(geom)] }
+            : { type: 'LineString', coordinates: geom.map((p) => [p.lon, p.lat]) },
+        });
+      }
+      const assembled = assembleClosedRings(outerMembers.map((m) => toLine(m.geometry!)));
+      const holes = innerMembers.filter((m) => closed(m.geometry!)).map((m) => ring(m.geometry!));
+      for (let i = 0; i < assembled.length; i += 1) {
+        const outerRing = assembled[i];
+        const holeRings = assembled.length === 1 ? holes : [];
         out.push({
           type: 'Feature',
           properties: {
             ...base,
             layer: classifyInspectLayer(tags, 'polygon'),
-            geometry_type: outerParts.length > 1 ? 'MultiPolygon-part' : 'Polygon',
-            part_count: outerParts.length,
-            hole_count: inners.length,
+            geometry_type: assembled.length > 1 ? 'MultiPolygon-part' : 'Polygon',
+            part_count: assembled.length,
+            hole_count: holeRings.length,
             member_count: members.length,
             member_roles: roles,
-            relation_role: outerParts[i].role || 'outer',
+            members_detail: details,
+            relation_role: 'area',
+            vertex_count: outerRing.length + holeRings.reduce((n, h) => n + h.length, 0),
+            closed: true,
           },
-          geometry: {
-            type: 'Polygon',
-            coordinates: [closed(geom) ? ring(geom) : [...coords, coords[0]]],
-          },
-        });
-      }
-      for (const inner of inners) {
-        const geom = inner.geometry!;
-        out.push({
-          type: 'Feature',
-          properties: {
-            ...base,
-            layer: 'mp-inner',
-            geometry_type: 'Polygon-inner',
-            part_count: outerParts.length,
-            hole_count: inners.length,
-            member_count: members.length,
-            member_roles: roles,
-            relation_role: 'inner',
-          },
-          geometry: {
-            type: 'Polygon',
-            coordinates: [ring(geom)],
-          },
+          geometry: { type: 'Polygon', coordinates: [outerRing, ...holeRings] },
         });
       }
       continue;
     }
 
-    // waterway relation: keep member lines separate, no merge
     for (const m of members) {
       const geom = m.geometry!;
+      const mTags = wayTags.get(memberRef(m)) ?? m.tags ?? {};
+      const lineTags = mTags.waterway ? mTags : tags;
       out.push({
         type: 'Feature',
         properties: {
-          ...base,
-          layer: classifyInspectLayer(tags, 'line'),
+          name: mTags['name:ru'] || mTags.name || name,
+          osm_type: m.type || 'way',
+          osm_id: memberRef(m),
+          tags: Object.keys(mTags).length ? mTags : tags,
+          member_tags: mTags,
+          waterway: lineTags.waterway,
+          water: lineTags.water,
+          natural: lineTags.natural,
+          layer: classifyInspectLayer(lineTags, 'line'),
           geometry_type: 'LineString',
           part_count: members.length,
           hole_count: 0,
           member_count: members.length,
           member_roles: roles,
+          relation_id: el.id,
           relation_role: m.role || '',
+          relation_tags: tags,
+          members_detail: details,
+          vertex_count: geom.length,
+          closed: closed(geom),
         },
         geometry: {
           type: 'LineString',
@@ -476,6 +632,28 @@ function formatTags(tags: Record<string, string>): string {
     .join('<br>');
 }
 
+function formatMemberList(members: InspectMemberInfo[]): string {
+  if (!members.length) return '';
+  const outer = members.filter((m) => m.role === 'outer' || m.role === '').length;
+  const inner = members.filter((m) => m.role === 'inner').length;
+  const other = members.length - outer - inner;
+  const items = members
+    .map((m) => {
+      const tagStr = Object.keys(m.tags).length
+        ? Object.entries(m.tags)
+            .map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v))}`)
+            .join(', ')
+        : 'нет';
+      return `<li><strong>role: ${escapeHtml(m.role || 'outer')}</strong><br>
+${escapeHtml(m.osm_type)}/${m.osm_id}<br>
+tags: ${tagStr}<br>
+geometry: ${escapeHtml(m.geometry_type)} · vertices: ${m.vertex_count} · closed: ${m.closed ? 'yes' : 'no'}</li>`;
+    })
+    .join('');
+  return `<p>Members: outer ${outer} · inner ${inner}${other ? ` · other ${other}` : ''}</p>
+<ul class="osm-inspect-members">${items}</ul>`;
+}
+
 export function formatInspectPopup(props: InspectProps): string {
   if (props.osm_type === 'catalog' || props.layer === 'catalog-water') {
     const title = escapeHtml((props.name || '').trim() || 'каталог');
@@ -488,6 +666,8 @@ export function formatInspectPopup(props: InspectProps): string {
 <p>centerline «связи»: не вычисляются (нет topology)</p>
 </div>`;
   }
+  const isBoundary = props.layer === 'mp-outer' || props.layer === 'mp-inner';
+  const relRef = props.relation_id ? `relation/${props.relation_id}` : '';
   const ref =
     props.osm_type === 'relation'
       ? `relation/${props.osm_id}`
@@ -499,9 +679,14 @@ export function formatInspectPopup(props: InspectProps): string {
     typeof props.member_count === 'number'
       ? `${props.member_count} (роли: ${(props.member_roles || []).join(', ') || '—'})`
       : '— (не relation / не из membership)';
+  const boundaryNote = isBoundary
+    ? `<p><strong>это boundary way multipolygon, не waterway=river centerline</strong></p>
+<p>member of ${escapeHtml(relRef || 'relation')} · role: <code>${escapeHtml(props.relation_role || '')}</code></p>`
+    : '';
+  const tagSource = props.osm_type === 'relation' || props.relation_role === 'area' ? props.tags : props.member_tags || props.tags;
   return `<div class="osm-inspect-popup">
 <p><strong>${title}</strong></p>
-<p>OSM: ${escapeHtml(ref)}</p>
+<p>OSM: ${escapeHtml(ref)}${relRef && props.osm_type !== 'relation' ? ` · ${escapeHtml(relRef)}` : ''}</p>
 <p>internal/area id: нет (это live OSM inspect, не строка water.objects)</p>
 <p>layer: <code>${escapeHtml(props.layer)}</code></p>
 <p>geometry: <code>${escapeHtml(props.geometry_type)}</code></p>
@@ -510,8 +695,10 @@ ${
     ? '<p>это bbox объекта OSM из Overpass, не полное кольцо (на широком кадре). Приблизьте для geom.</p>'
     : ''
 }
+${boundaryNote}
 <p>parts: ${props.part_count} · holes/inners: ${props.hole_count}</p>
 <p>OSM members: ${escapeHtml(members)}</p>
+${formatMemberList(props.members_detail || [])}
 ${
   typeof props.vertex_count === 'number'
     ? `<p>vertices: OSM ${props.vertex_count}${
@@ -522,8 +709,13 @@ ${
     : ''
 }
 <p>centerline «связи»: не вычисляются (нет topology)</p>
-<p>теги:</p>
-${formatTags(props.tags)}
+<p>теги ${props.osm_type === 'relation' || props.relation_role === 'area' ? 'relation' : 'этого way'}:</p>
+${formatTags(tagSource)}
+${
+  relRef && isBoundary
+    ? `<p>теги relation:</p>${formatTags(props.relation_tags || {})}`
+    : ''
+}
 </div>`;
 }
 
@@ -558,6 +750,7 @@ out tags bb;`;
   relation["landuse"="reservoir"](${bb});
   relation["waterway"~"^(river|canal)$"](${bb});
   relation["type"="multipolygon"]["natural"="water"](${bb});
-);
-out geom;`;
+)->.q;
+.q out geom;
+way(r.q); out tags;`;
 }

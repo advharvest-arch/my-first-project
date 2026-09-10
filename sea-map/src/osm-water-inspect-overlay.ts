@@ -63,6 +63,9 @@ function pathStyle(layer: InspectLayer): L.PathOptions {
   if (layer === 'centerline-stream' || layer === 'centerline-other') {
     return { color: C.CENTERLINE_STREAM, weight: 2, opacity: 0.85, fill: false };
   }
+  if (layer === 'mp-outer') {
+    return { color: C.OUTER, weight: 3, opacity: 0.95, fill: false, dashArray: '6 4' };
+  }
   if (layer === 'mp-inner') {
     return { color: C.INNER, weight: 2, fillColor: '#fda4af', fillOpacity: 0.15, opacity: 1 };
   }
@@ -157,17 +160,19 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
 <div class="osm-inspect-swatches">
   <div><i style="background:${C.POLYGON}"></i> water polygon / lake</div>
   <div><i style="background:${C.RESERVOIR}"></i> reservoir</div>
-  <div><i style="background:${C.RIVER_AREA}"></i> river area</div>
-  <div><i style="background:${C.CENTERLINE_RIVER}"></i> river centerline</div>
+  <div><i style="background:${C.RIVER_AREA}"></i> river-area polygon</div>
+  <div><i style="background:${C.CENTERLINE_RIVER}"></i> river centerline (waterway=river)</div>
   <div><i style="background:${C.CENTERLINE_CANAL}"></i> canal centerline</div>
-  <div><i style="background:${C.CENTERLINE_STREAM}"></i> stream / other line</div>
-  <div><i style="background:${C.INNER}"></i> MultiPolygon inner / hole</div>
+  <div><i style="background:${C.CENTERLINE_STREAM}"></i> stream / other centerline</div>
+  <div><i style="background:${C.OUTER}"></i> MP outer boundary</div>
+  <div><i style="background:${C.INNER}"></i> MP inner / hole</div>
   <div><i style="background:${C.CATALOG}"></i> catalog bbox (не OSM)</div>
   <div><i style="background:${C.EXTRACT}"></i> local extract coverage</div>
 </div>
-<label><input type="checkbox" data-k="poly" checked> polygons</label>
+<label><input type="checkbox" data-k="poly" checked> polygons / river-area</label>
 <label><input type="checkbox" data-k="line" checked> centerlines</label>
-<label><input type="checkbox" data-k="inner" checked> holes / inners</label>
+<label><input type="checkbox" data-k="boundary" checked> MP outer/inner boundary</label>
+<label><input type="checkbox" data-k="inner" checked> holes fill</label>
 <label><input type="checkbox" data-k="cov" checked> extract coverage</label>
 <div class="osm-inspect-jumps"></div>`;
   document.body.appendChild(panel);
@@ -235,7 +240,29 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
   });
   jumps.appendChild(vb);
 
-  const layerOn = { poly: true, line: true, inner: true, cov: true };
+  const inspectJumps: Array<{ label: string; south: number; west: number; north: number; east: number; maxZoom: number }> = [
+    { label: 'r2406778 river-area', south: 56.8127, west: 33.4526, north: 56.8542, east: 33.5469, maxZoom: 16 },
+    { label: 'r2580469 river-area', south: 56.9043, west: 33.2741, north: 57.0312, east: 33.4375, maxZoom: 13 },
+    { label: 'r379295 Селижаровка', south: 56.8524, west: 33.2755, north: 57.0309, east: 33.4584, maxZoom: 13 },
+  ];
+  for (const j of inspectJumps) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'osm-inspect-jump';
+    btn.textContent = j.label;
+    btn.addEventListener('click', () => {
+      map.fitBounds(
+        [
+          [j.south, j.west],
+          [j.north, j.east],
+        ],
+        { maxZoom: j.maxZoom, animate: false, padding: [28, 28] },
+      );
+    });
+    jumps.appendChild(btn);
+  }
+
+  const layerOn = { poly: true, line: true, inner: true, boundary: true, cov: true };
   panel.querySelectorAll<HTMLInputElement>('input[data-k]').forEach((input) => {
     input.addEventListener('change', () => {
       const k = input.dataset.k as keyof typeof layerOn;
@@ -249,10 +276,15 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
         const feat = (ly as L.Layer & { feature?: GeoJSON.Feature }).feature;
         const layer = feat?.properties?.layer as InspectLayer | undefined;
         if (!layer) return;
-        const isInner = layer === 'mp-inner';
+        const isInnerFill = layer === 'mp-inner';
+        const isBoundary = layer === 'mp-outer' || layer === 'mp-inner';
         const isLine = layer.startsWith('centerline');
         const isPoly = layer.startsWith('polygon') || layer === 'catalog-water';
-        const show = (isInner && layerOn.inner) || (isLine && layerOn.line) || (isPoly && layerOn.poly);
+        const show =
+          (isInnerFill && layerOn.inner) ||
+          (isBoundary && layerOn.boundary) ||
+          (isLine && layerOn.line) ||
+          (isPoly && layerOn.poly);
         (ly as L.Path).setStyle({ opacity: show ? 0.95 : 0, fillOpacity: show && !isLine ? 0.22 : 0 });
       });
     });
@@ -268,23 +300,28 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       pane: 'osmInspectFill',
       filter: (f) => {
         const layer = f.properties?.layer as InspectLayer;
-        return layer.startsWith('polygon') || layer === 'mp-inner' || layer === 'catalog-water';
+        if (layer.startsWith('polygon') || layer === 'catalog-water') return true;
+        return layer === 'mp-inner' && f.geometry?.type === 'Polygon';
       },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'polygon-other'),
       onEachFeature: (f, ly) => {
         ly.bindPopup(formatInspectPopup(f.properties as InspectProps), {
-          maxWidth: 380,
+          maxWidth: 440,
           className: 'osm-inspect-popup-wrap',
         });
       },
     }).addTo(dataGroup);
     L.geoJSON(fc, {
       pane: 'osmInspectLine',
-      filter: (f) => String(f.properties?.layer || '').startsWith('centerline'),
+      filter: (f) => {
+        const layer = String(f.properties?.layer || '');
+        if (layer.startsWith('centerline') || layer === 'mp-outer') return true;
+        return layer === 'mp-inner' && f.geometry?.type === 'LineString';
+      },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'centerline-other'),
       onEachFeature: (f, ly) => {
         ly.bindPopup(formatInspectPopup(f.properties as InspectProps), {
-          maxWidth: 380,
+          maxWidth: 440,
           className: 'osm-inspect-popup-wrap',
         });
       },
@@ -332,13 +369,14 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       const nPoly = features.filter((f) => f.properties.layer.startsWith('polygon')).length;
       const nLine = features.filter((f) => f.properties.layer.startsWith('centerline')).length;
       const nInner = features.filter((f) => f.properties.layer === 'mp-inner').length;
+      const nOuter = features.filter((f) => f.properties.layer === 'mp-outer').length;
       const extra =
         detail === 'streams'
           ? ''
           : detail === 'full'
             ? ' · stream скрыты до z11'
             : ' · named majors как OSM bbox (не полное кольцо)';
-      statusEl.textContent = `OSM ${detail}: polygons ${nPoly} · centerlines ${nLine} · inners ${nInner} · zoom ${z.toFixed(1)}${extra}. Совпадения polygon+line на глаз, связи не вычисляются.`;
+      statusEl.textContent = `OSM ${detail}: polygons ${nPoly} · centerlines ${nLine} · MP outer ${nOuter} · inners ${nInner} · zoom ${z.toFixed(1)}${extra}. Совпадения на глаз, связи не вычисляются.`;
     } catch (err) {
       if (gen !== fetchGen) return;
       const msg = err instanceof Error ? err.message : String(err);

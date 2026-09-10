@@ -27,10 +27,17 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(classifyInspectLayer({ natural: 'water', water: 'lake' }, 'polygon')).toBe('polygon-lake');
     expect(classifyInspectLayer({ water: 'reservoir' }, 'polygon')).toBe('polygon-reservoir');
     expect(classifyInspectLayer({ water: 'river' }, 'polygon')).toBe('polygon-river-area');
+    expect(
+      classifyInspectLayer({ type: 'multipolygon', natural: 'water', water: 'river' }, 'polygon'),
+    ).toBe('polygon-river-area');
     expect(classifyInspectLayer({ waterway: 'river' }, 'line')).toBe('centerline-river');
     expect(classifyInspectLayer({ waterway: 'canal' }, 'line')).toBe('centerline-canal');
     expect(classifyInspectLayer({ waterway: 'stream' }, 'line')).toBe('centerline-stream');
     expect(classifyInspectLayer({}, 'inner')).toBe('mp-inner');
+    expect(classifyInspectLayer({}, 'outer')).toBe('mp-outer');
+    expect(
+      classifyInspectLayer({ type: 'multipolygon', natural: 'water', water: 'river' }, 'line'),
+    ).toBe('mp-outer');
   });
 
   it('keeps MultiPolygon outers as separate parts and inners as holes, without invented A–B lines', () => {
@@ -77,17 +84,18 @@ describe('russiaWaterTopologyDebug inspect', () => {
       },
     ];
     const features = parseOverpassToInspectFeatures(els);
-    const outers = features.filter((f) => f.properties.relation_role === 'outer');
+    const areas = features.filter((f) => f.properties.layer.startsWith('polygon'));
+    const outers = features.filter((f) => f.properties.layer === 'mp-outer');
     const inners = features.filter((f) => f.properties.layer === 'mp-inner');
+    expect(areas).toHaveLength(2);
     expect(outers).toHaveLength(2);
     expect(inners).toHaveLength(1);
-    expect(outers[0].geometry.type).toBe('Polygon');
-    expect(outers[1].geometry.type).toBe('Polygon');
-    expect(features.some((f) => f.geometry.type === 'LineString' && f.properties.layer.startsWith('centerline'))).toBe(
-      false,
-    );
-    expect(outers[0].properties.part_count).toBe(2);
-    expect(outers[0].properties.hole_count).toBe(1);
+    expect(areas.every((f) => f.geometry.type === 'Polygon')).toBe(true);
+    expect(features.some((f) => f.properties.layer.startsWith('centerline'))).toBe(false);
+    expect(areas[0].properties.part_count).toBe(2);
+    expect(inners[0].properties.hole_count).toBe(1);
+    expect(outers.every((f) => f.properties.relation_id === 399081)).toBe(true);
+    expect(outers.every((f) => f.properties.layer === 'mp-outer')).toBe(true);
   });
 
   it('renders waterway centerline and water polygon as two objects, not a computed link', () => {
@@ -157,6 +165,7 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(q).not.toContain('way["waterway"~"^(river|canal)$"]');
     const full = buildInspectOverpassQuery(57.0, 32.8, 57.6, 33.4, 'full');
     expect(full).not.toContain('stream');
+    expect(full).toContain('way(r.q)');
     const streams = buildInspectOverpassQuery(57.1, 33.0, 57.3, 33.2, 'streams');
     expect(streams).toContain('way["waterway"]');
   });
@@ -212,5 +221,121 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(drawn[0]).toEqual(drawn[drawn.length - 1]);
     const html = formatInspectPopup(simplified.properties);
     expect(html).toContain('inspect simplify');
+  });
+
+  it('treats multipolygon water=river as river-area, and short untagged outer as boundary not centerline', () => {
+    const els: OverpassInspectElement[] = [
+      {
+        type: 'relation',
+        id: 2406778,
+        tags: { type: 'multipolygon', natural: 'water', water: 'river' },
+        members: [
+          {
+            type: 'way',
+            ref: 180396592,
+            role: 'outer',
+            geometry: [
+              { lon: 33.545707, lat: 56.812748 },
+              { lon: 33.5463, lat: 56.8128 },
+              { lon: 33.546923, lat: 56.812912 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 180396594,
+            role: 'outer',
+            geometry: [
+              { lon: 33.545707, lat: 56.812748 },
+              { lon: 33.5, lat: 56.83 },
+              { lon: 33.455044, lat: 56.853745 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 191714173,
+            role: 'outer',
+            geometry: [
+              { lon: 33.455044, lat: 56.853745 },
+              { lon: 33.4554, lat: 56.85366 },
+              { lon: 33.4557, lat: 56.853572 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 191714151,
+            role: 'outer',
+            geometry: [
+              { lon: 33.4557, lat: 56.853572 },
+              { lon: 33.5, lat: 56.83 },
+              { lon: 33.545163, lat: 56.817057 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 180396620,
+            role: 'outer',
+            geometry: [
+              { lon: 33.545163, lat: 56.817057 },
+              { lon: 33.546, lat: 56.815 },
+              { lon: 33.546923, lat: 56.812912 },
+            ],
+          },
+          {
+            type: 'way',
+            ref: 273432251,
+            role: 'inner',
+            geometry: [
+              { lon: 33.502, lat: 56.834 },
+              { lon: 33.503, lat: 56.834 },
+              { lon: 33.503, lat: 56.835 },
+              { lon: 33.502, lat: 56.835 },
+              { lon: 33.502, lat: 56.834 },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'way',
+        id: 273432251,
+        tags: { place: 'islet' },
+      },
+      {
+        type: 'way',
+        id: 28237778,
+        tags: { waterway: 'river', name: 'Селижаровка' },
+        geometry: [
+          { lon: 33.54, lat: 56.82 },
+          { lon: 33.55, lat: 56.81 },
+        ],
+      },
+    ];
+    const features = parseOverpassToInspectFeatures(els);
+    const area = features.filter((f) => f.properties.layer === 'polygon-river-area');
+    const yellowTrap = features.filter((f) => f.properties.layer.startsWith('centerline-other'));
+    const outer = features.filter((f) => f.properties.layer === 'mp-outer');
+    const inner = features.filter((f) => f.properties.layer === 'mp-inner');
+    const center = features.filter((f) => f.properties.layer === 'centerline-river');
+    expect(yellowTrap).toHaveLength(0);
+    expect(area.length).toBeGreaterThanOrEqual(1);
+    expect(area[0].properties.osm_id).toBe(2406778);
+    expect(area[0].geometry.type).toBe('Polygon');
+    expect(area[0].properties.hole_count).toBe(1);
+    expect(outer).toHaveLength(5);
+    expect(inner).toHaveLength(1);
+    const short = outer.find((f) => f.properties.osm_id === 180396592);
+    expect(short).toBeTruthy();
+    expect(short!.geometry.type).toBe('LineString');
+    expect(short!.properties.relation_role).toBe('outer');
+    expect(short!.properties.relation_id).toBe(2406778);
+    expect(formatInspectPopup(short!.properties)).toContain('не waterway=river centerline');
+    expect(formatInspectPopup(short!.properties)).toContain('way/180396592');
+    const areaHtml = formatInspectPopup(area[0].properties);
+    expect(areaHtml).toContain('relation/2406778');
+    expect(areaHtml).toContain('outer 5');
+    expect(areaHtml).toContain('inner 1');
+    expect(areaHtml).toContain('way/180396592');
+    expect(center).toHaveLength(1);
+    expect(center[0].properties.osm_id).toBe(28237778);
+    expect(center[0].properties.tags.waterway).toBe('river');
   });
 });

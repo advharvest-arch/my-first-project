@@ -65,6 +65,17 @@ Postgres в этой среде не запущен (`:5433` нет). Цифры
 
 Раньше стоял жёсткий порог z≥8 и span≤2.4°, из‑за него начальный кадр и Ладога целиком были пустыми.
 
+## Relation / multipolygon vs centerline
+
+Классификация идёт по **тегам relation и role members**, не по длине геометрии.
+
+- `type=multipolygon` + `natural=water` + `water=river` → **river-area** (заливка) + members как **MP outer/inner boundary**.
+- Короткий незамкнутый outer (2–3 точки) **не** становится `centerline-other`.
+- `waterway=river` way / `type=waterway` relation → настоящий **centerline**.
+- Inspector не считает nearest polygon↔centerline. Поле «связи»: не вычисляются.
+
+Пример: `relation/2406778` (Селижаровка → Волга). Жёлтая поперечная линия была `way/180396592`, untagged outer из 3 точек, не centerline. Настоящий centerline рядом: `way/28237778` (`waterway=river`, Селижаровка), плюс `way/28217744` (Волга).
+
 ## Что показывает режим
 
 - water polygons (`natural=water`, lake / reservoir / river area)
