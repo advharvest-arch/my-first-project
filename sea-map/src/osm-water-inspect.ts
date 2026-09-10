@@ -429,13 +429,13 @@ export function buildInspectOverpassQuery(
 ): string {
   const bb = `${south},${west},${north},${east}`;
   if (detail === 'major') {
-    return `[out:json][timeout:40];
+    return `[out:json][timeout:90];
 (
-  relation["natural"="water"]["name"](${bb});
-  relation["landuse"="reservoir"](${bb});
+  relation["natural"="water"]["name"](if: length()>8000)(${bb});
+  relation["landuse"="reservoir"](if: length()>8000)(${bb});
   relation["waterway"~"^(river|canal)$"](${bb});
-  way["waterway"~"^(river|canal)$"]["name"](${bb});
-  way["natural"="water"]["name"](${bb});
+  way["waterway"~"^(river|canal)$"]["name"](if: length()>8000)(${bb});
+  way["natural"="water"]["name"](if: length()>8000)(${bb});
 );
 out geom;`;
   }

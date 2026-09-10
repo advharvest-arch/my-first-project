@@ -317,7 +317,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
     const gen = ++fetchGen;
     statusEl.textContent = `загрузка OSM Overpass (${detail}) для текущего viewport…`;
     try {
-      const timeoutMs = detail === 'major' ? 45000 : 28000;
+      const timeoutMs = detail === 'major' ? 95000 : 28000;
       const els = await fetchOverpass(
         buildInspectOverpassQuery(south, west, north, east, detail),
         timeoutMs,

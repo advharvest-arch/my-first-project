@@ -148,6 +148,7 @@ describe('russiaWaterTopologyDebug inspect', () => {
   it('major Overpass query is named waters only and has no streams', () => {
     const q = buildInspectOverpassQuery(59.98, 29.8, 61.75, 33.2, 'major');
     expect(q).toContain('["name"]');
+    expect(q).toContain('length()>8000');
     expect(q).not.toContain('waterway=stream');
     expect(q).not.toContain('way["waterway"]');
     const full = buildInspectOverpassQuery(57.0, 32.8, 57.6, 33.4, 'full');
