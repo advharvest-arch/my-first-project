@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildInspectOverpassQuery,
+  catalogFeaturesFromBodies,
   classifyInspectLayer,
   formatInspectPopup,
+  inspectDetailLevel,
   parseOverpassToInspectFeatures,
   russiaWaterTopologyDebugEnabledFromSearchParams,
   spanTooWide,
@@ -131,8 +134,38 @@ describe('russiaWaterTopologyDebug inspect', () => {
     expect(html).toContain('не вычисляются');
   });
 
-  it('rejects oversized viewport fetches', () => {
+  it('rejects oversized viewport fetches for full OSM, but Ladoga-sized is major not empty', () => {
     expect(spanTooWide(48, 27, 66, 55)).toBe(true);
     expect(spanTooWide(57.0, 32.8, 57.6, 33.4)).toBe(false);
+    expect(inspectDetailLevel(6, 48.2, 27, 66.8, 55)).toBe('catalog');
+    expect(inspectDetailLevel(8, 59.98, 29.8, 61.75, 33.2)).toBe('major');
+    expect(inspectDetailLevel(6, 59.5, 29, 62.2, 34)).toBe('major');
+    expect(inspectDetailLevel(9, 57.0, 32.8, 57.6, 33.4)).toBe('full');
+    expect(inspectDetailLevel(11, 57.1, 33.0, 57.3, 33.2)).toBe('streams');
+    expect(inspectDetailLevel(4, 57.0, 32.8, 57.6, 33.4)).toBe('catalog');
+  });
+
+  it('major Overpass query is named waters only and has no streams', () => {
+    const q = buildInspectOverpassQuery(59.98, 29.8, 61.75, 33.2, 'major');
+    expect(q).toContain('["name"]');
+    expect(q).not.toContain('waterway=stream');
+    expect(q).not.toContain('way["waterway"]');
+    const full = buildInspectOverpassQuery(57.0, 32.8, 57.6, 33.4, 'full');
+    expect(full).not.toContain('stream');
+    const streams = buildInspectOverpassQuery(57.1, 33.0, 57.3, 33.2, 'streams');
+    expect(streams).toContain('way["waterway"]');
+  });
+
+  it('catalog features are European bboxes and popups refuse OSM geometry claim', () => {
+    const features = catalogFeaturesFromBodies([
+      { n: 'Ладожское озеро', k: 'l', b: [29.8, 59.98, 33.2, 61.75] },
+      { n: 'Байкал', k: 'l', b: [103.6, 51.4, 110.0, 55.9] },
+    ]);
+    expect(features).toHaveLength(1);
+    expect(features[0].properties.layer).toBe('catalog-water');
+    expect(features[0].properties.osm_type).toBe('catalog');
+    const html = formatInspectPopup(features[0].properties);
+    expect(html).toContain('не OSM-геометрия');
+    expect(html).toContain('Ладожское озеро');
   });
 });

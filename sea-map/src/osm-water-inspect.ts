@@ -3,8 +3,42 @@
  * No Leaflet / WRG / routing / topology inference.
  */
 
-export const OSM_WATER_INSPECT_MIN_ZOOM = 8;
-export const OSM_WATER_INSPECT_MAX_SPAN_DEG = 2.4;
+/** Below this, live Overpass is not used; catalog bboxes still show. */
+export const OSM_WATER_INSPECT_MIN_ZOOM = 5;
+/** Viewport wider than this uses named majors, not every pond. */
+export const OSM_WATER_INSPECT_FULL_SPAN_DEG = 3;
+/** Viewport wider than this stays on catalog bboxes (no Overpass). */
+export const OSM_WATER_INSPECT_MAJOR_SPAN_DEG = 10;
+/** @deprecated alias: former hard reject; full OSM still uses a tight span. */
+export const OSM_WATER_INSPECT_MAX_SPAN_DEG = OSM_WATER_INSPECT_FULL_SPAN_DEG;
+
+export type InspectDetail = 'catalog' | 'major' | 'full' | 'streams';
+
+export function inspectViewportSpanDeg(
+  south: number,
+  west: number,
+  north: number,
+  east: number,
+): number {
+  return Math.max(north - south, east - west);
+}
+
+/** Choose how much OSM to fetch. Wide overview stays catalog-only. */
+export function inspectDetailLevel(
+  zoom: number,
+  south: number,
+  west: number,
+  north: number,
+  east: number,
+): InspectDetail {
+  const span = inspectViewportSpanDeg(south, west, north, east);
+  if (zoom >= 11 && span <= 2.5) return 'streams';
+  if (zoom >= 7 && span <= OSM_WATER_INSPECT_FULL_SPAN_DEG) return 'full';
+  if (zoom >= OSM_WATER_INSPECT_MIN_ZOOM && span <= OSM_WATER_INSPECT_MAJOR_SPAN_DEG) {
+    return 'major';
+  }
+  return 'catalog';
+}
 
 export const INSPECT_LEGEND = {
   POLYGON: '#2563eb',
@@ -16,6 +50,7 @@ export const INSPECT_LEGEND = {
   CENTERLINE_STREAM: '#eab308',
   INNER: '#fb7185',
   EXTRACT: '#64748b',
+  CATALOG: '#94a3b8',
 } as const;
 
 /** Documented local water.objects extract footprints (NW Russia only). */
@@ -42,6 +77,7 @@ export type InspectLayer =
   | 'polygon-river-area'
   | 'polygon-other'
   | 'mp-inner'
+  | 'catalog-water'
   | 'extract-coverage';
 
 export type InspectProps = {
@@ -77,7 +113,45 @@ export function russiaWaterTopologyDebugEnabledFromSearchParams(
 }
 
 export function spanTooWide(south: number, west: number, north: number, east: number): boolean {
-  return north - south > OSM_WATER_INSPECT_MAX_SPAN_DEG || east - west > OSM_WATER_INSPECT_MAX_SPAN_DEG;
+  return inspectViewportSpanDeg(south, west, north, east) > OSM_WATER_INSPECT_MAX_SPAN_DEG;
+}
+
+export function catalogFeaturesFromBodies(
+  bodies: Array<{ n: string; k?: string; b: [number, number, number, number] }>,
+): InspectFeature[] {
+  return bodies.map((w) => {
+    const [west, south, east, north] = w.b;
+    return {
+      type: 'Feature' as const,
+      properties: {
+        layer: 'catalog-water' as const,
+        name: w.n,
+        osm_type: 'catalog',
+        osm_id: 0,
+        tags: { source: 'water-bodies.json', kind: w.k || '' },
+        geometry_type: 'Polygon',
+        part_count: 1,
+        hole_count: 0,
+      },
+      geometry: {
+        type: 'Polygon' as const,
+        coordinates: [
+          [
+            [west, south],
+            [east, south],
+            [east, north],
+            [west, north],
+            [west, south],
+          ],
+        ],
+      },
+    };
+  }).filter((f) => {
+    const ring = (f.geometry as GeoJSON.Polygon).coordinates[0];
+    const west = ring[0][0];
+    const east = ring[1][0];
+    return west >= 26 && east <= 60;
+  });
 }
 
 export type OverpassInspectElement = {
@@ -310,6 +384,17 @@ function formatTags(tags: Record<string, string>): string {
 }
 
 export function formatInspectPopup(props: InspectProps): string {
+  if (props.osm_type === 'catalog' || props.layer === 'catalog-water') {
+    const title = escapeHtml((props.name || '').trim() || 'каталог');
+    return `<div class="osm-inspect-popup">
+<p><strong>${title}</strong></p>
+<p>это справочный bbox из water-bodies.json, <strong>не OSM-геометрия</strong></p>
+<p>OSM id / relation members: нет (каталог, не Overpass)</p>
+<p>internal/area id: нет</p>
+<p>layer: <code>catalog-water</code></p>
+<p>centerline «связи»: не вычисляются (нет topology)</p>
+</div>`;
+  }
   const ref =
     props.osm_type === 'relation'
       ? `relation/${props.osm_id}`
@@ -340,21 +425,34 @@ export function buildInspectOverpassQuery(
   west: number,
   north: number,
   east: number,
-  includeStreams: boolean,
+  detail: Exclude<InspectDetail, 'catalog'>,
 ): string {
-  const wayWaterway = includeStreams
-    ? `way["waterway"](${south},${west},${north},${east});`
-    : `way["waterway"~"^(river|canal|fairway|ship_canal|link)$"](${south},${west},${north},${east});`;
+  const bb = `${south},${west},${north},${east}`;
+  if (detail === 'major') {
+    return `[out:json][timeout:40];
+(
+  relation["natural"="water"]["name"](${bb});
+  relation["landuse"="reservoir"](${bb});
+  relation["waterway"~"^(river|canal)$"](${bb});
+  way["waterway"~"^(river|canal)$"]["name"](${bb});
+  way["natural"="water"]["name"](${bb});
+);
+out geom;`;
+  }
+  const wayWaterway =
+    detail === 'streams'
+      ? `way["waterway"](${bb});`
+      : `way["waterway"~"^(river|canal|fairway|ship_canal|link)$"](${bb});`;
   return `[out:json][timeout:25];
 (
   ${wayWaterway}
-  way["natural"="water"](${south},${west},${north},${east});
-  way["landuse"="reservoir"](${south},${west},${north},${east});
-  way["waterway"="riverbank"](${south},${west},${north},${east});
-  relation["natural"="water"](${south},${west},${north},${east});
-  relation["landuse"="reservoir"](${south},${west},${north},${east});
-  relation["waterway"~"^(river|canal)$"](${south},${west},${north},${east});
-  relation["type"="multipolygon"]["natural"="water"](${south},${west},${north},${east});
+  way["natural"="water"](${bb});
+  way["landuse"="reservoir"](${bb});
+  way["waterway"="riverbank"](${bb});
+  relation["natural"="water"](${bb});
+  relation["landuse"="reservoir"](${bb});
+  relation["waterway"~"^(river|canal)$"](${bb});
+  relation["type"="multipolygon"]["natural"="water"](${bb});
 );
 out geom;`;
 }

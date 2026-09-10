@@ -54,15 +54,25 @@ Postgres в этой среде не запущен (`:5433` нет). Цифры
 
 **Нет в extract (inspect идёт в live OSM Overpass):** Селигер (Тверь), Волга / Рыбинск / Горьковское и прочие волжские водохранилища.
 
-Европейская Россия целиком одним GeoJSON / одним SQL — слишком велика (оценка E3.11: 3–10M objects). Поэтому inspect — **viewport Overpass**, z≥8, span≤2.4°.
+Европейская Россия целиком одним GeoJSON / одним SQL — слишком велика (оценка E3.11: 3–10M objects). Поэтому inspect — **ступенчатый viewport**:
+
+| кадр | что видно |
+|---|---|
+| обзор Европейской России (span > 10° или z < 5) | справочные bbox из `water-bodies.json` (**не OSM-геометрия**) |
+| z ≥ 5, span ≤ 10° | live OSM **named majors** (озёра/водохранилища/реки с именем) |
+| z ≥ 7, span ≤ 3° | все water polygons + river/canal centerlines |
+| z ≥ 11, span ≤ 2.5° | плюс stream/ditch |
+
+Раньше стоял жёсткий порог z≥8 и span≤2.4°, из‑за него начальный кадр и Ладога целиком были пустыми.
 
 ## Что показывает режим
 
 - water polygons (`natural=water`, lake / reservoir / river area)
-- waterway centerlines (river / canal / stream с z≥11)
+- waterway centerlines (river / canal; stream с z≥11)
+- на широком кадре — catalog bbox, не OSM
 - MultiPolygon: каждый outer — отдельный polygon; inner — отдельный слой дыр
 - polygon и centerline **рядом** = визуальный факт OSM, не ребро графа
-- клик: OSM id, tags, geometry type, parts, holes, member roles relation. Без вычисленных связей.
+- клик: OSM id, tags, geometry type, parts, holes, member roles relation. Без вычисленных связей. Catalog popup явно говорит, что это не OSM.
 
 ## Изменённые файлы
 

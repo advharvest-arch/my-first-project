@@ -1,6 +1,7 @@
 /**
  * Viewport OSM water inspection overlay (?russiaWaterTopologyDebug=1).
- * Live Overpass only. Does not write WRG, edges, or inferred connections.
+ * Catalog bboxes on overview; live Overpass on closer frames.
+ * Does not write WRG, edges, or inferred connections.
  */
 import L from 'leaflet';
 import waterBodies from './water-bodies.json';
@@ -9,10 +10,12 @@ import {
   LOCAL_EXTRACT_COVERAGE,
   OSM_WATER_INSPECT_MIN_ZOOM,
   buildInspectOverpassQuery,
+  catalogFeaturesFromBodies,
   formatInspectPopup,
+  inspectDetailLevel,
   parseOverpassToInspectFeatures,
   russiaWaterTopologyDebugEnabledFromSearchParams,
-  spanTooWide,
+  type InspectDetail,
   type InspectFeature,
   type InspectLayer,
   type InspectProps,
@@ -62,15 +65,28 @@ function pathStyle(layer: InspectLayer): L.PathOptions {
   if (layer === 'mp-inner') {
     return { color: C.INNER, weight: 2, fillColor: '#fda4af', fillOpacity: 0.15, opacity: 1 };
   }
+  if (layer === 'catalog-water') {
+    return {
+      color: C.EXTRACT,
+      weight: 1,
+      fillColor: C.CATALOG,
+      fillOpacity: 0.22,
+      dashArray: '3 2',
+      opacity: 0.85,
+    };
+  }
   return { color: C.EXTRACT, weight: 2, dashArray: '6 4', fill: false, opacity: 0.8 };
 }
 
-async function fetchOverpass(query: string): Promise<OverpassInspectElement[]> {
+async function fetchOverpass(
+  query: string,
+  timeoutMs = 28000,
+): Promise<OverpassInspectElement[]> {
   const body = `data=${encodeURIComponent(query)}`;
   let lastErr: unknown;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 28000);
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -135,8 +151,8 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
   const panel = document.createElement('aside');
   panel.className = 'osm-inspect-legend';
   panel.innerHTML = `<strong>OSM water inspect</strong>
-<div class="osm-inspect-muted">Европейская Россия · исходные OSM объекты · без topology / WRG</div>
-<p id="osm-inspect-status" class="osm-inspect-muted">приблизьте карту (z≥${OSM_WATER_INSPECT_MIN_ZOOM}) к нужному водоёму</p>
+<div class="osm-inspect-muted">Европейская Россия · исходные OSM объекты · без topology / WRG. Обзор = catalog bbox; live OSM с z≥${OSM_WATER_INSPECT_MIN_ZOOM}.</div>
+<p id="osm-inspect-status" class="osm-inspect-muted">широкий кадр — справочные bbox; live OSM с z≥${OSM_WATER_INSPECT_MIN_ZOOM}</p>
 <div class="osm-inspect-swatches">
   <div><i style="background:${C.POLYGON}"></i> water polygon / lake</div>
   <div><i style="background:${C.RESERVOIR}"></i> reservoir</div>
@@ -145,6 +161,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
   <div><i style="background:${C.CENTERLINE_CANAL}"></i> canal centerline</div>
   <div><i style="background:${C.CENTERLINE_STREAM}"></i> stream / other line</div>
   <div><i style="background:${C.INNER}"></i> MultiPolygon inner / hole</div>
+  <div><i style="background:${C.CATALOG}"></i> catalog bbox (не OSM)</div>
   <div><i style="background:${C.EXTRACT}"></i> local extract coverage</div>
 </div>
 <label><input type="checkbox" data-k="poly" checked> polygons</label>
@@ -233,7 +250,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
         if (!layer) return;
         const isInner = layer === 'mp-inner';
         const isLine = layer.startsWith('centerline');
-        const isPoly = layer.startsWith('polygon');
+        const isPoly = layer.startsWith('polygon') || layer === 'catalog-water';
         const show = (isInner && layerOn.inner) || (isLine && layerOn.line) || (isPoly && layerOn.poly);
         (ly as L.Path).setStyle({ opacity: show ? 0.95 : 0, fillOpacity: show && !isLine ? 0.22 : 0 });
       });
@@ -247,7 +264,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       pane: 'osmInspectFill',
       filter: (f) => {
         const layer = f.properties?.layer as InspectLayer;
-        return layer.startsWith('polygon') || layer === 'mp-inner';
+        return layer.startsWith('polygon') || layer === 'mp-inner' || layer === 'catalog-water';
       },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'polygon-other'),
       onEachFeature: (f, ly) => {
@@ -279,27 +296,31 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
 
   async function loadViewport(): Promise<void> {
     const z = map.getZoom();
-    if (z < OSM_WATER_INSPECT_MIN_ZOOM) {
-      dataGroup.clearLayers();
-      statusEl.textContent = `zoom ${z.toFixed(1)} — слишком мелко. z≥${OSM_WATER_INSPECT_MIN_ZOOM} для OSM объектов. Пунктир — покрытие локального extract (Карелия/ЛО/Вологда).`;
-      return;
-    }
     const b = map.getBounds();
     const south = b.getSouth();
     const west = b.getWest();
     const north = b.getNorth();
     const east = b.getEast();
-    if (spanTooWide(south, west, north, east)) {
-      dataGroup.clearLayers();
-      statusEl.textContent = 'viewport слишком широкий. Приблизьте один район (Селигер, Ладога, Волга…).';
+    const detail: InspectDetail = inspectDetailLevel(z, south, west, north, east);
+
+    if (detail === 'catalog') {
+      fetchGen += 1;
+      const catalog = catalogFeaturesFromBodies(waterBodies as NamedWater[]);
+      render(catalog);
+      statusEl.textContent =
+        z < OSM_WATER_INSPECT_MIN_ZOOM
+          ? `каталог ${catalog.length} bbox (не OSM). z≥${OSM_WATER_INSPECT_MIN_ZOOM} — live OSM named majors.`
+          : `каталог ${catalog.length} bbox (не OSM). Кадр шире Overpass; приблизьте район (Ладога, Селигер, Волга…).`;
       return;
     }
+
     const gen = ++fetchGen;
-    statusEl.textContent = 'загрузка OSM Overpass для текущего viewport…';
+    statusEl.textContent = `загрузка OSM Overpass (${detail}) для текущего viewport…`;
     try {
-      const includeStreams = z >= 11;
+      const timeoutMs = detail === 'major' ? 45000 : 28000;
       const els = await fetchOverpass(
-        buildInspectOverpassQuery(south, west, north, east, includeStreams),
+        buildInspectOverpassQuery(south, west, north, east, detail),
+        timeoutMs,
       );
       if (gen !== fetchGen) return;
       const features = parseOverpassToInspectFeatures(els);
@@ -307,11 +328,19 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       const nPoly = features.filter((f) => f.properties.layer.startsWith('polygon')).length;
       const nLine = features.filter((f) => f.properties.layer.startsWith('centerline')).length;
       const nInner = features.filter((f) => f.properties.layer === 'mp-inner').length;
-      statusEl.textContent = `viewport: polygons ${nPoly} · centerlines ${nLine} · inners ${nInner} · zoom ${z.toFixed(1)}${includeStreams ? '' : ' · stream скрыты до z11'}. Совпадения polygon+line на глаз, связи не вычисляются.`;
+      const extra =
+        detail === 'streams'
+          ? ''
+          : detail === 'full'
+            ? ' · stream скрыты до z11'
+            : ' · named majors (не каждый пруд)';
+      statusEl.textContent = `OSM ${detail}: polygons ${nPoly} · centerlines ${nLine} · inners ${nInner} · zoom ${z.toFixed(1)}${extra}. Совпадения polygon+line на глаз, связи не вычисляются.`;
     } catch (err) {
       if (gen !== fetchGen) return;
       const msg = err instanceof Error ? err.message : String(err);
-      statusEl.textContent = `Overpass не ответил: ${msg}. Повторите приближение.`;
+      statusEl.textContent = `Overpass не ответил: ${msg}. Показан каталог. Повторите приближение.`;
+      const catalog = catalogFeaturesFromBodies(waterBodies as NamedWater[]);
+      render(catalog);
     }
   }
 
