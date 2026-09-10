@@ -5,9 +5,9 @@
 
 ## Как открыть без туннеля
 
-jsDelivr отдаёт HTML как `text/plain`, GitHub Pages этой ветки не деплоим (это production `main`). Рабочая страница — `docs/osm-water-inspect-preview/open.html`: HTML через htmlpreview, модули с jsDelivr.
+jsDelivr отдаёт HTML как `text/plain`, GitHub Pages этой ветки не деплоим (это production `main`). Рабочая страница — `docs/osm-water-inspect-preview/open.html`: HTML через htmlpreview, модули с jsDelivr по commit SHA.
 
-После пуша ссылка в PR #88. Inspect включается флагом `window.__AQUAROUTE_OSM_INSPECT__` внутри `open.html` (у htmlpreview query string занят URL репозитория).
+Inspect включается флагом `window.__AQUAROUTE_OSM_INSPECT__` внутри `open.html` (у htmlpreview query string занят URL репозитория). Актуальная ссылка — в PR #88.
 
 ## Как устроен Seliger debug (найденный прецедент)
 
