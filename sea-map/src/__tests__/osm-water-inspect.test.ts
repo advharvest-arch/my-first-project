@@ -149,7 +149,8 @@ describe('russiaWaterTopologyDebug inspect', () => {
   it('major Overpass query is named waters only and has no streams', () => {
     const q = buildInspectOverpassQuery(59.98, 29.8, 61.75, 33.2, 'major');
     expect(q).toContain('["name"]');
-    expect(q).toContain('length()>20000');
+    expect(q).toContain('out tags bb');
+    expect(q).not.toContain('out geom');
     expect(q).not.toContain('waterway=stream');
     expect(q).not.toContain('way["waterway"]');
     const full = buildInspectOverpassQuery(57.0, 32.8, 57.6, 33.4, 'full');
@@ -169,6 +170,21 @@ describe('russiaWaterTopologyDebug inspect', () => {
     const html = formatInspectPopup(features[0].properties);
     expect(html).toContain('не OSM-геометрия');
     expect(html).toContain('Ладожское озеро');
+  });
+
+  it('parses Overpass bbox-only elements as OSM extents, not invented links', () => {
+    const features = parseOverpassToInspectFeatures([
+      {
+        type: 'relation',
+        id: 2020202,
+        tags: { natural: 'water', water: 'lake', name: 'Ладожское озеро' },
+        bounds: { minlat: 59.98, minlon: 29.8, maxlat: 61.75, maxlon: 33.2 },
+      },
+    ]);
+    expect(features).toHaveLength(1);
+    expect(features[0].properties.geometry_type).toBe('Overpass-bbox');
+    expect(features[0].properties.layer).toBe('polygon-lake');
+    expect(formatInspectPopup(features[0].properties)).toContain('не полное кольцо');
   });
 
   it('display simplify keeps closed rings but drops vertices for Leaflet', () => {

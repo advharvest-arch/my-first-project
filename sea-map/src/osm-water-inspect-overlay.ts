@@ -321,7 +321,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
     const gen = ++fetchGen;
     statusEl.textContent = `загрузка OSM Overpass (${detail}) для текущего viewport…`;
     try {
-      const timeoutMs = detail === 'major' ? 95000 : 28000;
+      const timeoutMs = detail === 'major' ? 45000 : 28000;
       const els = await fetchOverpass(
         buildInspectOverpassQuery(south, west, north, east, detail),
         timeoutMs,
@@ -337,7 +337,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
           ? ''
           : detail === 'full'
             ? ' · stream скрыты до z11'
-            : ' · named majors (не каждый пруд)';
+            : ' · named majors как OSM bbox (не полное кольцо)';
       statusEl.textContent = `OSM ${detail}: polygons ${nPoly} · centerlines ${nLine} · inners ${nInner} · zoom ${z.toFixed(1)}${extra}. Совпадения polygon+line на глаз, связи не вычисляются.`;
     } catch (err) {
       if (gen !== fetchGen) return;

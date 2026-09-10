@@ -226,6 +226,7 @@ export type OverpassInspectElement = {
   type: string;
   id: number;
   tags?: Record<string, string>;
+  bounds?: { minlat: number; minlon: number; maxlat: number; maxlon: number };
   geometry?: Array<{ lat: number; lon: number }>;
   members?: Array<{
     type: string;
@@ -293,6 +294,30 @@ export function parseOverpassToInspectFeatures(
       water: tags.water,
       natural: tags.natural,
     };
+
+    if (el.bounds && !el.geometry && !(el.members && el.members.some((m) => m.geometry && m.geometry.length >= 2))) {
+      const b = el.bounds;
+      const kind: 'line' | 'polygon' = tags.waterway && !isAreaTags(tags) ? 'line' : 'polygon';
+      const ring = [
+        [b.minlon, b.minlat],
+        [b.maxlon, b.minlat],
+        [b.maxlon, b.maxlat],
+        [b.minlon, b.maxlat],
+        [b.minlon, b.minlat],
+      ];
+      out.push({
+        type: 'Feature',
+        properties: {
+          ...base,
+          layer: classifyInspectLayer(tags, kind),
+          geometry_type: 'Overpass-bbox',
+          part_count: 1,
+          hole_count: 0,
+        },
+        geometry: { type: 'Polygon', coordinates: [ring] },
+      });
+      continue;
+    }
 
     if (el.type === 'way' && el.geometry && el.geometry.length >= 2) {
       const area = isAreaTags(tags) && closed(el.geometry);
@@ -480,6 +505,11 @@ export function formatInspectPopup(props: InspectProps): string {
 <p>internal/area id: нет (это live OSM inspect, не строка water.objects)</p>
 <p>layer: <code>${escapeHtml(props.layer)}</code></p>
 <p>geometry: <code>${escapeHtml(props.geometry_type)}</code></p>
+${
+  props.geometry_type === 'Overpass-bbox'
+    ? '<p>это bbox объекта OSM из Overpass, не полное кольцо (на широком кадре). Приблизьте для geom.</p>'
+    : ''
+}
 <p>parts: ${props.part_count} · holes/inners: ${props.hole_count}</p>
 <p>OSM members: ${escapeHtml(members)}</p>
 ${
@@ -506,15 +536,15 @@ export function buildInspectOverpassQuery(
 ): string {
   const bb = `${south},${west},${north},${east}`;
   if (detail === 'major') {
-    return `[out:json][timeout:90];
+    return `[out:json][timeout:40];
 (
-  relation["natural"="water"]["name"](if: length()>20000)(${bb});
-  relation["landuse"="reservoir"](if: length()>20000)(${bb});
+  relation["natural"="water"]["name"](${bb});
+  relation["landuse"="reservoir"](${bb});
   relation["waterway"~"^(river|canal)$"](${bb});
-  way["waterway"~"^(river|canal)$"]["name"](if: length()>20000)(${bb});
-  way["natural"="water"]["name"](if: length()>20000)(${bb});
+  way["waterway"~"^(river|canal)$"]["name"](${bb});
+  way["natural"="water"]["name"](${bb});
 );
-out geom;`;
+out tags bb;`;
   }
   const wayWaterway =
     detail === 'streams'
