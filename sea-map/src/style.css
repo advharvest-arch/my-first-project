@@ -1266,7 +1266,7 @@ body {
   z-index: 1100;
   top: 0.7rem;
   right: 0.7rem;
-  width: min(20rem, calc(100vw - 1.2rem));
+  width: min(22rem, calc(100vw - 1.2rem));
   max-height: calc(100vh - 1.4rem);
   overflow: auto;
   padding: 0.7rem 0.8rem 0.85rem;
@@ -1343,4 +1343,47 @@ body {
 }
 .osm-inspect-members li {
   margin: 0 0 0.45rem;
+}
+.osm-inspect-stats {
+  margin: 0.35rem 0 0.45rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+.osm-inspect-stats table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 500 0.68rem/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.osm-inspect-stats td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.osm-inspect-anatomy,
+.osm-inspect-family,
+.osm-inspect-membership {
+  margin: 0.45rem 0;
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.55);
+}
+.osm-inspect-anatomy-title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  font-weight: 750;
+  margin: 0 0 0.3rem;
+}
+.osm-inspect-role-head {
+  font-weight: 750;
+  margin: 0.4rem 0 0.15rem;
+}
+.osm-inspect-not-centerline {
+  color: #fbbf24;
+  font-weight: 750;
+  margin: 0.15rem 0;
+}
+.osm-inspect-popup-wrap .leaflet-popup-content {
+  margin: 0.7rem 0.85rem;
+  min-width: 16rem;
 }

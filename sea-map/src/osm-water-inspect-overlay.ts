@@ -11,7 +11,9 @@ import {
   OSM_WATER_INSPECT_MIN_ZOOM,
   buildInspectOverpassQuery,
   catalogFeaturesFromBodies,
+  buildInspectViewportStats,
   formatInspectPopup,
+  formatInspectStatsHtml,
   inspectDetailLevel,
   parseOverpassToInspectFeatures,
   russiaWaterTopologyDebugEnabledFromSearchParams,
@@ -67,7 +69,14 @@ function pathStyle(layer: InspectLayer): L.PathOptions {
     return { color: C.OUTER, weight: 3, opacity: 0.95, fill: false, dashArray: '6 4' };
   }
   if (layer === 'mp-inner') {
-    return { color: C.INNER, weight: 2, fillColor: '#fda4af', fillOpacity: 0.15, opacity: 1 };
+    return {
+      color: C.INNER,
+      weight: 2,
+      fillColor: '#fda4af',
+      fillOpacity: 0.15,
+      opacity: 1,
+      dashArray: '4 3',
+    };
   }
   if (layer === 'catalog-water') {
     return {
@@ -80,6 +89,25 @@ function pathStyle(layer: InspectLayer): L.PathOptions {
     };
   }
   return { color: C.EXTRACT, weight: 2, dashArray: '6 4', fill: false, opacity: 0.8 };
+}
+
+function bindInspectPopup(ly: L.Layer, props: InspectProps): void {
+  ly.bindPopup(formatInspectPopup(props), {
+    maxWidth: 500,
+    maxHeight: 460,
+    className: 'osm-inspect-popup-wrap',
+  });
+  const stamp = () => {
+    const node = (ly as L.Path).getElement?.();
+    if (!node) return;
+    node.setAttribute('data-osm-id', String(props.osm_id));
+    node.setAttribute('data-osm-type', props.osm_type);
+    node.setAttribute('data-inspect-layer', props.layer);
+    if (props.relation_id != null) node.setAttribute('data-relation-id', String(props.relation_id));
+    if (props.relation_role) node.setAttribute('data-relation-role', props.relation_role);
+  };
+  ly.on('add', stamp);
+  stamp();
 }
 
 async function fetchOverpass(
@@ -157,15 +185,16 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
   panel.innerHTML = `<strong>OSM water inspect</strong>
 <div class="osm-inspect-muted">Европейская Россия · исходные OSM объекты · без topology / WRG. Обзор = catalog bbox; live OSM с z≥${OSM_WATER_INSPECT_MIN_ZOOM}.</div>
 <p id="osm-inspect-status" class="osm-inspect-muted">широкий кадр — справочные bbox; live OSM с z≥${OSM_WATER_INSPECT_MIN_ZOOM}</p>
+<div id="osm-inspect-stats"></div>
 <div class="osm-inspect-swatches">
-  <div><i style="background:${C.POLYGON}"></i> water polygon / lake</div>
-  <div><i style="background:${C.RESERVOIR}"></i> reservoir</div>
+  <div><i style="background:${C.POLYGON}"></i> A. water polygon / lake</div>
+  <div><i style="background:${C.RESERVOIR}"></i> reservoir polygon</div>
   <div><i style="background:${C.RIVER_AREA}"></i> river-area polygon</div>
-  <div><i style="background:${C.CENTERLINE_RIVER}"></i> river centerline (waterway=river)</div>
+  <div><i style="background:${C.CENTERLINE_RIVER}"></i> B. river centerline (waterway=river)</div>
   <div><i style="background:${C.CENTERLINE_CANAL}"></i> canal centerline</div>
-  <div><i style="background:${C.CENTERLINE_STREAM}"></i> stream / other centerline</div>
-  <div><i style="background:${C.OUTER}"></i> MP outer boundary</div>
-  <div><i style="background:${C.INNER}"></i> MP inner / hole</div>
+  <div><i style="background:${C.CENTERLINE_STREAM}"></i> stream centerline</div>
+  <div><i style="background:${C.OUTER};outline:1px dashed ${C.OUTER}"></i> C. MP outer boundary (не centerline)</div>
+  <div><i style="background:${C.INNER}"></i> C. MP inner / hole</div>
   <div><i style="background:${C.CATALOG}"></i> catalog bbox (не OSM)</div>
   <div><i style="background:${C.EXTRACT}"></i> local extract coverage</div>
 </div>
@@ -178,6 +207,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
   document.body.appendChild(panel);
 
   const statusEl = panel.querySelector('#osm-inspect-status')!;
+  const statsEl = panel.querySelector('#osm-inspect-stats')!;
   const jumps = panel.querySelector('.osm-inspect-jumps')!;
   const wanted = [
     'Селигер',
@@ -241,6 +271,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
   jumps.appendChild(vb);
 
   const inspectJumps: Array<{ label: string; south: number; west: number; north: number; east: number; maxZoom: number }> = [
+    { label: 'r399081 Селигер', south: 56.85, west: 32.9, north: 57.2, east: 33.55, maxZoom: 11 },
     { label: 'r2406778 river-area', south: 56.8127, west: 33.4526, north: 56.8542, east: 33.5469, maxZoom: 16 },
     { label: 'r2580469 river-area', south: 56.9043, west: 33.2741, north: 57.0312, east: 33.4375, maxZoom: 13 },
     { label: 'r379295 Селижаровка', south: 56.8524, west: 33.2755, north: 57.0309, east: 33.4584, maxZoom: 13 },
@@ -305,10 +336,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'polygon-other'),
       onEachFeature: (f, ly) => {
-        ly.bindPopup(formatInspectPopup(f.properties as InspectProps), {
-          maxWidth: 440,
-          className: 'osm-inspect-popup-wrap',
-        });
+        bindInspectPopup(ly, f.properties as InspectProps);
       },
     }).addTo(dataGroup);
     L.geoJSON(fc, {
@@ -320,10 +348,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'centerline-other'),
       onEachFeature: (f, ly) => {
-        ly.bindPopup(formatInspectPopup(f.properties as InspectProps), {
-          maxWidth: 440,
-          className: 'osm-inspect-popup-wrap',
-        });
+        bindInspectPopup(ly, f.properties as InspectProps);
       },
     }).addTo(dataGroup);
   };
@@ -348,6 +373,8 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       fetchGen += 1;
       const catalog = catalogFeaturesFromBodies(waterBodies as NamedWater[]);
       render(catalog);
+      const stats = buildInspectViewportStats(catalog, 'catalog');
+      statsEl.innerHTML = formatInspectStatsHtml(stats);
       statusEl.textContent =
         z < OSM_WATER_INSPECT_MIN_ZOOM
           ? `каталог ${catalog.length} bbox (не OSM). z≥${OSM_WATER_INSPECT_MIN_ZOOM} — live OSM named majors.`
@@ -366,23 +393,22 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       if (gen !== fetchGen) return;
       const features = parseOverpassToInspectFeatures(els);
       render(features);
-      const nPoly = features.filter((f) => f.properties.layer.startsWith('polygon')).length;
-      const nLine = features.filter((f) => f.properties.layer.startsWith('centerline')).length;
-      const nInner = features.filter((f) => f.properties.layer === 'mp-inner').length;
-      const nOuter = features.filter((f) => f.properties.layer === 'mp-outer').length;
+      const stats = buildInspectViewportStats(features, 'overpass');
+      statsEl.innerHTML = formatInspectStatsHtml(stats);
       const extra =
         detail === 'streams'
           ? ''
           : detail === 'full'
             ? ' · stream скрыты до z11'
             : ' · named majors как OSM bbox (не полное кольцо)';
-      statusEl.textContent = `OSM ${detail}: polygons ${nPoly} · centerlines ${nLine} · MP outer ${nOuter} · inners ${nInner} · zoom ${z.toFixed(1)}${extra}. Совпадения на глаз, связи не вычисляются.`;
+      statusEl.textContent = `OSM ${detail} · zoom ${z.toFixed(1)}${extra}. Совпадения на глаз, связи не вычисляются.`;
     } catch (err) {
       if (gen !== fetchGen) return;
       const msg = err instanceof Error ? err.message : String(err);
       statusEl.textContent = `Overpass не ответил: ${msg}. Показан каталог. Повторите приближение.`;
       const catalog = catalogFeaturesFromBodies(waterBodies as NamedWater[]);
       render(catalog);
+      statsEl.innerHTML = formatInspectStatsHtml(buildInspectViewportStats(catalog, 'catalog'));
     }
   }
 

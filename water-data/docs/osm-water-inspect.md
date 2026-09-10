@@ -78,9 +78,13 @@ Postgres в этой среде не запущен (`:5433` нет). Цифры
 - `type=multipolygon` + `natural=water` + `water=river` → **river-area** (заливка) + members как **MP outer/inner boundary**.
 - Короткий незамкнутый outer (2–3 точки) **не** становится `centerline-other`.
 - `waterway=river` way / `type=waterway` relation → настоящий **centerline**.
-- Inspector не считает nearest polygon↔centerline. Поле «связи»: не вычисляются.
+- Popup: **OSM object anatomy** (роли outer / inner / main_stream / side_stream) и **OSM FAMILY** только из declared members.
+- **OSM relation membership** на way — это `relation.members[]`, не nearest / distance / «same water body».
+- Inspector не считает polygon↔centerline. Поле «связи»: не вычисляются. Related polygon relation: **не ищем автоматически**.
 
-Пример: `relation/2406778` (Селижаровка → Волга). Жёлтая поперечная линия была `way/180396592`, untagged outer из 3 точек, не centerline. Настоящий centerline рядом: `way/28237778` (`waterway=river`, Селижаровка), плюс `way/28217744` (Волга).
+Счётчики в панели — только загруженный viewport/запрос, не вся Россия.
+
+Пример: `relation/2406778`. `way/180396592` — untagged outer из 3 точек, не centerline. Настоящий centerline рядом: `way/28237778` (`waterway=river`), плюс `relation/379295` (`type=waterway`, `main_stream`). Соседство на карте ≠ OSM membership.
 
 ## Что показывает режим
 
