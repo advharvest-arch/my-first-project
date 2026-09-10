@@ -91,6 +91,25 @@ function pathStyle(layer: InspectLayer): L.PathOptions {
   return { color: C.EXTRACT, weight: 2, dashArray: '6 4', fill: false, opacity: 0.8 };
 }
 
+function bindInspectPopup(ly: L.Layer, props: InspectProps): void {
+  ly.bindPopup(formatInspectPopup(props), {
+    maxWidth: 500,
+    maxHeight: 460,
+    className: 'osm-inspect-popup-wrap',
+  });
+  const stamp = () => {
+    const node = (ly as L.Path).getElement?.();
+    if (!node) return;
+    node.setAttribute('data-osm-id', String(props.osm_id));
+    node.setAttribute('data-osm-type', props.osm_type);
+    node.setAttribute('data-inspect-layer', props.layer);
+    if (props.relation_id != null) node.setAttribute('data-relation-id', String(props.relation_id));
+    if (props.relation_role) node.setAttribute('data-relation-role', props.relation_role);
+  };
+  ly.on('add', stamp);
+  stamp();
+}
+
 async function fetchOverpass(
   query: string,
   timeoutMs = 28000,
@@ -317,11 +336,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'polygon-other'),
       onEachFeature: (f, ly) => {
-        ly.bindPopup(formatInspectPopup(f.properties as InspectProps), {
-          maxWidth: 500,
-          maxHeight: 460,
-          className: 'osm-inspect-popup-wrap',
-        });
+        bindInspectPopup(ly, f.properties as InspectProps);
       },
     }).addTo(dataGroup);
     L.geoJSON(fc, {
@@ -333,11 +348,7 @@ export async function mountOsmWaterInspectOverlay(map: L.Map): Promise<void> {
       },
       style: (f) => pathStyle((f?.properties?.layer as InspectLayer) || 'centerline-other'),
       onEachFeature: (f, ly) => {
-        ly.bindPopup(formatInspectPopup(f.properties as InspectProps), {
-          maxWidth: 500,
-          maxHeight: 460,
-          className: 'osm-inspect-popup-wrap',
-        });
+        bindInspectPopup(ly, f.properties as InspectProps);
       },
     }).addTo(dataGroup);
   };

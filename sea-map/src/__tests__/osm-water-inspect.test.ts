@@ -188,16 +188,17 @@ describe('russiaWaterTopologyDebug inspect', () => {
   it('catalog features are European bboxes and popups refuse OSM geometry claim', () => {
     const features = catalogFeaturesFromBodies([
       { n: 'Ладожское озеро', k: 'l', b: [29.8, 59.98, 33.2, 61.75] },
+      { n: 'Онежское озеро', k: 'l', b: [34.5, 61.0, 36.5, 62.9] },
       { n: 'Байкал', k: 'l', b: [103.6, 51.4, 110.0, 55.9] },
     ]);
-    expect(features).toHaveLength(1);
+    expect(features).toHaveLength(2);
     expect(features[0].properties.layer).toBe('catalog-water');
     expect(features[0].properties.osm_type).toBe('catalog');
     const html = formatInspectPopup(features[0].properties);
     expect(html).toContain('не OSM-геометрия');
     expect(html).toContain('Ладожское озеро');
     const stats = buildInspectViewportStats(features, 'catalog');
-    expect(stats.catalog_bboxes).toBe(1);
+    expect(stats.catalog_bboxes).toBe(2);
     expect(stats.lake_polygons).toBe(0);
     expect(stats.multipolygon_relations).toBe(0);
   });

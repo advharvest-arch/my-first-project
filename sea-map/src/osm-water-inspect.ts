@@ -640,7 +640,7 @@ export function buildInspectViewportStats(
     waterway_relations: uniqueRelationIds(features, 'waterway'),
     outer_members: uniqueOsmCount(features, (f) => f.properties.layer === 'mp-outer'),
     inner_members: uniqueOsmCount(features, (f) => f.properties.layer === 'mp-inner'),
-    catalog_bboxes: uniqueOsmCount(features, (f) => f.properties.layer === 'catalog-water'),
+    catalog_bboxes: features.filter((f) => f.properties.layer === 'catalog-water').length,
   };
 }
 
