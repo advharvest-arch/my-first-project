@@ -263,6 +263,12 @@ class ReportContractTests(unittest.TestCase):
         )
         report = build_report([river_area, ww])
         assert_no_computed_links(report)
+        tagged = assemble_object(
+            "way",
+            1,
+            [{"type": "way", "id": 1, "nodes": [1, 2, 3], "tags": {"waterway": "river", "distance": "12"}}],
+        )
+        assert_no_computed_links(build_report([tagged]))
         keys_blob = json.dumps(_all_keys(report)).lower()
         for bad in FORBIDDEN_COMPUTED_KEYS:
             self.assertNotIn(bad, keys_blob)
@@ -331,15 +337,17 @@ class ReportContractTests(unittest.TestCase):
         self.assertIn(("relation", 379295), ids)
 
 
-def _all_keys(payload) -> list[str]:
+def _all_keys(payload, *, skip_tag_dicts: bool = True) -> list[str]:
     keys: list[str] = []
     if isinstance(payload, dict):
         for k, v in payload.items():
             keys.append(str(k))
-            keys.extend(_all_keys(v))
+            if skip_tag_dicts and str(k) in ("tags", "relation_tags", "member_tags"):
+                continue
+            keys.extend(_all_keys(v, skip_tag_dicts=skip_tag_dicts))
     elif isinstance(payload, list):
         for item in payload:
-            keys.extend(_all_keys(item))
+            keys.extend(_all_keys(item, skip_tag_dicts=skip_tag_dicts))
     return keys
 
 

@@ -68,6 +68,54 @@ def _members_table(members: list[dict[str, Any]], *, limit: int) -> str:
     return "\n".join(lines)
 
 
+def _ambiguous_notes(objects: list[dict[str, Any]]) -> list[str]:
+    notes: list[str] = []
+    for obj in objects:
+        tags = obj.get("tags") or {}
+        rc = obj.get("role_counts") or {}
+        if obj.get("osm_type") == "way" and obj.get("classification") == "polygon-lake":
+            if tags.get("natural") == "water" and not tags.get("water"):
+                notes.append(
+                    f"{obj['osm_type']}/{obj['osm_id']}: `natural=water` без `water=lake|reservoir|...`; "
+                    "класс polygon-lake по правилу Inspector (`natural=water`)."
+                )
+            if not (obj.get("membership") or []):
+                notes.append(
+                    f"{obj['osm_type']}/{obj['osm_id']}: way-озеро без parent relation в `rel(bw)` "
+                    "(не «дыра» в MP)."
+                )
+        other_roles = rc.get("other_roles") or []
+        if other_roles:
+            notes.append(
+                f"{obj['osm_type']}/{obj['osm_id']}: роли вне outer/inner/main_stream/side_stream: "
+                + ", ".join(f"`{r}`" for r in other_roles)
+            )
+        islet_noted = False
+        for mem in obj.get("members") or []:
+            extra = [
+                m
+                for m in (mem.get("membership") or [])
+                if m.get("relation_id") != obj.get("osm_id")
+            ]
+            if extra and obj.get("osm_id") == 2406778 and mem.get("osm_id") == 180396592:
+                ids = ", ".join(f"relation/{m.get('relation_id')}" for m in extra)
+                notes.append(
+                    f"way/{mem['osm_id']} объявлен членом нескольких MP ({ids}) — это OSM membership, "
+                    "не proximity."
+                )
+            if (
+                not islet_noted
+                and mem.get("role") == "inner"
+                and (mem.get("tags") or {}).get("place") == "islet"
+            ):
+                notes.append(
+                    f"{obj['osm_type']}/{obj['osm_id']} inner way/{mem['osm_id']} имеет `place=islet`: "
+                    "остров как дыра MP, не осевая линия."
+                )
+                islet_noted = True
+    return notes
+
+
 def _check_180396592(objects: list[dict[str, Any]]) -> dict[str, Any]:
     target = None
     parent = None
@@ -133,8 +181,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("## Метод")
     lines.append("")
     lines.append(
-        "- Источник: Overpass `out body` (списки node id у way, без координат) "
-        "с запасным OSM API `/full.json` (координаты узлов отбрасываются)."
+        "- Источник: OSM API 0.6 (`relation/id`, пакетный `ways.json`, `way/id/relations`); "
+        "координаты узлов не сохраняются, только списки node id. Overpass — запасной путь."
     )
     lines.append(
         "- Для relation скачиваются сам объект и **объявленные** члены `members[]`."
@@ -209,6 +257,16 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("```json")
     lines.append(json.dumps(stats["by_member_classification"], ensure_ascii=False, indent=2))
     lines.append("```")
+    lines.append("")
+
+    amb = report.get("ambiguous") or []
+    lines.append("## Неоднозначные случаи")
+    lines.append("")
+    if not amb:
+        lines.append("В выборке нет дополнительных неоднозначностей сверх описанных ниже.")
+    else:
+        for note in amb:
+            lines.append(f"- {note}")
     lines.append("")
 
     lines.append("## Проверка way/180396592 в relation/2406778")
@@ -447,6 +505,7 @@ def build_report(
         "objects": objects,
         "stats": stats,
         "check_way_180396592": _check_180396592(objects),
+        "ambiguous": _ambiguous_notes(objects),
     }
     assert_no_computed_links(report)
     return report
@@ -456,6 +515,9 @@ def write_report(report: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / "osm-water-model-audit.json"
     md_path = out_dir / "osm-water-model-audit.md"
-    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    json_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     md_path.write_text(render_markdown(report), encoding="utf-8")
     return md_path, json_path

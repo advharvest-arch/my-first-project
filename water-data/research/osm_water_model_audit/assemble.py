@@ -113,7 +113,6 @@ def _member_record(
             {
                 "relation_id": parent_relation_id,
                 "role": role,
-                "relation_tags": relation_tags,
             }
         ],
     }
@@ -285,11 +284,15 @@ def summarize_sample(objects: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def assert_no_computed_links(payload: Any, path: str = "root") -> None:
+    """Reject computed join fields. OSM source tag keys (including distance=) are allowed."""
     if isinstance(payload, dict):
         for k, v in payload.items():
             lk = str(k).lower()
+            # Raw OSM tags may contain any key; they are not computed joins.
+            if lk in ("tags", "relation_tags", "member_tags"):
+                continue
             for bad in FORBIDDEN_COMPUTED_KEYS:
-                if bad in lk:
+                if bad == lk or lk.startswith(bad + "_") or lk.endswith("_" + bad):
                     raise AssertionError(f"forbidden computed field {k} at {path}")
             assert_no_computed_links(v, f"{path}.{k}")
     elif isinstance(payload, list):

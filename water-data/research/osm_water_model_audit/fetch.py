@@ -210,13 +210,26 @@ def fetch_seed(
     *,
     include_member_parents: bool = True,
     timeout: int = 60,
+    cache_dir: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Return (osm json with elements[], source label)."""
     osm_type = osm_type.lower()
     if osm_type not in ("relation", "way", "node"):
         raise ValueError(f"unsupported osm_type {osm_type}")
 
+    cache_path = None
+    if cache_dir:
+        from pathlib import Path
+
+        d = Path(cache_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        cache_path = d / f"{osm_type}-{osm_id}.json"
+        if cache_path.exists():
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            return payload, str(payload.get("_source") or "cache")
+
     # Prefer OSM API: Overpass public mirrors often hang from this environment.
+    source = "osm-api"
     try:
         data = fetch_seed_osm_api(
             osm_type,
@@ -224,16 +237,22 @@ def fetch_seed(
             include_member_parents=include_member_parents,
             timeout=timeout,
         )
-        if data.get("elements"):
-            return data, "osm-api"
+        if not data.get("elements"):
+            raise RuntimeError("empty osm-api response")
     except Exception:
-        pass
+        source = "overpass"
+        if osm_type == "relation":
+            query = _overpass_relation_query(
+                osm_id, include_member_parents=include_member_parents
+            )
+            data = post_overpass(query, timeout=min(25, timeout))
+        elif osm_type == "way":
+            data = post_overpass(_overpass_way_query(osm_id), timeout=min(25, timeout))
+        else:
+            raise
 
-    if osm_type == "relation":
-        query = _overpass_relation_query(osm_id, include_member_parents=include_member_parents)
-        data = post_overpass(query, timeout=min(25, timeout))
-        return data, "overpass"
-    if osm_type == "way":
-        data = post_overpass(_overpass_way_query(osm_id), timeout=min(25, timeout))
-        return data, "overpass"
-    raise RuntimeError(f"failed to fetch {osm_type}/{osm_id}")
+    if cache_path is not None:
+        to_store = dict(data)
+        to_store["_source"] = source
+        cache_path.write_text(json.dumps(to_store), encoding="utf-8")
+    return data, source

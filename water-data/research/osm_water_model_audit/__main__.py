@@ -43,7 +43,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Offline OSM JSON dump (no network). Tests use this.",
     )
     p.add_argument("--sleep", type=float, default=1.5, help="Pause between live seed fetches")
-    p.add_argument("--timeout", type=int, default=180)
+    p.add_argument("--timeout", type=int, default=60)
+    p.add_argument(
+        "--cache-dir",
+        default="/tmp/osm-water-model-audit-cache",
+        help="Optional JSON cache of OSM API responses (not committed)",
+    )
     args = p.parse_args(argv)
 
     objects = []
@@ -86,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
                     seed["osm_id"],
                     include_member_parents=True,
                     timeout=args.timeout,
+                    cache_dir=args.cache_dir,
                 )
                 obj = assemble_object(
                     seed["osm_type"],
