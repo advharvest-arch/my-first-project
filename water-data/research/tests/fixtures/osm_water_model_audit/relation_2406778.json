@@ -1,0 +1,76 @@
+{
+  "elements": [
+    {
+      "type": "relation",
+      "id": 2406778,
+      "tags": {
+        "type": "multipolygon",
+        "natural": "water",
+        "water": "river"
+      },
+      "members": [
+        {"type": "way", "ref": 273432251, "role": "inner"},
+        {"type": "way", "ref": 858881074, "role": "inner"},
+        {"type": "way", "ref": 180396592, "role": "outer"},
+        {"type": "way", "ref": 180396594, "role": "outer"},
+        {"type": "way", "ref": 191714173, "role": "outer"},
+        {"type": "way", "ref": 191714151, "role": "outer"},
+        {"type": "way", "ref": 180396620, "role": "outer"}
+      ]
+    },
+    {
+      "type": "relation",
+      "id": 2402229,
+      "tags": {
+        "type": "multipolygon",
+        "natural": "water",
+        "water": "river"
+      },
+      "members": [
+        {"type": "way", "ref": 180396592, "role": "outer"}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 273432251,
+      "nodes": [101, 102, 103, 101],
+      "tags": {"place": "islet"}
+    },
+    {
+      "type": "way",
+      "id": 858881074,
+      "nodes": [201, 202, 203, 201],
+      "tags": {}
+    },
+    {
+      "type": "way",
+      "id": 180396592,
+      "nodes": [301, 302, 303],
+      "tags": {}
+    },
+    {
+      "type": "way",
+      "id": 180396594,
+      "nodes": [401, 402, 403],
+      "tags": {}
+    },
+    {
+      "type": "way",
+      "id": 191714173,
+      "nodes": [501, 502, 503],
+      "tags": {}
+    },
+    {
+      "type": "way",
+      "id": 191714151,
+      "nodes": [601, 602, 603],
+      "tags": {}
+    },
+    {
+      "type": "way",
+      "id": 180396620,
+      "nodes": [701, 702, 703],
+      "tags": {}
+    }
+  ]
+}

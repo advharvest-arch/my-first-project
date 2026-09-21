@@ -1,5 +1,13 @@
 Research-only water topology discovery. Not ingest, not WRG, not seligerDebug.
 
+OSM water-model audit (tags/roles of reference objects, no topology):
+
+```bash
+cd water-data/research
+PYTHONPATH=. python3 -m osm_water_model_audit --out-dir ../../docs
+PYTHONPATH=. python3 -m unittest tests.test_osm_water_model_audit -v
+```
+
 ```bash
 cd water-data/research
 python3 -m pip install -r requirements.txt
