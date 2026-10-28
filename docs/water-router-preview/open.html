@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AquaRoute — Water Router (?waterRouter=1)</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+    />
+    <style>
+      html,
+      body,
+      #map {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b3a4a;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      .water-router-legend {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        z-index: 1000;
+        max-width: 340px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(7, 24, 33, 0.92);
+        color: #e8f4f2;
+        border: 1px solid rgba(232, 244, 242, 0.22);
+        font-size: 13px;
+        line-height: 1.45;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+      .water-router-legend h3 {
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+      .route-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0;
+        cursor: pointer;
+      }
+      .route-swatch {
+        width: 14px;
+        height: 4px;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+      .status-bar {
+        position: fixed;
+        bottom: 12px;
+        left: 12px;
+        z-index: 1000;
+        padding: 8px 12px;
+        border-radius: 10px;
+        background: rgba(7, 24, 33, 0.9);
+        color: #e8f4f2;
+        font-size: 13px;
+        border: 1px solid rgba(232, 244, 242, 0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <aside class="water-router-legend" id="legend">
+      <h3>Селигер · Water Router (?waterRouter=1)</h3>
+      <div>CDT Navmesh (16 042 треуг.) + Corridors + A* + Funnel</div>
+      <div id="route-list" style="margin-top:8px;">Загрузка маршрутов…</div>
+    </aside>
+    <div class="status-bar" id="status">Загрузка геометрии Селигера и маршрутов A*…</div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+      (async function () {
+        var statusEl = document.getElementById('status');
+        var listEl = document.getElementById('route-list');
+        var map = L.map('map').setView([57.22, 33.05], 10);
+
+        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        var sat = L.tileLayer(
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          { maxZoom: 18, attribution: 'Esri World Imagery' }
+        );
+        L.control.layers({ 'Карта OSM': osm, 'Спутник': sat }).addTo(map);
+
+        var rawBase = 'https://raw.githubusercontent.com/advharvest-arch/my-first-project/cursor/water-router/';
+        var seligerUrl = rawBase + 'docs/osm-water-inspect-preview/seliger-399081-debug.geojson';
+        var routesUrl = rawBase + 'sea-map/public/seliger-water-router.geojson';
+
+        try {
+          var [selRes, routeRes] = await Promise.all([fetch(seligerUrl), fetch(routesUrl)]);
+          var selFc = await selRes.json();
+          var routeFc = await routeRes.json();
+
+          L.geoJSON(selFc, {
+            filter: function (f) { return f.properties && f.properties.kind === 'water-area'; },
+            style: function (f) {
+              var south = f.properties.part === 'south';
+              return {
+                color: south ? '#1a6f9a' : '#1a8a72',
+                weight: 1,
+                fillColor: south ? '#2a9fd6' : '#2bb3a0',
+                fillOpacity: 0.28
+              };
+            }
+          }).addTo(map);
+
+          L.geoJSON(selFc, {
+            filter: function (f) { return f.properties && f.properties.kind === 'contour' && f.properties.role === 'inner'; },
+            style: function () {
+              return { color: '#e3a008', weight: 1.5, opacity: 0.85, fill: false };
+            }
+          }).addTo(map);
+
+          var routeLayers = {};
+          var routeGroup = L.geoJSON(routeFc, {
+            filter: function (f) { return f.properties && f.properties.kind === 'water-route'; },
+            style: function (f) {
+              return { color: f.properties.color || '#ef4444', weight: 4, opacity: 0.95 };
+            },
+            onEachFeature: function (f, layer) {
+              var p = f.properties;
+              var km = (p.lengthM / 1000).toFixed(2) + ' км (' + Math.round(p.lengthM) + ' м)';
+              layer.bindPopup(
+                '<strong>' + p.label + '</strong><br>' +
+                'Длина (A* + Funnel): <b>' + km + '</b><br>' +
+                'Водные объекты: <code>' + (p.visitedFeatures || []).join(' → ') + '</code><br>' +
+                'Коридоры: <code>' + ((p.visitedCorridors || []).join(', ') || 'нет') + '</code>'
+              );
+              routeLayers[p.routeId] = layer;
+            }
+          }).addTo(map);
+
+          L.geoJSON(routeFc, {
+            filter: function (f) { return f.properties && f.properties.kind === 'water-route-endpoint'; },
+            pointToLayer: function (f, latlng) {
+              var p = f.properties;
+              return L.circleMarker(latlng, {
+                radius: p.endpointRole === 'start' ? 6 : 5,
+                color: '#ffffff',
+                weight: 2,
+                fillColor: p.color || '#ef4444',
+                fillOpacity: 1
+              }).bindTooltip(p.label);
+            }
+          }).addTo(map);
+
+          var routes = routeFc.features.filter(function (f) {
+            return f.properties && f.properties.kind === 'water-route';
+          });
+          listEl.innerHTML = '';
+          routes.forEach(function (f) {
+            var p = f.properties;
+            var item = document.createElement('div');
+            item.className = 'route-item';
+            item.innerHTML =
+              '<span class="route-swatch" style="background:' + p.color + '"></span>' +
+              '<span>' + p.label + ' (' + (p.lengthM / 1000).toFixed(1) + ' км)</span>';
+            item.onclick = function () {
+              var lyr = routeLayers[p.routeId];
+              if (lyr) {
+                map.fitBounds(lyr.getBounds().pad(0.15));
+                lyr.openPopup();
+              }
+            };
+            listEl.appendChild(item);
+          });
+
+          if (routeGroup.getBounds().isValid()) {
+            map.fitBounds(routeGroup.getBounds().pad(0.08));
+          }
+          statusEl.textContent =
+            'Селигер: загружено ' + routes.length + ' маршрутов A* + Funnel (?waterRouter=1). Кликните по маршруту в списке или на карте.';
+        } catch (err) {
+          statusEl.textContent = 'Ошибка загрузки GeoJSON: ' + err;
+        }
+      })();
+    </script>
+  </body>
+</html>
