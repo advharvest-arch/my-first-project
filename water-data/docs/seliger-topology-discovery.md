@@ -490,6 +490,108 @@
 | `r399081` | `w81753515` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 906802025, "key": "w906802025"}]` | connector=w906802025; r399081 and w81753515 are the only confirmed water areas that share OSM nodes with open waterway w906802025 |
 | `r9617478` | `w81753515` | WATERWAY_CONNECTOR | `[{"osmType": "way", "osmId": 906802027, "key": "w906802027"}]` | connector=w906802027; r9617478 and w81753515 are the only confirmed water areas that share OSM nodes with open waterway w906802027 |
 
+## K. Strict WaterFeature Graph (`build_water_graph.py`)
+
+Граф водных объектов, построенный только по 4 правилам OSM-топологии (`SHARED_NODE`, `SHARED_WAY`, `RELATION_ROLE`, `ENDPOINT_ON_POLYGON`), без proximity и без перескакивания через промежуточные площади.
+
+- vertices (`nodeCount`): **37**
+- edges (`edgeCount`): **47**
+- edge counts by type: `{"ENDPOINT_ON_POLYGON": 14, "RELATION_ROLE": 7, "SHARED_NODE": 23, "SHARED_WAY": 3}`
+
+### K.1. WaterFeature nodes
+
+| key | OSM | name (display only) | role | hops |
+|---|---|---|---|---:|
+| `r399081` | relation/399081 | Селигер | area | 0 |
+| `r1159264` | relation/1159264 | Ласцо | area | 1 |
+| `r1203668` | relation/1203668 | Полоновка | area | 1 |
+| `r17001378` | relation/17001378 |  | area | 1 |
+| `r379295` | relation/379295 | Селижаровка | waterway | 1 |
+| `r399614` | relation/399614 | озеро Сиг | area | 1 |
+| `w1316976066` | way/1316976066 | Варварина протока | area | 1 |
+| `w199586062` | way/199586062 |  | area | 1 |
+| `w20542134` | way/20542134 | Белое-южное | area | 1 |
+| `w217721565` | way/217721565 |  | area | 1 |
+| `w260065513` | way/260065513 |  | area | 1 |
+| `w261237885` | way/261237885 |  | area | 1 |
+| `w299382153` | way/299382153 |  | area | 1 |
+| `w299384445` | way/299384445 |  | area | 1 |
+| `w30164445` | way/30164445 | Рясивое | area | 1 |
+| `w30196364` | way/30196364 | Залецкое | area | 1 |
+| `w308143904` | way/308143904 |  | area | 1 |
+| `w308145402` | way/308145402 |  | area | 1 |
+| `w308319722` | way/308319722 |  | area | 1 |
+| `w308676450` | way/308676450 |  | area | 1 |
+| `w32486887` | way/32486887 | Святица | area | 1 |
+| `w329235115` | way/329235115 |  | area | 1 |
+| `w49220132` | way/49220132 | озеро Гнильцы Малое | area | 1 |
+| `w49220133` | way/49220133 | Кобыльское | area | 1 |
+| `w690737405` | way/690737405 |  | area | 1 |
+| `w691693544` | way/691693544 |  | area | 1 |
+| `w691693545` | way/691693545 |  | area | 1 |
+| `w76207976` | way/76207976 |  | area | 1 |
+| `w78343141` | way/78343141 |  | area | 1 |
+| `w81303076` | way/81303076 | Гастовец | area | 1 |
+| `w81753515` | way/81753515 | Княжа | area | 1 |
+| `r18358803` | relation/18358803 | Святое | area | 2 |
+| `r9617478` | relation/9617478 | Серемо | area | 2 |
+| `w30196538` | way/30196538 | Стройное | area | 2 |
+| `r9617480` | relation/9617480 | Глубокое | area | 3 |
+| `r9617479` | relation/9617479 | Мелкое | area | 4 |
+| `r18072605` | relation/18072605 | Княжка | area | 5 |
+
+### K.2. WaterFeature edges and OSM evidence
+
+| from | to | connectionType | osmType/osmId | evidence |
+|---|---|---|---|---|
+| `r1159264` | `r399081` | `ENDPOINT_ON_POLYGON` | `way/81323084` | `{"osmId": 81323084, "osmType": "way", "nodeId": 526889446, "startNodeId": 526889446, "endNodeId": 947338538, "areaKeys": ["r1159264", "r399081"]}` |
+| `r379295` | `r399081` | `ENDPOINT_ON_POLYGON` | `way/28838371` | `{"osmId": 28838371, "osmType": "way", "nodeId": 247941768, "role": "main_stream", "polygonWayId": 191300221, "polygonRole": "outer"}` |
+| `r399081` | `r399614` | `ENDPOINT_ON_POLYGON` | `way/195929170` | `{"osmId": 195929170, "osmType": "way", "nodeId": 247941917, "startNodeId": 2063164680, "endNodeId": 247941917, "areaKeys": ["r399081", "r399614"]}` |
+| `r399081` | `w20542134` | `ENDPOINT_ON_POLYGON` | `way/167688573` | `{"osmId": 167688573, "osmType": "way", "nodeId": 14085575805, "startNodeId": 220267645, "endNodeId": 14085575805, "areaKeys": ["r399081", "w20542134"]}` |
+| `r399081` | `w261237885` | `ENDPOINT_ON_POLYGON` | `way/103320388` | `{"osmId": 103320388, "osmType": "way", "nodeId": 624633849, "startNodeId": 2178986782, "endNodeId": 624633849, "areaKeys": ["r399081", "w261237885"]}` |
+| `r399081` | `w30164445` | `ENDPOINT_ON_POLYGON` | `way/82331216` | `{"osmId": 82331216, "osmType": "way", "nodeId": 2421493972, "startNodeId": 2421493972, "endNodeId": 332399409, "areaKeys": ["r399081", "w30164445"]}` |
+| `r399081` | `w30196364` | `ENDPOINT_ON_POLYGON` | `way/30196495` | `{"osmId": 30196495, "osmType": "way", "nodeId": 220266130, "startNodeId": 332739673, "endNodeId": 220266130, "areaKeys": ["r399081", "w30196364"]}` |
+| `r399081` | `w308145402` | `ENDPOINT_ON_POLYGON` | `way/308145403` | `{"osmId": 308145403, "osmType": "way", "nodeId": 3134289259, "startNodeId": 3134289259, "endNodeId": 3134289308, "areaKeys": ["r399081", "w308145402"]}` |
+| `r399081` | `w32486887` | `ENDPOINT_ON_POLYGON` | `way/1347279844` | `{"osmId": 1347279844, "osmType": "way", "nodeId": 12462734553, "startNodeId": 12462734550, "endNodeId": 12462734553, "areaKeys": ["r399081", "w32486887"]}` |
+| `r399081` | `w49220132` | `ENDPOINT_ON_POLYGON` | `way/848485110` | `{"osmId": 848485110, "osmType": "way", "nodeId": 7917322355, "startNodeId": 624667695, "endNodeId": 7917322355, "areaKeys": ["r399081", "w49220132"]}` |
+| `r399081` | `w49220133` | `ENDPOINT_ON_POLYGON` | `way/288428252` | `{"osmId": 288428252, "osmType": "way", "nodeId": 2919877301, "startNodeId": 624667729, "endNodeId": 2919877301, "areaKeys": ["r399081", "w49220133"]}` |
+| `r399081` | `w76207976` | `ENDPOINT_ON_POLYGON` | `way/229644709` | `{"osmId": 229644709, "osmType": "way", "nodeId": 2382126353, "startNodeId": 899128200, "endNodeId": 2382126353, "areaKeys": ["r399081", "w76207976"]}` |
+| `r399081` | `w78343141` | `ENDPOINT_ON_POLYGON` | `way/81759425` | `{"osmId": 81759425, "osmType": "way", "nodeId": 952581538, "startNodeId": 919686935, "endNodeId": 952581538, "areaKeys": ["r399081", "w78343141"]}` |
+| `r399081` | `w81303076` | `ENDPOINT_ON_POLYGON` | `way/81732492` | `{"osmId": 81732492, "osmType": "way", "nodeId": 933815904, "startNodeId": 947139160, "endNodeId": 933815904, "areaKeys": ["r399081", "w81303076"]}` |
+| `r17001378` | `r399081` | `RELATION_ROLE` | `way/1238091260` | `{"osmId": 1238091260, "osmType": "way", "role": "outer", "peerRole": "outer", "sharedWayIds": [1238091260]}` |
+| `r399081` | `w20542134` | `RELATION_ROLE` | `way/30171650` | `{"osmId": 30171650, "osmType": "way", "relationId": 399081, "role": "inner", "connectorWayId": 167688573, "nodeId": 14085575805}` |
+| `r399081` | `w308145402` | `RELATION_ROLE` | `way/30171650` | `{"osmId": 30171650, "osmType": "way", "relationId": 399081, "role": "inner", "connectorWayId": 308145403, "nodeId": 3134289259}` |
+| `r399081` | `w49220132` | `RELATION_ROLE` | `way/30171650` | `{"osmId": 30171650, "osmType": "way", "relationId": 399081, "role": "inner", "connectorWayId": 848485110, "nodeId": 7917322355}` |
+| `r399081` | `w49220133` | `RELATION_ROLE` | `way/30171650` | `{"osmId": 30171650, "osmType": "way", "relationId": 399081, "role": "inner", "connectorWayId": 288428252, "nodeId": 2919877301}` |
+| `r9617478` | `r9617480` | `RELATION_ROLE` | `way/691933859` | `{"osmId": 691933859, "osmType": "way", "role": "outer", "peerRole": "outer", "sharedWayIds": [691933859]}` |
+| `r9617479` | `r9617480` | `RELATION_ROLE` | `way/691933858` | `{"osmId": 691933858, "osmType": "way", "role": "outer", "peerRole": "outer", "sharedWayIds": [691933858]}` |
+| `r1203668` | `r399081` | `SHARED_NODE` | `node/365264662` | `{"osmId": 365264662, "osmType": "node", "sharedNodeIds": [365264662, 365264663, 365264664, 365264682, 365270429, 365270430], "sharedNodeCount": 6}` |
+| `r17001378` | `r399081` | `SHARED_NODE` | `node/950124294` | `{"osmId": 950124294, "osmType": "node", "sharedNodeIds": [950124294, 9235426556, 11500497926], "sharedNodeCount": 3}` |
+| `r18072605` | `r9617479` | `SHARED_NODE` | `node/12188675901` | `{"osmId": 12188675901, "osmType": "node", "sharedNodeIds": [12188675901, 12188675941], "sharedNodeCount": 2}` |
+| `r18358803` | `w1316976066` | `SHARED_NODE` | `node/12188675942` | `{"osmId": 12188675942, "osmType": "node", "sharedNodeIds": [12188675942, 12188675977], "sharedNodeCount": 2}` |
+| `r379295` | `r399081` | `SHARED_NODE` | `node/247941768` | `{"osmId": 247941768, "osmType": "node", "sharedNodeIds": [247941768], "sharedNodeCount": 1}` |
+| `r399081` | `w1316976066` | `SHARED_NODE` | `node/12188675959` | `{"osmId": 12188675959, "osmType": "node", "sharedNodeIds": [12188675959, 12188675960], "sharedNodeCount": 2}` |
+| `r399081` | `w199586062` | `SHARED_NODE` | `node/2082335462` | `{"osmId": 2082335462, "osmType": "node", "sharedNodeIds": [2082335462, 2082335465], "sharedNodeCount": 2}` |
+| `r399081` | `w217721565` | `SHARED_NODE` | `node/2270237715` | `{"osmId": 2270237715, "osmType": "node", "sharedNodeIds": [2270237715, 2270237719], "sharedNodeCount": 2}` |
+| `r399081` | `w260065513` | `SHARED_NODE` | `node/2055153259` | `{"osmId": 2055153259, "osmType": "node", "sharedNodeIds": [2055153259, 2055153260], "sharedNodeCount": 2}` |
+| `r399081` | `w299382153` | `SHARED_NODE` | `node/2082334551` | `{"osmId": 2082334551, "osmType": "node", "sharedNodeIds": [2082334551, 2082334554], "sharedNodeCount": 2}` |
+| `r399081` | `w299384445` | `SHARED_NODE` | `node/220266041` | `{"osmId": 220266041, "osmType": "node", "sharedNodeIds": [220266041, 2270239130], "sharedNodeCount": 2}` |
+| `r399081` | `w308143904` | `SHARED_NODE` | `node/3134275992` | `{"osmId": 3134275992, "osmType": "node", "sharedNodeIds": [3134275992, 3134276019], "sharedNodeCount": 2}` |
+| `r399081` | `w308319722` | `SHARED_NODE` | `node/332463340` | `{"osmId": 332463340, "osmType": "node", "sharedNodeIds": [332463340, 3136100589, 3136100610, 4487732677], "sharedNodeCount": 4}` |
+| `r399081` | `w308676450` | `SHARED_NODE` | `node/3139427972` | `{"osmId": 3139427972, "osmType": "node", "sharedNodeIds": [3139427972, 3139427977, 3139428013], "sharedNodeCount": 3}` |
+| `r399081` | `w329235115` | `SHARED_NODE` | `node/2082334294` | `{"osmId": 2082334294, "osmType": "node", "sharedNodeIds": [2082334294, 2082334301], "sharedNodeCount": 2}` |
+| `r399081` | `w690737405` | `SHARED_NODE` | `node/247941921` | `{"osmId": 247941921, "osmType": "node", "sharedNodeIds": [247941921, 6480997849], "sharedNodeCount": 2}` |
+| `r399081` | `w691693544` | `SHARED_NODE` | `node/2423749273` | `{"osmId": 2423749273, "osmType": "node", "sharedNodeIds": [2423749273, 6491307758, 6491307767], "sharedNodeCount": 3}` |
+| `r399081` | `w691693545` | `SHARED_NODE` | `node/6491307768` | `{"osmId": 6491307768, "osmType": "node", "sharedNodeIds": [6491307768, 6491307772, 6491307773, 6491307779], "sharedNodeCount": 4}` |
+| `r399081` | `w81753515` | `SHARED_NODE` | `node/220277673` | `{"osmId": 220277673, "osmType": "node", "sharedNodeIds": [220277673, 952396939, 952397004], "sharedNodeCount": 3}` |
+| `r9617478` | `r9617480` | `SHARED_NODE` | `node/220279942` | `{"osmId": 220279942, "osmType": "node", "sharedNodeIds": [220279942, 365262227, 8420373444], "sharedNodeCount": 3}` |
+| `r9617478` | `w81753515` | `SHARED_NODE` | `node/220278932` | `{"osmId": 220278932, "osmType": "node", "sharedNodeIds": [220278932, 749439906, 952397092], "sharedNodeCount": 3}` |
+| `r9617479` | `r9617480` | `SHARED_NODE` | `node/365262214` | `{"osmId": 365262214, "osmType": "node", "sharedNodeIds": [365262214, 365262221, 8420373450], "sharedNodeCount": 3}` |
+| `w30196538` | `w308143904` | `SHARED_NODE` | `node/332745905` | `{"osmId": 332745905, "osmType": "node", "sharedNodeIds": [332745905, 3134276014], "sharedNodeCount": 2}` |
+| `r17001378` | `r399081` | `SHARED_WAY` | `way/1238091260` | `{"osmId": 1238091260, "osmType": "way", "sharedWayIds": [1238091260]}` |
+| `r9617478` | `r9617480` | `SHARED_WAY` | `way/691933859` | `{"osmId": 691933859, "osmType": "way", "sharedWayIds": [691933859]}` |
+| `r9617479` | `r9617480` | `SHARED_WAY` | `way/691933858` | `{"osmId": 691933858, "osmType": "way", "sharedWayIds": [691933858]}` |
+
 ## Notes
 
 - Research topology discovery only. Not a production WaterSystem.

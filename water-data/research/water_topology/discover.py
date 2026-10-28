@@ -392,13 +392,13 @@ def discover_water_graph(
     def is_waterway_obj(key: str) -> bool:
         return objects[key]["role"] == "waterway"
 
-    # BFS through areas + open waterways only
+    # BFS through areas + open waterways only (deterministic: area features first)
     dist = {seed_key: 0}
     bfs_parent: dict[str, str | None] = {seed_key: None}
     q: deque[str] = deque([seed_key])
     while q:
         u = q.popleft()
-        for v in adj[u]:
+        for v in sorted(adj[u], key=lambda k: (0 if is_area_obj(k) else 1, k)):
             if objects[v]["role"] == "waterway-weak":
                 continue
             if v not in dist:
@@ -464,7 +464,7 @@ def discover_water_graph(
             continue
         if ck not in confirmed_keys:
             continue
-        area_ends = [n for n in adj[ck] if is_area_obj(n) and n in confirmed_keys]
+        area_ends = sorted(n for n in adj[ck] if is_area_obj(n) and n in confirmed_keys)
         # Pairwise shortcuts among 3+ areas on the same way skip intermediates
         # (e.g. Seliger—Sereymo via the Knyazha axis way, hiding Knyazha).
         # Keep the waterway as a vertex (DIRECT_OSM) instead.

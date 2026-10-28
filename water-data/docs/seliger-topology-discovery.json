@@ -118292,5 +118292,1606 @@
     "BFS expands only through DIRECT_OSM and WATERWAY_CONNECTOR.",
     "GEOMETRY_CONTACT / NEARBY / PORTAGE are candidates, not confirmed water connections.",
     "Navigability is not evaluated."
-  ]
+  ],
+  "waterFeatureGraph": {
+    "seed": "r399081",
+    "nodes": [
+      {
+        "key": "r1159264",
+        "osmType": "relation",
+        "osmId": 1159264,
+        "tags": {
+          "name": "Ласцо",
+          "natural": "water",
+          "type": "multipolygon"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r1203668",
+        "osmType": "relation",
+        "osmId": 1203668,
+        "tags": {
+          "name": "Полоновка",
+          "natural": "water",
+          "type": "multipolygon"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r17001378",
+        "osmType": "relation",
+        "osmId": 17001378,
+        "tags": {
+          "natural": "water",
+          "type": "multipolygon",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r18072605",
+        "osmType": "relation",
+        "osmId": 18072605,
+        "tags": {
+          "name": "Княжка",
+          "natural": "water",
+          "type": "multipolygon",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 5,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r18358803",
+        "osmType": "relation",
+        "osmId": 18358803,
+        "tags": {
+          "name": "Святое",
+          "natural": "water",
+          "type": "multipolygon"
+        },
+        "role": "area",
+        "hopsFromSeed": 2,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r379295",
+        "osmType": "relation",
+        "osmId": 379295,
+        "tags": {
+          "destination": "Volga",
+          "name": "Селижаровка",
+          "type": "waterway",
+          "waterway": "river",
+          "wikidata": "Q289638",
+          "wikipedia": "ru:Селижаровка"
+        },
+        "role": "waterway",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r399081",
+        "osmType": "relation",
+        "osmId": 399081,
+        "tags": {
+          "ele": "205",
+          "name": "Селигер",
+          "name:ca": "Llac Seliguer",
+          "name:de": "Seligersee",
+          "name:en": "Seliger",
+          "name:et": "Seliger",
+          "name:ru": "озеро Селигер",
+          "name:zh": "谢利格尔湖",
+          "natural": "water",
+          "type": "multipolygon",
+          "water": "lake",
+          "wikidata": "Q746304",
+          "wikipedia": "ru:Селигер"
+        },
+        "role": "area",
+        "hopsFromSeed": 0,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r399614",
+        "osmType": "relation",
+        "osmId": 399614,
+        "tags": {
+          "ele": "219",
+          "name": "озеро Сиг",
+          "natural": "water",
+          "type": "multipolygon",
+          "water": "lake",
+          "wikidata": "Q4418548",
+          "wikipedia": "ru:Сиг (озеро)"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r9617478",
+        "osmType": "relation",
+        "osmId": 9617478,
+        "tags": {
+          "name": "Серемо",
+          "natural": "water",
+          "type": "multipolygon"
+        },
+        "role": "area",
+        "hopsFromSeed": 2,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r9617479",
+        "osmType": "relation",
+        "osmId": 9617479,
+        "tags": {
+          "name": "Мелкое",
+          "natural": "water",
+          "type": "multipolygon"
+        },
+        "role": "area",
+        "hopsFromSeed": 4,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "r9617480",
+        "osmType": "relation",
+        "osmId": 9617480,
+        "tags": {
+          "name": "Глубокое",
+          "natural": "water",
+          "type": "multipolygon"
+        },
+        "role": "area",
+        "hopsFromSeed": 3,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w1316976066",
+        "osmType": "way",
+        "osmId": 1316976066,
+        "tags": {
+          "name": "Варварина протока",
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w199586062",
+        "osmType": "way",
+        "osmId": 199586062,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w20542134",
+        "osmType": "way",
+        "osmId": 20542134,
+        "tags": {
+          "name": "Белое-южное",
+          "natural": "water",
+          "water": "lake"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w217721565",
+        "osmType": "way",
+        "osmId": 217721565,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w260065513",
+        "osmType": "way",
+        "osmId": 260065513,
+        "tags": {
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w261237885",
+        "osmType": "way",
+        "osmId": 261237885,
+        "tags": {
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w299382153",
+        "osmType": "way",
+        "osmId": 299382153,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w299384445",
+        "osmType": "way",
+        "osmId": 299384445,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w30164445",
+        "osmType": "way",
+        "osmId": 30164445,
+        "tags": {
+          "name": "Рясивое",
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w30196364",
+        "osmType": "way",
+        "osmId": 30196364,
+        "tags": {
+          "gvr:code": "08010100411110000000565",
+          "name": "Залецкое",
+          "name:ru": "Залецкое",
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w30196538",
+        "osmType": "way",
+        "osmId": 30196538,
+        "tags": {
+          "name": "Стройное",
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 2,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w308143904",
+        "osmType": "way",
+        "osmId": 308143904,
+        "tags": {
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w308145402",
+        "osmType": "way",
+        "osmId": 308145402,
+        "tags": {
+          "natural": "water",
+          "water": "lake"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w308319722",
+        "osmType": "way",
+        "osmId": 308319722,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w308676450",
+        "osmType": "way",
+        "osmId": 308676450,
+        "tags": {
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w32486887",
+        "osmType": "way",
+        "osmId": 32486887,
+        "tags": {
+          "name": "Святица",
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w329235115",
+        "osmType": "way",
+        "osmId": 329235115,
+        "tags": {
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w49220132",
+        "osmType": "way",
+        "osmId": 49220132,
+        "tags": {
+          "name": "озеро Гнильцы Малое",
+          "natural": "water",
+          "water": "lake"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w49220133",
+        "osmType": "way",
+        "osmId": 49220133,
+        "tags": {
+          "name": "Кобыльское",
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w690737405",
+        "osmType": "way",
+        "osmId": 690737405,
+        "tags": {
+          "landuse": "reservoir"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w691693544",
+        "osmType": "way",
+        "osmId": 691693544,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w691693545",
+        "osmType": "way",
+        "osmId": 691693545,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w76207976",
+        "osmType": "way",
+        "osmId": 76207976,
+        "tags": {
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w78343141",
+        "osmType": "way",
+        "osmId": 78343141,
+        "tags": {
+          "natural": "water",
+          "source": "Landsat"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w81303076",
+        "osmType": "way",
+        "osmId": 81303076,
+        "tags": {
+          "name": "Гастовец",
+          "natural": "water"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      },
+      {
+        "key": "w81753515",
+        "osmType": "way",
+        "osmId": 81753515,
+        "tags": {
+          "name": "Княжа",
+          "natural": "water",
+          "water": "river"
+        },
+        "role": "area",
+        "hopsFromSeed": 1,
+        "inConfirmedComponent": true
+      }
+    ],
+    "edges": [
+      {
+        "from": "r1159264",
+        "to": "r399081",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 81323084,
+          "osmType": "way",
+          "nodeId": 526889446,
+          "startNodeId": 526889446,
+          "endNodeId": 947338538,
+          "areaKeys": [
+            "r1159264",
+            "r399081"
+          ]
+        }
+      },
+      {
+        "from": "r379295",
+        "to": "r399081",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 28838371,
+          "osmType": "way",
+          "nodeId": 247941768,
+          "role": "main_stream",
+          "polygonWayId": 191300221,
+          "polygonRole": "outer"
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "r399614",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 195929170,
+          "osmType": "way",
+          "nodeId": 247941917,
+          "startNodeId": 2063164680,
+          "endNodeId": 247941917,
+          "areaKeys": [
+            "r399081",
+            "r399614"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w20542134",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 167688573,
+          "osmType": "way",
+          "nodeId": 14085575805,
+          "startNodeId": 220267645,
+          "endNodeId": 14085575805,
+          "areaKeys": [
+            "r399081",
+            "w20542134"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w261237885",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 103320388,
+          "osmType": "way",
+          "nodeId": 624633849,
+          "startNodeId": 2178986782,
+          "endNodeId": 624633849,
+          "areaKeys": [
+            "r399081",
+            "w261237885"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w30164445",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 82331216,
+          "osmType": "way",
+          "nodeId": 2421493972,
+          "startNodeId": 2421493972,
+          "endNodeId": 332399409,
+          "areaKeys": [
+            "r399081",
+            "w30164445"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w30196364",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 30196495,
+          "osmType": "way",
+          "nodeId": 220266130,
+          "startNodeId": 332739673,
+          "endNodeId": 220266130,
+          "areaKeys": [
+            "r399081",
+            "w30196364"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w308145402",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 308145403,
+          "osmType": "way",
+          "nodeId": 3134289259,
+          "startNodeId": 3134289259,
+          "endNodeId": 3134289308,
+          "areaKeys": [
+            "r399081",
+            "w308145402"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w32486887",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 1347279844,
+          "osmType": "way",
+          "nodeId": 12462734553,
+          "startNodeId": 12462734550,
+          "endNodeId": 12462734553,
+          "areaKeys": [
+            "r399081",
+            "w32486887"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w49220132",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 848485110,
+          "osmType": "way",
+          "nodeId": 7917322355,
+          "startNodeId": 624667695,
+          "endNodeId": 7917322355,
+          "areaKeys": [
+            "r399081",
+            "w49220132"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w49220133",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 288428252,
+          "osmType": "way",
+          "nodeId": 2919877301,
+          "startNodeId": 624667729,
+          "endNodeId": 2919877301,
+          "areaKeys": [
+            "r399081",
+            "w49220133"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w76207976",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 229644709,
+          "osmType": "way",
+          "nodeId": 2382126353,
+          "startNodeId": 899128200,
+          "endNodeId": 2382126353,
+          "areaKeys": [
+            "r399081",
+            "w76207976"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w78343141",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 81759425,
+          "osmType": "way",
+          "nodeId": 952581538,
+          "startNodeId": 919686935,
+          "endNodeId": 952581538,
+          "areaKeys": [
+            "r399081",
+            "w78343141"
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w81303076",
+        "connectionType": "ENDPOINT_ON_POLYGON",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 81732492,
+          "osmType": "way",
+          "nodeId": 933815904,
+          "startNodeId": 947139160,
+          "endNodeId": 933815904,
+          "areaKeys": [
+            "r399081",
+            "w81303076"
+          ]
+        }
+      },
+      {
+        "from": "r17001378",
+        "to": "r399081",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 1238091260,
+          "osmType": "way",
+          "role": "outer",
+          "peerRole": "outer",
+          "sharedWayIds": [
+            1238091260
+          ]
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w20542134",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 30171650,
+          "osmType": "way",
+          "relationId": 399081,
+          "role": "inner",
+          "connectorWayId": 167688573,
+          "nodeId": 14085575805
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w308145402",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 30171650,
+          "osmType": "way",
+          "relationId": 399081,
+          "role": "inner",
+          "connectorWayId": 308145403,
+          "nodeId": 3134289259
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w49220132",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 30171650,
+          "osmType": "way",
+          "relationId": 399081,
+          "role": "inner",
+          "connectorWayId": 848485110,
+          "nodeId": 7917322355
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w49220133",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 30171650,
+          "osmType": "way",
+          "relationId": 399081,
+          "role": "inner",
+          "connectorWayId": 288428252,
+          "nodeId": 2919877301
+        }
+      },
+      {
+        "from": "r9617478",
+        "to": "r9617480",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 691933859,
+          "osmType": "way",
+          "role": "outer",
+          "peerRole": "outer",
+          "sharedWayIds": [
+            691933859
+          ]
+        }
+      },
+      {
+        "from": "r9617479",
+        "to": "r9617480",
+        "connectionType": "RELATION_ROLE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 691933858,
+          "osmType": "way",
+          "role": "outer",
+          "peerRole": "outer",
+          "sharedWayIds": [
+            691933858
+          ]
+        }
+      },
+      {
+        "from": "r1203668",
+        "to": "r399081",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 365264662,
+          "osmType": "node",
+          "sharedNodeIds": [
+            365264662,
+            365264663,
+            365264664,
+            365264682,
+            365270429,
+            365270430
+          ],
+          "sharedNodeCount": 6
+        }
+      },
+      {
+        "from": "r17001378",
+        "to": "r399081",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 950124294,
+          "osmType": "node",
+          "sharedNodeIds": [
+            950124294,
+            9235426556,
+            11500497926
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "r18072605",
+        "to": "r9617479",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 12188675901,
+          "osmType": "node",
+          "sharedNodeIds": [
+            12188675901,
+            12188675941
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r18358803",
+        "to": "w1316976066",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 12188675942,
+          "osmType": "node",
+          "sharedNodeIds": [
+            12188675942,
+            12188675977
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r379295",
+        "to": "r399081",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 247941768,
+          "osmType": "node",
+          "sharedNodeIds": [
+            247941768
+          ],
+          "sharedNodeCount": 1
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w1316976066",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 12188675959,
+          "osmType": "node",
+          "sharedNodeIds": [
+            12188675959,
+            12188675960
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w199586062",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 2082335462,
+          "osmType": "node",
+          "sharedNodeIds": [
+            2082335462,
+            2082335465
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w217721565",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 2270237715,
+          "osmType": "node",
+          "sharedNodeIds": [
+            2270237715,
+            2270237719
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w260065513",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 2055153259,
+          "osmType": "node",
+          "sharedNodeIds": [
+            2055153259,
+            2055153260
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w299382153",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 2082334551,
+          "osmType": "node",
+          "sharedNodeIds": [
+            2082334551,
+            2082334554
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w299384445",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 220266041,
+          "osmType": "node",
+          "sharedNodeIds": [
+            220266041,
+            2270239130
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w308143904",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 3134275992,
+          "osmType": "node",
+          "sharedNodeIds": [
+            3134275992,
+            3134276019
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w308319722",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 332463340,
+          "osmType": "node",
+          "sharedNodeIds": [
+            332463340,
+            3136100589,
+            3136100610,
+            4487732677
+          ],
+          "sharedNodeCount": 4
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w308676450",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 3139427972,
+          "osmType": "node",
+          "sharedNodeIds": [
+            3139427972,
+            3139427977,
+            3139428013
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w329235115",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 2082334294,
+          "osmType": "node",
+          "sharedNodeIds": [
+            2082334294,
+            2082334301
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w690737405",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 247941921,
+          "osmType": "node",
+          "sharedNodeIds": [
+            247941921,
+            6480997849
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w691693544",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 2423749273,
+          "osmType": "node",
+          "sharedNodeIds": [
+            2423749273,
+            6491307758,
+            6491307767
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w691693545",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 6491307768,
+          "osmType": "node",
+          "sharedNodeIds": [
+            6491307768,
+            6491307772,
+            6491307773,
+            6491307779
+          ],
+          "sharedNodeCount": 4
+        }
+      },
+      {
+        "from": "r399081",
+        "to": "w81753515",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 220277673,
+          "osmType": "node",
+          "sharedNodeIds": [
+            220277673,
+            952396939,
+            952397004
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "r9617478",
+        "to": "r9617480",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 220279942,
+          "osmType": "node",
+          "sharedNodeIds": [
+            220279942,
+            365262227,
+            8420373444
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "r9617478",
+        "to": "w81753515",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 220278932,
+          "osmType": "node",
+          "sharedNodeIds": [
+            220278932,
+            749439906,
+            952397092
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "r9617479",
+        "to": "r9617480",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 365262214,
+          "osmType": "node",
+          "sharedNodeIds": [
+            365262214,
+            365262221,
+            8420373450
+          ],
+          "sharedNodeCount": 3
+        }
+      },
+      {
+        "from": "w30196538",
+        "to": "w308143904",
+        "connectionType": "SHARED_NODE",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 332745905,
+          "osmType": "node",
+          "sharedNodeIds": [
+            332745905,
+            3134276014
+          ],
+          "sharedNodeCount": 2
+        }
+      },
+      {
+        "from": "r17001378",
+        "to": "r399081",
+        "connectionType": "SHARED_WAY",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 1238091260,
+          "osmType": "way",
+          "sharedWayIds": [
+            1238091260
+          ]
+        }
+      },
+      {
+        "from": "r9617478",
+        "to": "r9617480",
+        "connectionType": "SHARED_WAY",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 691933859,
+          "osmType": "way",
+          "sharedWayIds": [
+            691933859
+          ]
+        }
+      },
+      {
+        "from": "r9617479",
+        "to": "r9617480",
+        "connectionType": "SHARED_WAY",
+        "status": "confirmed",
+        "evidence": {
+          "osmId": 691933858,
+          "osmType": "way",
+          "sharedWayIds": [
+            691933858
+          ]
+        }
+      }
+    ],
+    "branches": [
+      {
+        "leaf": "r1159264",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "r1159264"
+        ],
+        "names": [
+          "Селигер",
+          "Ласцо"
+        ]
+      },
+      {
+        "leaf": "r1203668",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "r1203668"
+        ],
+        "names": [
+          "Селигер",
+          "Полоновка"
+        ]
+      },
+      {
+        "leaf": "r17001378",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "r17001378"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "r379295",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "r379295"
+        ],
+        "names": [
+          "Селигер",
+          "Селижаровка"
+        ]
+      },
+      {
+        "leaf": "r399614",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "r399614"
+        ],
+        "names": [
+          "Селигер",
+          "озеро Сиг"
+        ]
+      },
+      {
+        "leaf": "w199586062",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w199586062"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w20542134",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w20542134"
+        ],
+        "names": [
+          "Селигер",
+          "Белое-южное"
+        ]
+      },
+      {
+        "leaf": "w217721565",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w217721565"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w260065513",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w260065513"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w261237885",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w261237885"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w299382153",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w299382153"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w299384445",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w299384445"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w30164445",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w30164445"
+        ],
+        "names": [
+          "Селигер",
+          "Рясивое"
+        ]
+      },
+      {
+        "leaf": "w30196364",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w30196364"
+        ],
+        "names": [
+          "Селигер",
+          "Залецкое"
+        ]
+      },
+      {
+        "leaf": "w308145402",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w308145402"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w308319722",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w308319722"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w308676450",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w308676450"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w32486887",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w32486887"
+        ],
+        "names": [
+          "Селигер",
+          "Святица"
+        ]
+      },
+      {
+        "leaf": "w329235115",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w329235115"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w49220132",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w49220132"
+        ],
+        "names": [
+          "Селигер",
+          "озеро Гнильцы Малое"
+        ]
+      },
+      {
+        "leaf": "w49220133",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w49220133"
+        ],
+        "names": [
+          "Селигер",
+          "Кобыльское"
+        ]
+      },
+      {
+        "leaf": "w690737405",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w690737405"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w691693544",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w691693544"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w691693545",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w691693545"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w76207976",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w76207976"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w78343141",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w78343141"
+        ],
+        "names": [
+          "Селигер",
+          null
+        ]
+      },
+      {
+        "leaf": "w81303076",
+        "hops": 1,
+        "path": [
+          "r399081",
+          "w81303076"
+        ],
+        "names": [
+          "Селигер",
+          "Гастовец"
+        ]
+      },
+      {
+        "leaf": "r18358803",
+        "hops": 2,
+        "path": [
+          "r399081",
+          "w1316976066",
+          "r18358803"
+        ],
+        "names": [
+          "Селигер",
+          "Варварина протока",
+          "Святое"
+        ]
+      },
+      {
+        "leaf": "w30196538",
+        "hops": 2,
+        "path": [
+          "r399081",
+          "w308143904",
+          "w30196538"
+        ],
+        "names": [
+          "Селигер",
+          null,
+          "Стройное"
+        ]
+      },
+      {
+        "leaf": "r18072605",
+        "hops": 5,
+        "path": [
+          "r399081",
+          "w81753515",
+          "r9617478",
+          "r9617480",
+          "r9617479",
+          "r18072605"
+        ],
+        "names": [
+          "Селигер",
+          "Княжа",
+          "Серемо",
+          "Глубокое",
+          "Мелкое",
+          "Княжка"
+        ]
+      }
+    ],
+    "summary": {
+      "nodeCount": 37,
+      "edgeCount": 47,
+      "edgeTypes": [
+        "ENDPOINT_ON_POLYGON",
+        "RELATION_ROLE",
+        "SHARED_NODE",
+        "SHARED_WAY"
+      ],
+      "edgeCountsByType": {
+        "ENDPOINT_ON_POLYGON": 14,
+        "RELATION_ROLE": 7,
+        "SHARED_NODE": 23,
+        "SHARED_WAY": 3
+      }
+    }
+  }
 }
