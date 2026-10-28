@@ -50,6 +50,60 @@ export function seligerDebugEnabledFromSearchParams(
   return params.get('seligerDebug') === '1';
 }
 
+export type WaterRouterFeatureProps = {
+  kind: 'water-route' | 'water-route-endpoint';
+  routeId: string;
+  label: string;
+  status?: string;
+  lengthM?: number;
+  visitedFeatures?: string[];
+  visitedCorridors?: string[];
+  pointCount?: number;
+  endpointRole?: 'start' | 'goal';
+  color?: string;
+};
+
+export type WaterRouterCollection = {
+  type: 'FeatureCollection';
+  properties?: {
+    seed?: string;
+    routeCount?: number;
+  };
+  features: Array<{
+    type: 'Feature';
+    properties: WaterRouterFeatureProps;
+    geometry: GeoJSON.Geometry;
+  }>;
+};
+
+export function waterRouterEnabledFromSearchParams(
+  search: string | URLSearchParams,
+): boolean {
+  const params =
+    typeof search === 'string' ? new URLSearchParams(search) : search;
+  return params.get('waterRouter') === '1';
+}
+
+export function formatWaterRouterPopup(props: WaterRouterFeatureProps): string {
+  const km =
+    typeof props.lengthM === 'number'
+      ? `${(props.lengthM / 1000).toFixed(2)} км (${Math.round(props.lengthM)} м)`
+      : '—';
+  const feats = props.visitedFeatures?.length
+    ? props.visitedFeatures.join(' → ')
+    : '—';
+  const corrs = props.visitedCorridors?.length
+    ? props.visitedCorridors.join(', ')
+    : 'нет';
+  return `<div class="seliger-debug-popup">
+<p><strong>${escapeHtml(props.label)}</strong></p>
+<p>маршрут: <code>${escapeHtml(props.routeId)}</code> · статус: <code>${escapeHtml(props.status ?? 'OK')}</code></p>
+<p>длина (A* + Funnel): <strong>${escapeHtml(km)}</strong></p>
+<p>водные объекты: <code>${escapeHtml(feats)}</code></p>
+<p>коридоры: <code>${escapeHtml(corrs)}</code></p>
+</div>`;
+}
+
 export function countSeligerDebugContours(fc: SeligerDebugCollection): {
   waterAreas: number;
   outerContours: number;

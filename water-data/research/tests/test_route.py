@@ -1,4 +1,4 @@
-"""Tests for end-to-end water routing (A*, funnel smoothing, OUTSIDE_WATER, NO_PATH)."""
+"""11 regression tests for end-to-end water routing (A*, funnel smoothing, OUTSIDE_WATER, NO_PATH)."""
 
 from __future__ import annotations
 
@@ -8,9 +8,11 @@ from pathlib import Path
 
 from shapely.geometry import LineString, Polygon
 
+from water_topology.build_navmesh import build_navmesh_from_geometry
 from water_topology.build_water_graph import build_water_graph
 from water_topology.dumps import load_compact_store
 from water_topology.osm_store import Member, OsmStore, RelRec, WayRec
+from water_topology.rings import reconstruct_relation_geometry
 from water_topology.route import (
     STATUS_NO_PATH,
     STATUS_OK,
@@ -56,15 +58,13 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         self.wgraph = build_water_graph(("relation", 9), self.store)
         self.router = UnifiedWaterRouter(self.store, self.wgraph, project_from_wgs84=False)
 
-    def test_outside_water_returns_outside_water(self):
-        # Point on land outside polygons
+    def test_01_outside_water_returns_outside_water(self):
         res_land = self.router.route_xy((-50.0, -50.0), (10.0, 10.0))
         self.assertEqual(res_land.status, STATUS_OUTSIDE_WATER)
-        # Point inside the island hole (50, 50)
         res_island = self.router.route_xy((50.0, 50.0), (10.0, 10.0))
         self.assertEqual(res_island.status, STATUS_OUTSIDE_WATER)
 
-    def test_funnel_smoothing_avoids_island_hole(self):
+    def test_02_funnel_smoothing_avoids_island_hole(self):
         res = self.router.route_xy((10.0, 10.0), (90.0, 90.0))
         self.assertEqual(res.status, STATUS_OK)
         self.assertGreater(res.length_m, math.hypot(80.0, 80.0))
@@ -72,7 +72,7 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         route_line = LineString(res.coordinates_xy)
         self.assertFalse(route_line.intersects(island_interior))
 
-    def test_cross_corridor_route_between_two_lakes(self):
+    def test_03_cross_corridor_route_between_two_lakes(self):
         res = self.router.route_xy((20.0, 20.0), (250.0, 50.0))
         self.assertEqual(res.status, STATUS_OK)
         self.assertIn("r9", res.visited_features)
@@ -80,14 +80,7 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         self.assertIn("w30", res.visited_corridors)
         self.assertGreater(res.length_m, 200.0)
 
-    def test_disconnected_component_returns_no_path(self):
-        # Add an unlinked water polygon into navmeshes without graph edges
-        self.store.nodes[50] = (500.0, 500.0)
-        self.store.nodes[51] = (600.0, 500.0)
-        self.store.nodes[52] = (600.0, 600.0)
-        self.store.nodes[53] = (500.0, 600.0)
-        from water_topology.build_navmesh import build_navmesh_from_geometry
-
+    def test_04_disconnected_component_returns_no_path(self):
         isolated_poly = Polygon([(500.0, 500.0), (600.0, 500.0), (600.0, 600.0), (500.0, 600.0)])
         isolated_mesh = build_navmesh_from_geometry(
             isolated_poly, feature_key="w999", project_from_wgs84=False
@@ -109,7 +102,29 @@ class SeligerEndToEndRoutingTests(unittest.TestCase):
         cls.wgraph = build_water_graph(("relation", 399081), cls.store)
         cls.router = UnifiedWaterRouter(cls.store, cls.wgraph, project_from_wgs84=True)
 
-    def test_route_seliger_through_knyazha_to_seremo(self):
+    def test_05_seliger_south_to_north_across_polonovka(self):
+        mesh = self.router.navmeshes["r399081"]
+        south_tri = next(t for t in mesh.triangles if t.part_index == 0)
+        north_tri = next(t for t in mesh.triangles if t.part_index == 1)
+        res = self.router.route_xy(south_tri.centroid, north_tri.centroid)
+        self.assertEqual(res.status, STATUS_OK)
+        self.assertIn("r399081", res.visited_features)
+        self.assertIn("r1203668", res.visited_features)
+        self.assertGreater(res.length_m, 10000.0)
+
+    def test_06_seliger_route_around_islands_stays_in_water(self):
+        mesh = self.router.navmeshes["r399081"]
+        south_tris = [t for t in mesh.triangles if t.part_index == 0]
+        res = self.router.route_xy(
+            south_tris[50].centroid,
+            south_tris[len(south_tris) // 2].centroid,
+        )
+        self.assertEqual(res.status, STATUS_OK)
+        self.assertEqual(res.visited_features, ["r399081"])
+        self.assertGreater(res.length_m, 5000.0)
+        self.assertGreaterEqual(len(res.coordinates_lonlat), 2)
+
+    def test_07_route_seliger_through_knyazha_to_seremo(self):
         p_seliger = self.router.navmeshes["r399081"].triangles[10].centroid
         p_seremo = self.router.navmeshes["r9617478"].triangles[0].centroid
         res = self.router.route_xy(p_seliger, p_seremo)
@@ -126,7 +141,18 @@ class SeligerEndToEndRoutingTests(unittest.TestCase):
             res.visited_features.index("r9617478"),
         )
 
-    def test_route_seliger_via_canal_to_beloe_yuzhnoe(self):
+    def test_08_route_full_chain_seliger_to_knyazhka(self):
+        p_seliger = self.router.navmeshes["r399081"].triangles[10].centroid
+        p_knyazhka = self.router.navmeshes["r18072605"].triangles[0].centroid
+        res = self.router.route_xy(p_seliger, p_knyazhka)
+        self.assertEqual(res.status, STATUS_OK)
+        expected_chain = ["r399081", "w81753515", "r9617478", "r9617480", "r9617479", "r18072605"]
+        for feat in expected_chain:
+            self.assertIn(feat, res.visited_features)
+        for earlier, later in zip(expected_chain, expected_chain[1:]):
+            self.assertLess(res.visited_features.index(earlier), res.visited_features.index(later))
+
+    def test_09_route_seliger_via_canal_to_beloe_yuzhnoe(self):
         p_seliger = self.router.navmeshes["r399081"].triangles[0].centroid
         p_beloe = self.router.navmeshes["w20542134"].triangles[0].centroid
         res = self.router.route_xy(p_seliger, p_beloe)
@@ -135,6 +161,34 @@ class SeligerEndToEndRoutingTests(unittest.TestCase):
         self.assertIn("w20542134", res.visited_features)
         self.assertIn("w167688573", res.visited_corridors)
         self.assertGreater(res.length_m, 100.0)
+
+    def test_10_seliger_point_on_khachin_island_land_returns_outside_water(self):
+        # Way 30171650 is Khachin island (inner hole of r399081); pick a land point away from internal lakes
+        khachin_coords = [self.store.nodes[n] for n in self.store.ways[30171650].nds if n in self.store.nodes]
+        khachin_poly = Polygon(khachin_coords).Representative_point() if hasattr(Polygon, "Representative_point") else Polygon(khachin_coords).representative_point()
+        land_xy = self.router.project_pt(khachin_poly.x, khachin_poly.y)
+        p_seliger = self.router.navmeshes["r399081"].triangles[0].centroid
+        res = self.router.route_xy(land_xy, p_seliger)
+        self.assertEqual(res.status, STATUS_OUTSIDE_WATER)
+
+    def test_11_seliger_to_unconnected_polonets_returns_no_path(self):
+        # Lake Polonets (relation/1236637) is nearby in the store but has no OSM water connection
+        geom_polonets, _ = reconstruct_relation_geometry(self.store, 1236637)
+        mesh_polonets = build_navmesh_from_geometry(
+            geom_polonets, feature_key="r1236637", project_from_wgs84=True
+        )
+        self.router.navmeshes["r1236637"] = mesh_polonets
+        for t in mesh_polonets.triangles:
+            self.router.state_xy[("tri", "r1236637", t.tri_id)] = t.centroid
+        try:
+            p_seliger = self.router.navmeshes["r399081"].triangles[0].centroid
+            p_polonets = mesh_polonets.triangles[0].centroid
+            res = self.router.route_xy(p_seliger, p_polonets)
+            self.assertEqual(res.status, STATUS_NO_PATH)
+        finally:
+            self.router.navmeshes.pop("r1236637", None)
+            for t in mesh_polonets.triangles:
+                self.router.state_xy.pop(("tri", "r1236637", t.tri_id), None)
 
 
 if __name__ == "__main__":

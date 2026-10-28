@@ -602,6 +602,113 @@ class UnifiedWaterRouter:
         return self.route_xy(s_xy, g_xy)
 
 
+def build_seliger_demo_routes_geojson(router: UnifiedWaterRouter) -> dict[str, Any]:
+    """Build a GeoJSON FeatureCollection of reference A* routes for ?waterRouter=1."""
+    mesh_sel = router.navmeshes["r399081"]
+    south_tris = [t for t in mesh_sel.triangles if t.part_index == 0]
+    north_tris = [t for t in mesh_sel.triangles if t.part_index == 1]
+
+    cases = [
+        (
+            "south-to-north",
+            "Селигер Юг → Полоновка → Селигер Север",
+            south_tris[0].centroid,
+            north_tris[0].centroid,
+            "#ef4444",
+        ),
+        (
+            "around-khachin",
+            "Обход острова Хачин (внутри Селигера)",
+            south_tris[50].centroid,
+            south_tris[len(south_tris) // 2].centroid,
+            "#0ea5e9",
+        ),
+        (
+            "seliger-knyazha-seremo",
+            "Селигер → Княжа → Серемо",
+            south_tris[10].centroid,
+            router.navmeshes["r9617478"].triangles[0].centroid,
+            "#16a34a",
+        ),
+        (
+            "seliger-to-knyazhka",
+            "Селигер → Княжа → Серемо → Глубокое → Мелкое → Княжка",
+            south_tris[10].centroid,
+            router.navmeshes["r18072605"].triangles[0].centroid,
+            "#9333ea",
+        ),
+        (
+            "seliger-canal-beloe",
+            "Селигер → канал w167688573 → Белое-южное (о. Хачин)",
+            south_tris[0].centroid,
+            router.navmeshes["w20542134"].triangles[0].centroid,
+            "#f59e0b",
+        ),
+        (
+            "seliger-sigovka-sig",
+            "Селигер → р. Сиговка → оз. Сиг",
+            south_tris[0].centroid,
+            router.navmeshes["r399614"].triangles[0].centroid,
+            "#ec4899",
+        ),
+    ]
+
+    features: list[dict[str, Any]] = []
+    for route_id, label, s_xy, g_xy, color in cases:
+        res = router.route_xy(s_xy, g_xy)
+        if res.status != STATUS_OK or len(res.coordinates_lonlat) < 2:
+            continue
+        coords = [[lon, lat] for lon, lat in res.coordinates_lonlat]
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "kind": "water-route",
+                    "routeId": route_id,
+                    "label": label,
+                    "status": res.status,
+                    "lengthM": round(res.length_m, 1),
+                    "visitedFeatures": res.visited_features,
+                    "visitedCorridors": res.visited_corridors,
+                    "pointCount": len(coords),
+                    "color": color,
+                },
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": coords,
+                },
+            }
+        )
+        for end_kind, pt in (("start", coords[0]), ("goal", coords[-1])):
+            features.append(
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "kind": "water-route-endpoint",
+                        "endpointRole": end_kind,
+                        "routeId": route_id,
+                        "label": f"{label} ({end_kind})",
+                        "color": color,
+                    },
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": pt,
+                    },
+                }
+            )
+
+    return {
+        "type": "FeatureCollection",
+        "properties": {
+            "seed": "r399081",
+            "routeCount": sum(
+                1 for f in features if f["properties"].get("kind") == "water-route"
+            ),
+        },
+        "features": features,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     from .dumps import load_compact_store
 
@@ -614,11 +721,22 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--from-lonlat", help="lon,lat start coordinate")
     p.add_argument("--to-lonlat", help="lon,lat goal coordinate")
     p.add_argument("--out", help="Optional path to write route JSON")
+    p.add_argument(
+        "--geojson-out",
+        help="Optional path to write demo routes GeoJSON for ?waterRouter=1",
+    )
     args = p.parse_args(argv)
 
     store = load_compact_store(Path(args.store))
     wgraph = build_water_graph(args.seed, store)
     router = UnifiedWaterRouter(store, wgraph)
+
+    if args.geojson_out:
+        fc = build_seliger_demo_routes_geojson(router)
+        Path(args.geojson_out).write_text(
+            json.dumps(fc, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     if args.from_lonlat and args.to_lonlat:
         s_lon, s_lat = (float(x) for x in args.from_lonlat.split(","))

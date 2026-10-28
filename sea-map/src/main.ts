@@ -41,8 +41,14 @@ import {
   isHybridWaterGraphEnabled,
   statusWithRouterSource,
 } from './hybrid-router-ui';
-import { seligerDebugEnabledFromSearchParams } from './seliger-debug';
-import { mountSeligerDebugOverlay } from './seliger-debug-overlay';
+import {
+  seligerDebugEnabledFromSearchParams,
+  waterRouterEnabledFromSearchParams,
+} from './seliger-debug';
+import {
+  mountSeligerDebugOverlay,
+  mountWaterRouterOverlay,
+} from './seliger-debug-overlay';
 import { seligerTopologyDebugEnabledFromSearchParams } from './seliger-topology-debug';
 import { mountSeligerTopologyDebugOverlay } from './seliger-topology-debug-overlay';
 import { russiaWaterTopologyDebugEnabled } from './osm-water-inspect';
@@ -1806,6 +1812,14 @@ gpxExportBtn.addEventListener('click', () => {
 });
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
+  if (waterRouterEnabledFromSearchParams(params)) {
+    setStatus('Селигер: A* + Funnel маршрутизатор по CDT Navmesh и коридорам (?waterRouter=1).');
+    void mountWaterRouterOverlay(map).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(`Water router: не удалось загрузить маршруты. ${msg}`, true);
+    });
+    return;
+  }
   if (seligerDebugEnabledFromSearchParams(params)) {
     setStatus('Селигер: диагностика OSM 399081 (без WRG). Включите подложку «Спутник».');
     void mountSeligerDebugOverlay(map).catch((err: unknown) => {

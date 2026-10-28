@@ -7,21 +7,29 @@ import L from 'leaflet';
 import {
   countSeligerDebugContours,
   formatSeligerDebugPopup,
+  formatWaterRouterPopup,
   type SeligerDebugCollection,
   type SeligerDebugProps,
+  type WaterRouterCollection,
+  type WaterRouterFeatureProps,
 } from './seliger-debug';
 
 export const SELIGER_DEBUG_GEOJSON_URL = `${import.meta.env.BASE_URL}seliger-399081-debug.geojson`;
+export const WATER_ROUTER_GEOJSON_URL = `${import.meta.env.BASE_URL}seliger-water-router.geojson`;
 
 export {
   countSeligerDebugContours,
   formatSeligerDebugPopup,
+  formatWaterRouterPopup,
   seligerDebugEnabledFromSearchParams,
+  waterRouterEnabledFromSearchParams,
 } from './seliger-debug';
 export type {
   SeligerDebugCollection,
   SeligerDebugProps,
   SeligerDebugWay,
+  WaterRouterCollection,
+  WaterRouterFeatureProps,
 } from './seliger-debug';
 
 function contourStyle(props: SeligerDebugProps): L.PathOptions {
@@ -132,4 +140,64 @@ export async function mountSeligerDebugOverlay(map: L.Map): Promise<{
   }
   addLegend();
   return counts;
+}
+
+export async function mountWaterRouterOverlay(map: L.Map): Promise<{
+  routeCount: number;
+}> {
+  await mountSeligerDebugOverlay(map);
+  const res = await fetch(WATER_ROUTER_GEOJSON_URL);
+  if (!res.ok) {
+    throw new Error(`water router geojson HTTP ${res.status}`);
+  }
+  const fc = (await res.json()) as WaterRouterCollection;
+
+  map.createPane('waterRouterPane');
+  const pane = map.getPane('waterRouterPane');
+  if (pane) pane.style.zIndex = '470';
+
+  const routeLayer = L.geoJSON(fc as GeoJSON.GeoJsonObject, {
+    pane: 'waterRouterPane',
+    filter: (feature) => feature.properties?.kind === 'water-route',
+    style: (feature) => {
+      const p = feature?.properties as WaterRouterFeatureProps | undefined;
+      return {
+        color: p?.color ?? '#ef4444',
+        weight: 4,
+        opacity: 0.95,
+      };
+    },
+    onEachFeature: (feature, layer) => {
+      layer.bindPopup(
+        formatWaterRouterPopup(feature.properties as WaterRouterFeatureProps),
+        { maxWidth: 380, className: 'seliger-debug-popup-wrap' },
+      );
+    },
+  }).addTo(map);
+
+  L.geoJSON(fc as GeoJSON.GeoJsonObject, {
+    pane: 'waterRouterPane',
+    filter: (feature) => feature.properties?.kind === 'water-route-endpoint',
+    pointToLayer: (feature, latlng) => {
+      const p = feature.properties as WaterRouterFeatureProps;
+      return L.circleMarker(latlng, {
+        pane: 'waterRouterPane',
+        radius: p.endpointRole === 'start' ? 6 : 5,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: p.color ?? '#ef4444',
+        fillOpacity: 1,
+      });
+    },
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties as WaterRouterFeatureProps;
+      layer.bindTooltip(p.label, { direction: 'top' });
+    },
+  }).addTo(map);
+
+  const bounds = routeLayer.getBounds();
+  if (bounds.isValid()) {
+    map.fitBounds(bounds.pad(0.08), { maxZoom: 11, animate: false });
+  }
+  return { routeCount: fc.properties?.routeCount ?? 0 };
 }
