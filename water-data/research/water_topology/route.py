@@ -24,6 +24,7 @@ from typing import Any
 import shapely
 from pyproj import Transformer
 from shapely.geometry import LineString, Polygon
+from shapely.geometry.base import BaseGeometry
 
 from .build_corridors import CorridorNetwork, WaterwayCorridor, build_corridors
 from .build_navmesh import DEFAULT_CRS, NavmeshTriangle, WaterNavmesh, build_navmesh_from_geometry
@@ -133,6 +134,40 @@ def funnel_smooth(
     return out
 
 
+def has_line_of_sight(
+    water: BaseGeometry,
+    a: tuple[float, float],
+    b: tuple[float, float],
+) -> bool:
+    """True iff the segment stays inside water (not land, not inner holes)."""
+    if a == b:
+        return True
+    line = LineString([a, b])
+    if line.length <= 0.0:
+        return True
+    # covers: interior + boundary; within alone rejects a line that kisses a shore.
+    return bool(water.covers(line))
+
+
+def los_string_pull(
+    water: BaseGeometry,
+    pts: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Greedy LOS shortcut: from each kept point jump to the farthest visible later point."""
+    if len(pts) <= 2:
+        return pts
+    out: list[tuple[float, float]] = [pts[0]]
+    i = 0
+    n = len(pts)
+    while i < n - 1:
+        j = n - 1
+        while j > i + 1 and not has_line_of_sight(water, pts[i], pts[j]):
+            j -= 1
+        out.append(pts[j])
+        i = j
+    return out
+
+
 def _feature_geometry(store: OsmStore, osm_type: str, osm_id: int) -> Polygon | shapely.MultiPolygon | None:
     if osm_type == "relation":
         geom, _ = reconstruct_relation_geometry(store, osm_id)
@@ -198,11 +233,18 @@ class UnifiedWaterRouter:
 
         # Build or register CDT navmeshes for area features in the graph
         self.navmeshes: dict[str, WaterNavmesh] = dict(navmeshes or {})
+        self.area_polygons: dict[str, BaseGeometry] = {}
         for key, node in sorted(self.water_graph.nodes.items()):
-            if node.role != "area" or key in self.navmeshes:
+            if node.role != "area":
                 continue
             geom = _feature_geometry(store, node.osm_type, node.osm_id)
-            if geom is not None and not geom.is_empty:
+            if geom is None or geom.is_empty:
+                continue
+            proj = self._project_geom(geom)
+            if not proj.is_valid:
+                proj = proj.buffer(0)
+            self.area_polygons[key] = proj
+            if key not in self.navmeshes:
                 self.navmeshes[key] = build_navmesh_from_geometry(
                     geom,
                     feature_key=key,
@@ -247,6 +289,14 @@ class UnifiedWaterRouter:
             return (float(x), float(y))
         lon, lat = self._inv.transform(x, y)
         return (float(lon), float(lat))
+
+    def _project_geom(self, geom: BaseGeometry) -> BaseGeometry:
+        if self._fwd is None:
+            return geom
+        return shapely.transform(
+            geom,
+            lambda coords: list(zip(*self._fwd.transform(coords[:, 0], coords[:, 1]))),
+        )
 
     def _add_undirected(
         self,
@@ -417,6 +467,20 @@ class UnifiedWaterRouter:
         if len(tri_ids) <= 1:
             return [entry_pt, exit_pt] if entry_pt != exit_pt else [entry_pt]
         mesh = self.navmeshes[area_key]
+        water = self.area_polygons.get(area_key)
+        if water is not None:
+            if has_line_of_sight(water, entry_pt, exit_pt):
+                return [entry_pt, exit_pt] if entry_pt != exit_pt else [entry_pt]
+            waypoints: list[tuple[float, float]] = [entry_pt]
+            for tid in tri_ids:
+                c = mesh.triangles[tid].centroid
+                if math.hypot(c[0] - waypoints[-1][0], c[1] - waypoints[-1][1]) > 1e-6:
+                    waypoints.append(c)
+            if math.hypot(exit_pt[0] - waypoints[-1][0], exit_pt[1] - waypoints[-1][1]) > 1e-6:
+                waypoints.append(exit_pt)
+            shortcut = los_string_pull(water, waypoints)
+            if len(shortcut) >= 2:
+                return shortcut
         portals: list[tuple[tuple[float, float], tuple[float, float]]] = []
         for a_id, b_id in zip(tri_ids, tri_ids[1:]):
             raw_portal = self.portal_lookup.get((area_key, a_id, b_id))
