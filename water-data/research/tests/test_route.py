@@ -15,6 +15,7 @@ from water_topology.osm_store import Member, OsmStore, RelRec, WayRec
 from water_topology.rings import reconstruct_relation_geometry
 from water_topology.route import (
     CLEARANCE_K,
+    OPEN_SHORE_CLIP_M,
     OPEN_WATER_CLEARANCE_M,
     STATUS_NO_PATH,
     STATUS_OK,
@@ -111,7 +112,7 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
 
     def test_02e_open_goal_los_does_not_hug_outer_cape(self):
         # North-shore cape hangs down and nicks the A–B chord; leftover is ~8 m,
-        # well under OPEN_WATER_CLEARANCE_M. Seed hugs the cape tip — must not.
+        # well under OPEN_SHORE_CLIP_M (250 m). Seed hugs the cape tip — must not.
         shell = [
             (0.0, 0.0),
             (200.0, 0.0),
@@ -131,8 +132,15 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         self.assertEqual(pulled[-1], goal)
         self.assertTrue(all(p[1] < 100.0 for p in pulled))
         self.assertLessEqual(len(pulled), 3)
+        self.assertEqual(OPEN_SHORE_CLIP_M, 250.0)
         self.assertGreaterEqual(OPEN_WATER_CLEARANCE_M, 50.0)
         self.assertLessEqual(OPEN_WATER_CLEARANCE_M, 100.0)
+        # Inner holes never get the 250 m outer-shore tolerance.
+        island_water = Polygon(
+            [(0.0, 0.0), (200.0, 0.0), (200.0, 200.0), (0.0, 200.0)],
+            [[(80.0, 70.0), (120.0, 70.0), (120.0, 90.0), (80.0, 90.0)]],
+        )
+        self.assertFalse(has_open_goal_los(island_water, start, goal))
 
     def test_02c_low_clearance_triangles_cost_more(self):
         mesh = self.router.navmeshes["r9"]

@@ -35,5 +35,14 @@ if shared_n:
 ## 3. Navmesh, Corridors, and Routing
 - Project WGS84 geometry to a metric CRS (`EPSG:32636`) before CDT triangulation and buffering.
 - Exclude triangles inside `inner` island holes (`poly.covers(Point(cx, cy))`).
-- Smooth intra-polygon triangle sleeves with the Funnel (string-pulling) algorithm.
+- Cap CDT triangle edges at 400 m with Steiner midpoints so the dual graph is not dominated by kilometre-scale faces.
 - Never snap points from land or islands: return `OUTSIDE_WATER` when an endpoint is outside water, and `NO_PATH` when components are disconnected.
+
+## 4. Current Route Architecture (`?waterRouter=1`)
+Pipeline in `water-data/research/water_topology/route.py` (do not change CDT/A* when tuning the last stage):
+
+1. **A-star** on the unified graph (CDT triangle centroids, OSM portals, corridor ends). Euclidean heuristic. Search itself is unweighted by geometry beyond edge costs.
+2. **Clearance Cost** on navmesh dual edges: `f(d) = 1 + K/(d+1)` with `K=100`, `d` = centroid distance to `water.boundary`; edge weight `length * 0.5 * (f(da)+f(db))`. Prefers open water over shore-hugging triangles.
+3. **Sleeve Funnel** (Simple Stupid Funnel) plus local LOS on each contiguous triangle run; corridors follow centerlines.
+4. **Global Vertex String Pulling** after reconstruction: when A→B is blocked by an **inner island**, wrap a supporting (tangent) vertex of that hole (A* path is only a homotopy side hint). Do not snap to the nearest outer-shore cape.
+5. **Goal LoS** (`has_open_goal_los`) on every hop: if `water.covers(current→B)`, go straight to B and stop. Outer-shore leftover shorter than **250 m** (`OPEN_SHORE_CLIP_M`) is still treated as open water (Podolishche-style cape nicks). **Inner holes always block** — the 250 m tolerance must not apply to islands.

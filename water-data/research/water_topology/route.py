@@ -45,9 +45,11 @@ STATUS_NO_PATH = "NO_PATH"
 # Dual-graph cost: prefer high clearance from shore / island rings.
 # factor(d) = 1 + K / (d + 1); K in the same units as d (metres in EPSG:32636).
 CLEARANCE_K = 100.0
-# Goal shot: ignore outer-shore cape clips shorter than this, and skip
-# seed waypoints that hug the contour within this distance of the boundary.
+# Skip A* seed waypoints that hug the contour within this distance of the boundary.
 OPEN_WATER_CLEARANCE_M = 75.0
+# Goal LoS: treat an outer-shore (cape) leftover shorter than this as open water.
+# Inner island holes never use this tolerance — they always block.
+OPEN_SHORE_CLIP_M = 250.0
 
 
 def _tri_area2(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
@@ -189,12 +191,12 @@ def has_open_goal_los(
     water: BaseGeometry,
     a: tuple[float, float],
     b: tuple[float, float],
-    min_clearance: float = OPEN_WATER_CLEARANCE_M,
+    min_clearance: float = OPEN_SHORE_CLIP_M,
 ) -> bool:
     """Straight shot to B: in-water chord, or only a shallow outer-shore nick (cape).
 
-    Island holes always block. A glancing cape clip whose leftover length is
-    shorter than ``min_clearance`` does not — that is the Podolishche case.
+    Inner island holes always block (no 250 m tolerance). A leftover clip of the
+    *outer* shore shorter than ``min_clearance`` (default 250 m) does not.
     """
     if a == b:
         return True
