@@ -172,6 +172,230 @@ def los_string_pull(
     return out
 
 
+def _iter_polygons(geom: BaseGeometry):
+    if geom is None or geom.is_empty:
+        return
+    if isinstance(geom, Polygon):
+        yield geom
+        return
+    for g in getattr(geom, "geoms", ()):
+        if isinstance(g, Polygon) and not g.is_empty:
+            yield g
+
+
+def _pt_key(p: tuple[float, float]) -> tuple[float, float]:
+    return (round(float(p[0]), 3), round(float(p[1]), 3))
+
+
+def _ring_coords(coords) -> list[tuple[float, float]]:
+    pts = [(float(x), float(y)) for x, y in coords]
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    return pts
+
+
+def _hole_rings(water: BaseGeometry) -> list[list[tuple[float, float]]]:
+    """Island (inner-hole) rings of the navigable water polygon."""
+    rings: list[list[tuple[float, float]]] = []
+    for poly in _iter_polygons(water):
+        for interior in poly.interiors:
+            verts = _ring_coords(interior.coords)
+            if len(verts) >= 3:
+                rings.append(verts)
+    return rings
+
+
+def _dist_to_segment_line(
+    origin: tuple[float, float],
+    goal: tuple[float, float],
+    p: tuple[float, float],
+) -> float:
+    dx = goal[0] - origin[0]
+    dy = goal[1] - origin[1]
+    denom = math.hypot(dx, dy)
+    if denom <= 1e-12:
+        return math.hypot(p[0] - origin[0], p[1] - origin[1])
+    return abs(dx * (p[1] - origin[1]) - dy * (p[0] - origin[0])) / denom
+
+
+def _forward_progress(
+    origin: tuple[float, float],
+    goal: tuple[float, float],
+    p: tuple[float, float],
+) -> bool:
+    return (p[0] - origin[0]) * (goal[0] - origin[0]) + (p[1] - origin[1]) * (
+        goal[1] - origin[1]
+    ) > 0.0
+
+
+def _is_local_tangent(
+    origin: tuple[float, float],
+    prev: tuple[float, float],
+    vertex: tuple[float, float],
+    nxt: tuple[float, float],
+) -> bool:
+    """True if both ring neighbours sit on one side of origin→vertex (supporting vertex)."""
+    c_prev = _tri_area2(origin, vertex, prev)
+    c_next = _tri_area2(origin, vertex, nxt)
+    return c_prev * c_next >= 0.0 and not (c_prev == 0.0 and c_next == 0.0)
+
+
+def _homotopy_side(
+    seed: list[tuple[float, float]],
+    origin: tuple[float, float],
+    goal: tuple[float, float],
+) -> int:
+    """+1 if the A* seed first leaves origin→goal to the left, -1 to the right, 0 unknown."""
+    dx = goal[0] - origin[0]
+    dy = goal[1] - origin[1]
+    span = math.hypot(dx, dy) or 1.0
+    for p in seed:
+        cross = dx * (p[1] - origin[1]) - dy * (p[0] - origin[0])
+        if abs(cross) / span > 5.0:
+            return 1 if cross > 0.0 else -1
+    return 0
+
+
+def _first_blocking_hole(
+    rings: list[list[tuple[float, float]]],
+    origin: tuple[float, float],
+    goal: tuple[float, float],
+    seed_line: LineString | None,
+    seed_max_dist: float = 500.0,
+) -> list[tuple[float, float]] | None:
+    """Nearest island ring that the chord origin→goal actually cuts, if A* also rounded it."""
+    line = LineString([origin, goal])
+    origin_pt = Point(origin)
+    best: list[tuple[float, float]] | None = None
+    best_d = math.inf
+    for verts in rings:
+        poly = Polygon(verts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.is_empty or not line.intersects(poly):
+            continue
+        if seed_line is not None and seed_line.distance(poly) > seed_max_dist:
+            continue
+        d = origin_pt.distance(line.intersection(poly))
+        if d < best_d:
+            best_d = d
+            best = verts
+    return best
+
+
+def _pick_tangent_vertex(
+    verts: list[tuple[float, float]],
+    origin: tuple[float, float],
+    goal: tuple[float, float],
+    water: BaseGeometry,
+    side: int,
+    used: set[tuple[float, float]],
+) -> tuple[float, float] | None:
+    """Supporting vertex of the blocking island, on the A* side, nearest to origin→goal."""
+    n = len(verts)
+    cands: list[tuple[tuple[float, float], float, float, bool]] = []
+    for i, v in enumerate(verts):
+        key = _pt_key(v)
+        if key in used or key == _pt_key(origin):
+            continue
+        if not _forward_progress(origin, goal, v):
+            continue
+        if not _is_local_tangent(origin, verts[(i - 1) % n], v, verts[(i + 1) % n]):
+            continue
+        if not has_line_of_sight(water, origin, v):
+            continue
+        cross = _tri_area2(origin, goal, v)
+        dist_line = _dist_to_segment_line(origin, goal, v)
+        cands.append((v, cross, dist_line, True))
+    if not cands:
+        # Fallback: nearest visible contour vertex to the chord (user's blocking corner).
+        for i, v in enumerate(verts):
+            key = _pt_key(v)
+            if key in used or key == _pt_key(origin):
+                continue
+            if not _forward_progress(origin, goal, v):
+                continue
+            if not has_line_of_sight(water, origin, v):
+                continue
+            cross = _tri_area2(origin, goal, v)
+            dist_line = _dist_to_segment_line(origin, goal, v)
+            cands.append((v, cross, dist_line, False))
+    if not cands:
+        return None
+    if side != 0:
+        matching = [c for c in cands if (c[1] > 0.0) == (side > 0)]
+        if matching:
+            cands = matching
+    # Prefer true tangents, then the vertex closest to the direct line (grazing contact).
+    cands.sort(key=lambda c: (0 if c[3] else 1, c[2]))
+    return cands[0][0]
+
+
+def _farthest_visible_point(
+    water: BaseGeometry,
+    origin: tuple[float, float],
+    pts: list[tuple[float, float]],
+) -> tuple[float, float] | None:
+    origin_key = _pt_key(origin)
+    for p in reversed(pts):
+        if _pt_key(p) == origin_key:
+            continue
+        if has_line_of_sight(water, origin, p):
+            return p
+    return None
+
+
+def vertex_string_pull(
+    water: BaseGeometry,
+    pts: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Global rubber-band: walk supporting (tangent) vertices of blocking islands toward the goal.
+
+    A* polyline is kept only as a homotopy hint (which side of an island) and as a
+    fallback when the chord leaves the current water body (corridors / other lakes).
+    """
+    if len(pts) <= 2:
+        return pts
+    goal = pts[-1]
+    rings = _hole_rings(water)
+    seed_line = LineString(pts) if len(pts) >= 2 else None
+    out: list[tuple[float, float]] = [pts[0]]
+    current = pts[0]
+    used: set[tuple[float, float]] = {_pt_key(current)}
+    for _ in range(128):
+        if has_line_of_sight(water, current, goal):
+            if _pt_key(out[-1]) != _pt_key(goal):
+                out.append(goal)
+            return out
+        ring = _first_blocking_hole(rings, current, goal, seed_line)
+        advanced = False
+        if ring is not None:
+            side = _homotopy_side(pts, current, goal)
+            v = _pick_tangent_vertex(ring, current, goal, water, side, used)
+            if v is not None:
+                used.add(_pt_key(v))
+                if _pt_key(out[-1]) != _pt_key(v):
+                    out.append(v)
+                current = v
+                advanced = True
+        if not advanced:
+            nxt = _farthest_visible_point(water, current, pts)
+            if nxt is None or _pt_key(nxt) == _pt_key(current):
+                break
+            if _pt_key(out[-1]) != _pt_key(nxt):
+                out.append(nxt)
+            current = nxt
+            used.add(_pt_key(current))
+            if _pt_key(current) == _pt_key(goal):
+                return out
+    if _pt_key(out[-1]) != _pt_key(goal):
+        rest = los_string_pull(water, [current, *pts])
+        for p in rest[1:]:
+            if _pt_key(out[-1]) != _pt_key(p):
+                out.append(p)
+    return out
+
+
 def _feature_geometry(store: OsmStore, osm_type: str, osm_id: int) -> Polygon | shapely.MultiPolygon | None:
     if osm_type == "relation":
         geom, _ = reconstruct_relation_geometry(store, osm_id)
@@ -682,11 +906,11 @@ class UnifiedWaterRouter:
 
         _append_pts([goal_xy])
 
-        # Global string-pull: skip kinks across A* sleeves / OSM nodes when the
-        # whole remaining segment still lies in water (open lake after an island).
+        # Global vertex string-pull: taut path on island-ring vertices (tangents),
+        # not on A* triangle centroids.
         water_all = self._water_union()
         if water_all is not None and len(coords_xy) >= 3:
-            coords_xy = los_string_pull(water_all, coords_xy)
+            coords_xy = vertex_string_pull(water_all, coords_xy)
 
         length_m = 0.0
         for a, b in zip(coords_xy, coords_xy[1:]):
