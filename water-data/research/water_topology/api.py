@@ -41,6 +41,7 @@ _router: UnifiedWaterRouter | None = None
 class RouteRequest(BaseModel):
     start: list[float]
     end: list[float]
+    includeMesh: bool = False
 
 
 def get_router() -> UnifiedWaterRouter:
@@ -104,17 +105,53 @@ def route_result_to_geojson(res: RouteResult) -> dict[str, Any]:
             "visitedFeatures": res.visited_features,
             "visitedCorridors": res.visited_corridors,
             "pointCount": len(coords),
+            "meshTriangleCount": len(res.visited_triangles),
         },
         "features": features,
     }
+
+
+def mesh_triangle_features(router: UnifiedWaterRouter, res: RouteResult) -> list[dict[str, Any]]:
+    """GeoJSON polygons for CDT triangles visited by A* (debug only)."""
+    features: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for area_key, tid in res.visited_triangles:
+        key = (area_key, tid)
+        if key in seen:
+            continue
+        seen.add(key)
+        mesh = router.navmeshes.get(area_key)
+        if mesh is None or tid < 0 or tid >= len(mesh.triangles):
+            continue
+        verts = mesh.triangles[tid].vertices
+        ring = [list(router.unproject_pt(x, y)) for x, y in verts]
+        if ring[0] != ring[-1]:
+            ring.append(ring[0])
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "kind": "navmesh-triangle",
+                    "areaKey": area_key,
+                    "triId": tid,
+                },
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+            }
+        )
+    return features
 
 
 @app.post("/api/route")
 def post_route(body: RouteRequest) -> dict[str, Any]:
     start = _parse_lonlat(body.start, "start")
     end = _parse_lonlat(body.end, "end")
-    res = get_router().route_lonlat(start, end)
-    return route_result_to_geojson(res)
+    router = get_router()
+    res = router.route_lonlat(start, end)
+    fc = route_result_to_geojson(res)
+    if body.includeMesh:
+        fc["features"] = mesh_triangle_features(router, res) + fc["features"]
+        fc["properties"]["meshTriangleCount"] = len(res.visited_triangles)
+    return fc
 
 
 def main() -> None:

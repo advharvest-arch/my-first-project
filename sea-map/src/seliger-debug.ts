@@ -84,6 +84,14 @@ export function waterRouterEnabledFromSearchParams(
   return params.get('waterRouter') === '1';
 }
 
+export function waterRouterShowMeshFromSearchParams(
+  search: string | URLSearchParams = window.location.search,
+): boolean {
+  const params =
+    typeof search === 'string' ? new URLSearchParams(search) : search;
+  return params.get('showMesh') === '1';
+}
+
 export function formatWaterRouterPopup(props: WaterRouterFeatureProps): string {
   const km =
     typeof props.lengthM === 'number'

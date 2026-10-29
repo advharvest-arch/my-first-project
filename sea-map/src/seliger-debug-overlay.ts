@@ -8,6 +8,7 @@ import {
   countSeligerDebugContours,
   formatSeligerDebugPopup,
   formatWaterRouterPopup,
+  waterRouterShowMeshFromSearchParams,
   type SeligerDebugCollection,
   type SeligerDebugProps,
   type WaterRouterCollection,
@@ -23,6 +24,7 @@ export {
   formatWaterRouterPopup,
   seligerDebugEnabledFromSearchParams,
   waterRouterEnabledFromSearchParams,
+  waterRouterShowMeshFromSearchParams,
 } from './seliger-debug';
 export type {
   SeligerDebugCollection,
@@ -154,9 +156,13 @@ function addWaterRouterControls(onClear: () => void): void {
   if (document.querySelector('.water-router-controls')) return;
   const el = document.createElement('aside');
   el.className = 'seliger-debug-legend water-router-controls';
+  const meshNote = waterRouterShowMeshFromSearchParams()
+    ? `<div>showMesh=1 — треугольники A*</div>`
+    : '';
   el.innerHTML = `<strong>Water Router A → B</strong>
 <div>клик 1 — точка A · клик 2 — точка B</div>
 <div>ПКМ — сброс точек</div>
+${meshNote}
 <button type="button" class="water-router-clear">Clear</button>`;
   el.querySelector('button')!.addEventListener('click', onClear);
   document.body.appendChild(el);
@@ -170,6 +176,19 @@ function showWaterRouterMessage(map: L.Map, latlng: L.LatLng, html: string): voi
 }
 
 function drawWaterRouterGeoJSON(layer: L.LayerGroup, fc: WaterRouterCollection): void {
+  L.geoJSON(fc as GeoJSON.GeoJsonObject, {
+    pane: 'waterRouterMeshPane',
+    interactive: false,
+    filter: (feature) => feature.properties?.kind === 'navmesh-triangle',
+    style: () => ({
+      color: '#7dd3fc',
+      weight: 1,
+      opacity: 0.65,
+      fillColor: '#7dd3fc',
+      fillOpacity: 0.08,
+    }),
+  }).addTo(layer);
+
   L.geoJSON(fc as GeoJSON.GeoJsonObject, {
     pane: 'waterRouterPane',
     filter: (feature) => feature.properties?.kind === 'water-route',
@@ -227,9 +246,13 @@ export async function mountWaterRouterOverlay(map: L.Map): Promise<{
 }> {
   await mountSeligerDebugOverlay(map, { interactive: false });
 
+  map.createPane('waterRouterMeshPane');
+  const meshPane = map.getPane('waterRouterMeshPane');
+  if (meshPane) meshPane.style.zIndex = '460';
   map.createPane('waterRouterPane');
   const pane = map.getPane('waterRouterPane');
   if (pane) pane.style.zIndex = '470';
+  const showMesh = waterRouterShowMeshFromSearchParams();
 
   const layer = L.layerGroup().addTo(map);
   let start: L.LatLng | null = null;
@@ -275,6 +298,7 @@ export async function mountWaterRouterOverlay(map: L.Map): Promise<{
         body: JSON.stringify({
           start: [a.lng, a.lat],
           end: [latlng.lng, latlng.lat],
+          includeMesh: showMesh,
         }),
       });
       if (!res.ok) {

@@ -198,6 +198,7 @@ class RouteResult:
     length_m: float = 0.0
     visited_features: list[str] = field(default_factory=list)
     visited_corridors: list[str] = field(default_factory=list)
+    visited_triangles: list[tuple[str, int]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -205,6 +206,7 @@ class RouteResult:
             "lengthM": self.length_m,
             "visitedFeatures": self.visited_features,
             "visitedCorridors": self.visited_corridors,
+            "visitedTriangles": [[k, i] for k, i in self.visited_triangles],
             "pointCount": len(self.coordinates_lonlat or self.coordinates_xy),
             "coordinatesLonLat": [list(p) for p in self.coordinates_lonlat],
             "coordinatesXY": [list(p) for p in self.coordinates_xy],
@@ -631,6 +633,7 @@ class UnifiedWaterRouter:
         coords_xy: list[tuple[float, float]] = [start_xy]
         visited_features: list[str] = []
         visited_corridors: list[str] = []
+        visited_triangles: list[tuple[str, int]] = []
 
         def _append_pts(pts: list[tuple[float, float]]) -> None:
             for p in pts:
@@ -650,6 +653,8 @@ class UnifiedWaterRouter:
                 while j < m and state_chain[j][0] == "tri" and state_chain[j][1] == area_key:
                     run_tris.append(int(state_chain[j][2]))
                     j += 1
+                for tid in run_tris:
+                    visited_triangles.append((area_key, tid))
                 entry_pt = coords_xy[-1]
                 exit_pt = self.state_xy[state_chain[j]] if j < m else goal_xy
                 smoothed = self._smooth_sleeve(area_key, run_tris, entry_pt, exit_pt)
@@ -695,6 +700,7 @@ class UnifiedWaterRouter:
             length_m=length_m,
             visited_features=visited_features,
             visited_corridors=visited_corridors,
+            visited_triangles=visited_triangles,
         )
 
     def route_lonlat(
