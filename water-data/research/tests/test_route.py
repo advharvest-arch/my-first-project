@@ -14,6 +14,7 @@ from water_topology.dumps import load_compact_store
 from water_topology.osm_store import Member, OsmStore, RelRec, WayRec
 from water_topology.rings import reconstruct_relation_geometry
 from water_topology.route import (
+    NARROW_WEIGHT_FACTOR,
     STATUS_NO_PATH,
     STATUS_OK,
     STATUS_OUTSIDE_WATER,
@@ -77,6 +78,27 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         self.assertEqual(res.status, STATUS_OK)
         self.assertAlmostEqual(res.length_m, 80.0, delta=1.0)
         self.assertLessEqual(len(res.coordinates_xy), 3)
+
+    def test_02c_island_adjacent_triangles_get_narrowness_penalty(self):
+        mesh = self.router.navmeshes["r9"]
+        narrow = self.router._narrow_triangle_ids("r9", mesh)
+        self.assertTrue(narrow)
+        island = Polygon([(40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)])
+        for tid in narrow:
+            self.assertLess(Polygon(mesh.triangles[tid].vertices).distance(island), 1e-6)
+        tid = next(iter(narrow))
+        u = ("tri", "r9", tid)
+        ca = mesh.triangles[tid].centroid
+        dual = [
+            (nbr, w)
+            for nbr, w, meta in self.router.adj[u]
+            if meta.get("kind") == "navmesh_dual"
+        ]
+        self.assertTrue(dual)
+        nbr, w = dual[0]
+        cb = mesh.triangles[nbr[2]].centroid
+        base = math.hypot(ca[0] - cb[0], ca[1] - cb[1])
+        self.assertAlmostEqual(w, base * NARROW_WEIGHT_FACTOR, places=6)
 
     def test_03_cross_corridor_route_between_two_lakes(self):
         res = self.router.route_xy((20.0, 20.0), (250.0, 50.0))
