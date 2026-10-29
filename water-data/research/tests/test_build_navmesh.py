@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 import unittest
 from pathlib import Path
 
 from shapely.geometry import Point, Polygon
 
 from water_topology.build_navmesh import (
+    MAX_TRI_EDGE_M,
     build_navmesh_from_geometry,
     build_seliger_navmesh,
 )
@@ -42,6 +44,29 @@ class SyntheticNavmeshTests(unittest.TestCase):
         self.assertEqual(path[0], start_tri)
         self.assertEqual(path[-1], goal_tri)
 
+    def test_steiner_split_caps_long_edges(self):
+        shell = [(0.0, 0.0), (2000.0, 0.0), (2000.0, 2000.0), (0.0, 2000.0), (0.0, 0.0)]
+        poly = Polygon(shell)
+        unsplit = build_navmesh_from_geometry(
+            poly, feature_key="big", project_from_wgs84=False, max_edge_m=0.0
+        )
+        mesh = build_navmesh_from_geometry(
+            poly, feature_key="big", project_from_wgs84=False, max_edge_m=400.0
+        )
+        self.assertGreater(len(mesh.triangles), len(unsplit.triangles))
+        max_edge = 0.0
+        for t in mesh.triangles:
+            v0, v1, v2 = t.vertices
+            for a, b in ((v0, v1), (v1, v2), (v2, v0)):
+                max_edge = max(max_edge, math.hypot(a[0] - b[0], a[1] - b[1]))
+        self.assertLessEqual(max_edge, 400.0 + 1e-6)
+        start = mesh.find_triangle(10.0, 10.0)
+        goal = mesh.find_triangle(1990.0, 1990.0)
+        self.assertIsNotNone(start)
+        self.assertIsNotNone(goal)
+        path = mesh.shortest_triangle_path(start, goal)
+        self.assertIsNotNone(path)
+
 
 class SeligerNavmeshTests(unittest.TestCase):
     @classmethod
@@ -71,6 +96,14 @@ class SeligerNavmeshTests(unittest.TestCase):
         t1 = nbrs[0][0]
         path = self.mesh.shortest_triangle_path(t0, t1)
         self.assertEqual(path, [t0, t1])
+
+    def test_seliger_open_water_edges_capped(self):
+        max_edge = 0.0
+        for t in self.mesh.triangles:
+            v0, v1, v2 = t.vertices
+            for a, b in ((v0, v1), (v1, v2), (v2, v0)):
+                max_edge = max(max_edge, math.hypot(a[0] - b[0], a[1] - b[1]))
+        self.assertLessEqual(max_edge, MAX_TRI_EDGE_M + 1.0)
 
 
 if __name__ == "__main__":
