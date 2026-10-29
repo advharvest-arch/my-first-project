@@ -302,6 +302,21 @@ class UnifiedWaterRouter:
             lambda coords: list(zip(*self._fwd.transform(coords[:, 0], coords[:, 1]))),
         )
 
+    def _water_union(self) -> BaseGeometry | None:
+        geoms: list[BaseGeometry] = [
+            g for g in self.area_polygons.values() if g is not None and not g.is_empty
+        ]
+        for corr in self.corridors.corridors.values():
+            buf = getattr(corr, "buffer_polygon", None)
+            if buf is not None and not buf.is_empty:
+                geoms.append(buf)
+        if not geoms:
+            return None
+        merged = geoms[0] if len(geoms) == 1 else shapely.union_all(geoms)
+        if not merged.is_valid:
+            merged = merged.buffer(0)
+        return merged
+
     def _add_undirected(
         self,
         u: tuple[Any, ...],
@@ -661,6 +676,12 @@ class UnifiedWaterRouter:
                 idx += 1
 
         _append_pts([goal_xy])
+
+        # Global string-pull: skip kinks across A* sleeves / OSM nodes when the
+        # whole remaining segment still lies in water (open lake after an island).
+        water_all = self._water_union()
+        if water_all is not None and len(coords_xy) >= 3:
+            coords_xy = los_string_pull(water_all, coords_xy)
 
         length_m = 0.0
         for a, b in zip(coords_xy, coords_xy[1:]):
