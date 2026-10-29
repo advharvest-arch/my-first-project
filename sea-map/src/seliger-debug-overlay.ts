@@ -79,11 +79,15 @@ function addLegend(): void {
   document.body.appendChild(el);
 }
 
-export async function mountSeligerDebugOverlay(map: L.Map): Promise<{
+export async function mountSeligerDebugOverlay(
+  map: L.Map,
+  opts?: { interactive?: boolean },
+): Promise<{
   outerContours: number;
   innerContours: number;
   waterAreas: number;
 }> {
+  const interactive = opts?.interactive !== false;
   const res = await fetch(SELIGER_DEBUG_GEOJSON_URL);
   if (!res.ok) {
     throw new Error(`seliger debug geojson HTTP ${res.status}`);
@@ -97,19 +101,21 @@ export async function mountSeligerDebugOverlay(map: L.Map): Promise<{
 
   const waterLayer = L.geoJSON(fc as GeoJSON.GeoJsonObject, {
     pane: 'seligerDebugPane',
+    interactive,
     filter: (feature) => feature.properties?.kind === 'water-area',
     style: (feature) => waterStyle(feature?.properties as SeligerDebugProps),
     onEachFeature: (feature, layer) => {
-      attachPopup(layer, feature.properties as SeligerDebugProps);
+      if (interactive) attachPopup(layer, feature.properties as SeligerDebugProps);
     },
   }).addTo(map);
 
   const contourLayer = L.geoJSON(fc as GeoJSON.GeoJsonObject, {
     pane: 'seligerDebugPane',
+    interactive,
     filter: (feature) => feature.properties?.kind === 'contour',
     style: (feature) => contourStyle(feature?.properties as SeligerDebugProps),
     onEachFeature: (feature, layer) => {
-      attachPopup(layer, feature.properties as SeligerDebugProps);
+      if (interactive) attachPopup(layer, feature.properties as SeligerDebugProps);
     },
   }).addTo(map);
 
@@ -142,44 +148,64 @@ export async function mountSeligerDebugOverlay(map: L.Map): Promise<{
   return counts;
 }
 
-export async function mountWaterRouterOverlay(map: L.Map): Promise<{
-  routeCount: number;
-}> {
-  await mountSeligerDebugOverlay(map);
-  const res = await fetch(WATER_ROUTER_GEOJSON_URL);
-  if (!res.ok) {
-    throw new Error(`water router geojson HTTP ${res.status}`);
-  }
-  const fc = (await res.json()) as WaterRouterCollection;
+const WATER_ROUTER_API_URL = '/api/route';
 
-  map.createPane('waterRouterPane');
-  const pane = map.getPane('waterRouterPane');
-  if (pane) pane.style.zIndex = '470';
+function addWaterRouterControls(onClear: () => void): void {
+  if (document.querySelector('.water-router-controls')) return;
+  const el = document.createElement('aside');
+  el.className = 'seliger-debug-legend water-router-controls';
+  el.innerHTML = `<strong>Water Router A → B</strong>
+<div>клик 1 — точка A · клик 2 — точка B</div>
+<div>ПКМ — сброс точек</div>
+<button type="button" class="water-router-clear">Clear</button>`;
+  el.querySelector('button')!.addEventListener('click', onClear);
+  document.body.appendChild(el);
+}
 
-  const routeLayer = L.geoJSON(fc as GeoJSON.GeoJsonObject, {
+function showWaterRouterMessage(map: L.Map, latlng: L.LatLng, html: string): void {
+  L.popup({ maxWidth: 380, className: 'seliger-debug-popup-wrap' })
+    .setLatLng(latlng)
+    .setContent(`<div class="seliger-debug-popup">${html}</div>`)
+    .openOn(map);
+}
+
+function drawWaterRouterGeoJSON(map: L.Map, layer: L.LayerGroup, fc: WaterRouterCollection): void {
+  L.geoJSON(fc as GeoJSON.GeoJsonObject, {
     pane: 'waterRouterPane',
     filter: (feature) => feature.properties?.kind === 'water-route',
     style: (feature) => {
       const p = feature?.properties as WaterRouterFeatureProps | undefined;
       return {
-        color: p?.color ?? '#ef4444',
+        color: p?.color ?? 'cyan',
         weight: 4,
         opacity: 0.95,
       };
     },
-    onEachFeature: (feature, layer) => {
-      layer.bindPopup(
-        formatWaterRouterPopup(feature.properties as WaterRouterFeatureProps),
-        { maxWidth: 380, className: 'seliger-debug-popup-wrap' },
-      );
+    onEachFeature: (feature, routeLayer) => {
+      const raw = (feature.properties ?? {}) as Partial<WaterRouterFeatureProps>;
+      const props: WaterRouterFeatureProps = {
+        kind: 'water-route',
+        routeId: raw.routeId ?? 'click-ab',
+        label: raw.label ?? 'A → B',
+        status: raw.status,
+        lengthM: raw.lengthM,
+        visitedFeatures: raw.visitedFeatures,
+        visitedCorridors: raw.visitedCorridors,
+        pointCount: raw.pointCount,
+        color: raw.color,
+      };
+      routeLayer.bindPopup(formatWaterRouterPopup(props), {
+        maxWidth: 380,
+        className: 'seliger-debug-popup-wrap',
+      });
     },
-  }).addTo(map);
+  }).addTo(layer);
 
   L.geoJSON(fc as GeoJSON.GeoJsonObject, {
     pane: 'waterRouterPane',
     filter: (feature) => feature.properties?.kind === 'water-route-endpoint',
     pointToLayer: (feature, latlng) => {
-      const p = feature.properties as WaterRouterFeatureProps;
+      const p = feature.properties as Partial<WaterRouterFeatureProps>;
       return L.circleMarker(latlng, {
         pane: 'waterRouterPane',
         radius: p.endpointRole === 'start' ? 6 : 5,
@@ -189,15 +215,107 @@ export async function mountWaterRouterOverlay(map: L.Map): Promise<{
         fillOpacity: 1,
       });
     },
-    onEachFeature: (feature, layer) => {
-      const p = feature.properties as WaterRouterFeatureProps;
-      layer.bindTooltip(p.label, { direction: 'top' });
+    onEachFeature: (feature, endpointLayer) => {
+      const p = feature.properties as Partial<WaterRouterFeatureProps>;
+      endpointLayer.bindTooltip(p.endpointRole === 'start' ? 'A' : 'B', { direction: 'top' });
     },
-  }).addTo(map);
+  }).addTo(layer);
+}
 
-  const bounds = routeLayer.getBounds();
-  if (bounds.isValid()) {
-    map.fitBounds(bounds.pad(0.08), { maxZoom: 11, animate: false });
-  }
-  return { routeCount: fc.properties?.routeCount ?? 0 };
+export async function mountWaterRouterOverlay(map: L.Map): Promise<{
+  routeCount: number;
+}> {
+  await mountSeligerDebugOverlay(map, { interactive: false });
+
+  map.createPane('waterRouterPane');
+  const pane = map.getPane('waterRouterPane');
+  if (pane) pane.style.zIndex = '470';
+
+  const layer = L.layerGroup().addTo(map);
+  let start: L.LatLng | null = null;
+  let pending = false;
+
+  const clear = () => {
+    layer.clearLayers();
+    start = null;
+    pending = false;
+    map.closePopup();
+  };
+
+  const addClickMarker = (latlng: L.LatLng, label: 'A' | 'B') =>
+    L.circleMarker(latlng, {
+      pane: 'waterRouterPane',
+      radius: label === 'A' ? 6 : 5,
+      color: '#ffffff',
+      weight: 2,
+      fillColor: label === 'A' ? '#16a34a' : '#ef4444',
+      fillOpacity: 1,
+    })
+      .bindTooltip(label, { direction: 'top', permanent: true })
+      .addTo(layer);
+
+  map.on('click', async (e: L.LeafletMouseEvent) => {
+    if (pending) return;
+    const latlng = e.latlng;
+    if (!start) {
+      clear();
+      start = latlng;
+      addClickMarker(latlng, 'A');
+      return;
+    }
+
+    const a = start;
+    start = null;
+    addClickMarker(latlng, 'B');
+    pending = true;
+    try {
+      const res = await fetch(WATER_ROUTER_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          start: [a.lng, a.lat],
+          end: [latlng.lng, latlng.lat],
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        showWaterRouterMessage(
+          map,
+          latlng,
+          `<p><strong>Ошибка сервера</strong></p><p><code>${res.status}</code> ${text}</p>`,
+        );
+        return;
+      }
+      const fc = (await res.json()) as WaterRouterCollection & {
+        properties?: { status?: string };
+      };
+      const status = fc.properties?.status;
+      if (status && status !== 'OK') {
+        showWaterRouterMessage(
+          map,
+          latlng,
+          `<p><strong>${status}</strong></p><p>маршрут не построен</p>`,
+        );
+      }
+      drawWaterRouterGeoJSON(map, layer, fc);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showWaterRouterMessage(
+        map,
+        latlng,
+        `<p><strong>Ошибка</strong></p><p>${msg}</p><p>Проверьте API <code>/api/route</code></p>`,
+      );
+    } finally {
+      pending = false;
+    }
+  });
+
+  map.on('contextmenu', (e: L.LeafletMouseEvent) => {
+    L.DomEvent.preventDefault(e.originalEvent);
+    L.DomEvent.stop(e);
+    clear();
+  });
+
+  addWaterRouterControls(clear);
+  return { routeCount: 0 };
 }

@@ -1632,6 +1632,9 @@ map.on('zoom', () => scheduleScaleDependentRedraw());
 map.on('zoomend', () => scheduleScaleDependentRedraw());
 
 map.on('click', (e: L.LeafletMouseEvent) => {
+  if (waterRouterEnabledFromSearchParams(new URLSearchParams(window.location.search))) {
+    return;
+  }
   if (suppressMapClick) return;
   if (Date.now() < markerClickGuardUntil) return;
   const { lat, lng } = e.latlng;
