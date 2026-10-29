@@ -14,7 +14,7 @@ from water_topology.dumps import load_compact_store
 from water_topology.osm_store import Member, OsmStore, RelRec, WayRec
 from water_topology.rings import reconstruct_relation_geometry
 from water_topology.route import (
-    NARROW_WEIGHT_FACTOR,
+    CLEARANCE_K,
     STATUS_NO_PATH,
     STATUS_OK,
     STATUS_OUTSIDE_WATER,
@@ -79,16 +79,22 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         self.assertAlmostEqual(res.length_m, 80.0, delta=1.0)
         self.assertLessEqual(len(res.coordinates_xy), 3)
 
-    def test_02c_island_adjacent_triangles_get_narrowness_penalty(self):
+    def test_02c_low_clearance_triangles_cost_more(self):
         mesh = self.router.navmeshes["r9"]
-        narrow = self.router._narrow_triangle_ids("r9", mesh)
-        self.assertTrue(narrow)
-        island = Polygon([(40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)])
-        for tid in narrow:
-            self.assertLess(Polygon(mesh.triangles[tid].vertices).distance(island), 1e-6)
-        tid = next(iter(narrow))
-        u = ("tri", "r9", tid)
-        ca = mesh.triangles[tid].centroid
+        scored = []
+        for t in mesh.triangles:
+            d = self.router._triangle_clearance("r9", t.centroid)
+            scored.append((d, t.tri_id))
+        scored.sort()
+        self.assertGreater(len(scored), 1)
+        d_near, tid_near = scored[0]
+        d_far, tid_far = scored[-1]
+        self.assertLess(d_near, d_far)
+        f_near = UnifiedWaterRouter._clearance_factor(d_near)
+        f_far = UnifiedWaterRouter._clearance_factor(d_far)
+        self.assertGreater(f_near, f_far)
+        ca = mesh.triangles[tid_near].centroid
+        u = ("tri", "r9", tid_near)
         dual = [
             (nbr, w)
             for nbr, w, meta in self.router.adj[u]
@@ -98,7 +104,11 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         nbr, w = dual[0]
         cb = mesh.triangles[nbr[2]].centroid
         base = math.hypot(ca[0] - cb[0], ca[1] - cb[1])
-        self.assertAlmostEqual(w, base * NARROW_WEIGHT_FACTOR, places=6)
+        fb = UnifiedWaterRouter._clearance_factor(
+            self.router._triangle_clearance("r9", cb)
+        )
+        self.assertAlmostEqual(w, base * 0.5 * (f_near + fb), places=5)
+        self.assertAlmostEqual(f_near, 1.0 + CLEARANCE_K / (d_near + 1.0), places=6)
 
     def test_03_cross_corridor_route_between_two_lakes(self):
         res = self.router.route_xy((20.0, 20.0), (250.0, 50.0))
