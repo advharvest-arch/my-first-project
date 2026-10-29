@@ -38,7 +38,12 @@ def _centroid_of_node(node) -> list[float] | None:
         return None
 
 
-def graph_to_geojson(graph: WaterGraph, store: OsmStore | None = None) -> dict[str, Any]:
+def graph_to_geojson(
+    graph: WaterGraph,
+    store: OsmStore | None = None,
+    *,
+    water_feature_graph: Any | None = None,
+) -> dict[str, Any]:
     features: list[dict[str, Any]] = []
 
     seed_node = graph.nodes.get(graph.seed_key)
@@ -167,14 +172,17 @@ def graph_to_geojson(graph: WaterGraph, store: OsmStore | None = None) -> dict[s
             }
         )
 
+    props: dict[str, Any] = {
+        "seed": graph.seed,
+        "summary": graph.summary,
+        "layers": list(LAYER_COLORS),
+    }
+    if water_feature_graph is not None:
+        props["waterFeatureGraphSummary"] = water_feature_graph.to_dict()["summary"]
     return {
         "type": "FeatureCollection",
         "name": "seliger-topology-discovery",
-        "properties": {
-            "seed": graph.seed,
-            "summary": graph.summary,
-            "layers": list(LAYER_COLORS),
-        },
+        "properties": props,
         "features": features,
     }
 
@@ -208,7 +216,7 @@ def _fmt_evidence(ev: dict[str, Any]) -> str:
     return "; ".join(parts) if parts else json.dumps(ev, ensure_ascii=False)
 
 
-def graph_to_markdown(graph: WaterGraph) -> str:
+def graph_to_markdown(graph: WaterGraph, *, water_feature_graph: Any | None = None) -> str:
     s = graph.summary
     lines: list[str] = []
     lines.append("# Topology discovery: water graph from OSM seed")
@@ -332,6 +340,8 @@ def graph_to_markdown(graph: WaterGraph) -> str:
             f"| `{e.from_key}` | `{e.to_key}` | {e.connection_type} | `{conn}` | {_fmt_evidence(e.evidence)} |"
         )
     lines.append("")
+    if water_feature_graph is not None:
+        lines.extend(render_water_feature_graph_markdown_section(water_feature_graph))
     lines.append("## Notes")
     lines.append("")
     for n in graph.notes:
@@ -343,23 +353,123 @@ def graph_to_markdown(graph: WaterGraph) -> str:
     return "\n".join(lines)
 
 
-def write_outputs(
-    graph: WaterGraph,
+def render_water_feature_graph_markdown_section(water_feature_graph: Any) -> list[str]:
+    wfg = water_feature_graph.to_dict()
+    ws = wfg["summary"]
+    lines: list[str] = []
+    lines.append("## K. Strict WaterFeature Graph (`build_water_graph.py`)")
+    lines.append("")
+    lines.append(
+        "Граф водных объектов, построенный только по 4 правилам OSM-топологии "
+        "(`SHARED_NODE`, `SHARED_WAY`, `RELATION_ROLE`, `ENDPOINT_ON_POLYGON`), "
+        "без proximity и без перескакивания через промежуточные площади."
+    )
+    lines.append("")
+    lines.append(f"- vertices (`nodeCount`): **{ws['nodeCount']}**")
+    lines.append(f"- edges (`edgeCount`): **{ws['edgeCount']}**")
+    lines.append(
+        f"- edge counts by type: `{json.dumps(ws.get('edgeCountsByType') or {}, ensure_ascii=False)}`"
+    )
+    lines.append("")
+    lines.append("### K.1. WaterFeature nodes")
+    lines.append("")
+    lines.append("| key | OSM | name (display only) | role | hops |")
+    lines.append("|---|---|---|---|---:|")
+    for n in sorted(wfg["nodes"], key=lambda x: (x["hopsFromSeed"], x["key"])):
+        nm = (n.get("tags") or {}).get("name") or ""
+        lines.append(
+            f"| `{n['key']}` | {n['osmType']}/{n['osmId']} | {nm} | {n['role']} | {n['hopsFromSeed']} |"
+        )
+    lines.append("")
+    lines.append("### K.2. WaterFeature edges and OSM evidence")
+    lines.append("")
+    lines.append("| from | to | connectionType | osmType/osmId | evidence |")
+    lines.append("|---|---|---|---|---|")
+    for e in wfg["edges"]:
+        ev = e["evidence"]
+        oid = f"{ev.get('osmType')}/{ev.get('osmId')}"
+        lines.append(
+            f"| `{e['from']}` | `{e['to']}` | `{e['connectionType']}` | `{oid}` | `{json.dumps(ev, ensure_ascii=False)}` |"
+        )
+    lines.append("")
+    return lines
+
+
+def update_discovery_outputs(
+    water_feature_graph: Any,
     out_dir: Path,
     *,
     store: OsmStore | None = None,
     stem: str = "seliger-topology-discovery",
 ) -> dict[str, Path]:
     out_dir = Path(out_dir)
+    json_path = out_dir / f"{stem}.json"
+    geo_path = out_dir / f"{stem}.geojson"
+    md_path = out_dir / f"{stem}.md"
+    if not (json_path.exists() and geo_path.exists() and md_path.exists()):
+        from .discover import discover_water_graph
+
+        if store is None:
+            raise ValueError("store required when discovery outputs do not yet exist")
+        disc = discover_water_graph(water_feature_graph.seed_key, store)
+        return write_outputs(disc, out_dir, store=store, stem=stem, water_feature_graph=water_feature_graph)
+
+    wfg_dict = water_feature_graph.to_dict()
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    payload["waterFeatureGraph"] = wfg_dict
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    geo = json.loads(geo_path.read_text(encoding="utf-8"))
+    geo.setdefault("properties", {})["waterFeatureGraphSummary"] = wfg_dict["summary"]
+    geo_path.write_text(json.dumps(geo, ensure_ascii=False), encoding="utf-8")
+
+    md = md_path.read_text(encoding="utf-8")
+    section = "\n".join(render_water_feature_graph_markdown_section(water_feature_graph)) + "\n"
+    marker = "## K. Strict WaterFeature Graph (`build_water_graph.py`)"
+    notes_marker = "## Notes"
+    if marker in md and notes_marker in md:
+        before = md.split(marker, 1)[0]
+        after = notes_marker + md.split(notes_marker, 1)[1]
+        md = before + section + after
+    elif notes_marker in md:
+        before, after = md.split(notes_marker, 1)
+        md = before + section + notes_marker + after
+    else:
+        md = md.rstrip() + "\n\n" + section
+    md_path.write_text(md, encoding="utf-8")
+    return {"json": json_path, "geojson": geo_path, "md": md_path}
+
+
+def write_outputs(
+    graph: WaterGraph,
+    out_dir: Path,
+    *,
+    store: OsmStore | None = None,
+    stem: str = "seliger-topology-discovery",
+    water_feature_graph: Any | None = None,
+) -> dict[str, Path]:
+    if water_feature_graph is None and store is not None:
+        from .build_water_graph import build_water_graph
+
+        water_feature_graph = build_water_graph(graph.seed_key, store)
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / f"{stem}.json"
     geo_path = out_dir / f"{stem}.geojson"
     md_path = out_dir / f"{stem}.md"
     payload = graph.to_dict()
+    if water_feature_graph is not None:
+        payload["waterFeatureGraph"] = water_feature_graph.to_dict()
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     geo_path.write_text(
-        json.dumps(graph_to_geojson(graph, store), ensure_ascii=False),
+        json.dumps(
+            graph_to_geojson(graph, store, water_feature_graph=water_feature_graph),
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
-    md_path.write_text(graph_to_markdown(graph), encoding="utf-8")
+    md_path.write_text(
+        graph_to_markdown(graph, water_feature_graph=water_feature_graph),
+        encoding="utf-8",
+    )
     return {"json": json_path, "geojson": geo_path, "md": md_path}

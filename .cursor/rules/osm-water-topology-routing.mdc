@@ -1,0 +1,39 @@
+---
+description: Strict OSM topology, CDT navmesh, corridor, and water routing invariants
+globs: water-data/research/**/*.py
+alwaysApply: false
+---
+
+# OSM Water Topology & Routing Rules
+
+## 1. Connectivity Only From Real OSM Evidence
+Allow only these four topology mechanisms when building `WaterFeatureGraph`:
+- `SHARED_NODE` — shared OSM node IDs on feature boundaries
+- `SHARED_WAY` — shared member way IDs between relations
+- `RELATION_ROLE` — `outer`/`inner` multipolygon roles in OSM relations
+- `ENDPOINT_ON_POLYGON` — linear waterway endpoint (`nds[0]` or `nds[-1]`) on a polygon boundary node
+
+Every graph edge must include concrete integer `osmId` and `osmType` (`"node" | "way" | "relation"`) in `evidence`.
+
+```python
+# BAD: proximity / distance / name matching
+if poly_a.distance(poly_b) < 50 or tags_a.get("name") == tags_b.get("name"):
+    add_edge(a, b, "PROXIMITY", {})
+
+# GOOD: concrete OSM node identity
+shared_n = sorted(oa["nodes"] & ob["nodes"])
+if shared_n:
+    add_edge(a, b, SHARED_NODE, {"osmId": shared_n[0], "osmType": "node", "sharedNodeIds": shared_n[:12]})
+```
+
+## 2. Hard Prohibitions
+- Never use proximity (`ST_DWithin`, KNN, buffer intersection, centroid distance) as water connectivity.
+- Never hardcode water body names or OSM IDs as join keys (`name=*` is display-only).
+- Never treat multipolygon `outer`/`inner` boundary ways as centerlines.
+- Never skip intermediate water polygons (e.g. `r399081` Seliger -> `w81753515` Knyazha -> `r9617478` Seremo must not emit a direct `r399081 <-> r9617478` edge).
+
+## 3. Navmesh, Corridors, and Routing
+- Project WGS84 geometry to a metric CRS (`EPSG:32636`) before CDT triangulation and buffering.
+- Exclude triangles inside `inner` island holes (`poly.covers(Point(cx, cy))`).
+- Smooth intra-polygon triangle sleeves with the Funnel (string-pulling) algorithm.
+- Never snap points from land or islands: return `OUTSIDE_WATER` when an endpoint is outside water, and `NO_PATH` when components are disconnected.
