@@ -15,7 +15,7 @@ from water_topology.osm_store import Member, OsmStore, RelRec, WayRec
 from water_topology.rings import reconstruct_relation_geometry
 from water_topology.route import (
     CLEARANCE_K,
-    OPEN_SHORE_CLIP_M,
+    GOAL_ENDPOINT_SLOP_M,
     OPEN_WATER_CLEARANCE_M,
     STATUS_NO_PATH,
     STATUS_OK,
@@ -110,9 +110,9 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         )
         self.assertLessEqual(len(res.coordinates_xy), 4)
 
-    def test_02e_open_goal_los_does_not_hug_outer_cape(self):
-        # North-shore cape hangs down and nicks the A–B chord; leftover is ~8 m,
-        # well under OPEN_SHORE_CLIP_M (250 m). Seed hugs the cape tip — must not.
+    def test_02e_outer_cape_blocks_goal_los_and_gets_tangent(self):
+        # North-shore cape crosses A–B; even a short leftover is an obstacle.
+        # vertex_string_pull must wrap the cape tip, not cut land.
         shell = [
             (0.0, 0.0),
             (200.0, 0.0),
@@ -125,22 +125,35 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         ]
         water = Polygon(shell)
         start, goal = (20.0, 80.0), (180.0, 80.0)
-        self.assertTrue(has_open_goal_los(water, start, goal))
+        self.assertFalse(has_open_goal_los(water, start, goal))
         seed = [start, (100.0, 55.0), goal]
         pulled = vertex_string_pull(water, seed)
         self.assertEqual(pulled[0], start)
         self.assertEqual(pulled[-1], goal)
-        self.assertTrue(all(p[1] < 100.0 for p in pulled))
-        self.assertLessEqual(len(pulled), 3)
-        self.assertEqual(OPEN_SHORE_CLIP_M, 250.0)
+        self.assertTrue(
+            any(math.hypot(p[0] - 100.0, p[1] - 50.0) < 1e-3 for p in pulled)
+        )
+        cape_land = Polygon([(81.0, 199.0), (100.0, 52.0), (119.0, 199.0)])
+        self.assertFalse(LineString(pulled).intersects(cape_land))
+        self.assertEqual(GOAL_ENDPOINT_SLOP_M, 20.0)
         self.assertGreaterEqual(OPEN_WATER_CLEARANCE_M, 50.0)
         self.assertLessEqual(OPEN_WATER_CLEARANCE_M, 100.0)
-        # Inner holes never get the 250 m outer-shore tolerance.
         island_water = Polygon(
             [(0.0, 0.0), (200.0, 0.0), (200.0, 200.0), (0.0, 200.0)],
             [[(80.0, 70.0), (120.0, 70.0), (120.0, 90.0), (80.0, 90.0)]],
         )
         self.assertFalse(has_open_goal_los(island_water, start, goal))
+
+    def test_02f_goal_endpoint_slop_allows_last_bank_metres(self):
+        # B sits on the east bank; a leftover of ~10 m at B is the final hop, not a cape.
+        water = Polygon([(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)])
+        start = (10.0, 50.0)
+        goal = (108.0, 50.0)
+        self.assertTrue(has_open_goal_los(water, start, goal))
+        pulled = vertex_string_pull(water, [start, (50.0, 50.0), goal])
+        self.assertEqual(pulled[0], start)
+        self.assertEqual(pulled[-1], goal)
+        self.assertLessEqual(len(pulled), 3)
 
     def test_02c_low_clearance_triangles_cost_more(self):
         mesh = self.router.navmeshes["r9"]

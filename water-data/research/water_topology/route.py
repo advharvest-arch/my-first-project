@@ -47,9 +47,8 @@ STATUS_NO_PATH = "NO_PATH"
 CLEARANCE_K = 100.0
 # Skip A* seed waypoints that hug the contour within this distance of the boundary.
 OPEN_WATER_CLEARANCE_M = 75.0
-# Goal LoS: treat an outer-shore (cape) leftover shorter than this as open water.
-# Inner island holes never use this tolerance — they always block.
-OPEN_SHORE_CLIP_M = 250.0
+# Last hop to B only: allow leftover that sits on the bank at B (not mid-chord capes).
+GOAL_ENDPOINT_SLOP_M = 20.0
 
 
 def _tri_area2(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
@@ -158,13 +157,6 @@ def has_line_of_sight(
     return bool(water.covers(line))
 
 
-def _leftover_max_length(leftover: BaseGeometry) -> float:
-    if leftover is None or leftover.is_empty:
-        return 0.0
-    geoms = leftover.geoms if hasattr(leftover, "geoms") else (leftover,)
-    return max((float(g.length) for g in geoms if not g.is_empty), default=0.0)
-
-
 def _chord_crosses_hole(
     water: BaseGeometry,
     line: LineString,
@@ -187,16 +179,37 @@ def _chord_crosses_hole(
     return False
 
 
+def _leftover_is_only_goal_endpoint_slop(
+    leftover: BaseGeometry,
+    goal: tuple[float, float],
+    slop_m: float,
+) -> bool:
+    """True iff every land clip of the chord is a short nick at B (bank), not a mid-route cape."""
+    if leftover is None or leftover.is_empty:
+        return True
+    geoms = leftover.geoms if hasattr(leftover, "geoms") else (leftover,)
+    goal_pt = Point(goal)
+    for g in geoms:
+        if g.is_empty:
+            continue
+        if float(g.length) > slop_m:
+            return False
+        if goal_pt.distance(g) > slop_m:
+            return False
+    return True
+
+
 def has_open_goal_los(
     water: BaseGeometry,
     a: tuple[float, float],
     b: tuple[float, float],
-    min_clearance: float = OPEN_SHORE_CLIP_M,
+    endpoint_slop_m: float = GOAL_ENDPOINT_SLOP_M,
 ) -> bool:
-    """Straight shot to B: in-water chord, or only a shallow outer-shore nick (cape).
+    """Straight shot to B only if the chord stays in water.
 
-    Inner island holes always block (no 250 m tolerance). A leftover clip of the
-    *outer* shore shorter than ``min_clearance`` (default 250 m) does not.
+    Any outer-shore crossing is an obstacle (even 1 m), except a leftover of at
+    most ``endpoint_slop_m`` (20 m) that sits on the bank at B. Inner holes always
+    block, with no slop.
     """
     if a == b:
         return True
@@ -208,7 +221,9 @@ def has_open_goal_los(
     if _chord_crosses_hole(water, line):
         return False
     leftover = line.difference(water)
-    return _leftover_max_length(leftover) < min_clearance
+    if leftover.is_empty:
+        return True
+    return _leftover_is_only_goal_endpoint_slop(leftover, b, endpoint_slop_m)
 
 
 def los_string_pull(
@@ -252,14 +267,17 @@ def _ring_coords(coords) -> list[tuple[float, float]]:
     return pts
 
 
-def _hole_rings(water: BaseGeometry) -> list[list[tuple[float, float]]]:
-    """Island (inner-hole) rings of the navigable water polygon."""
-    rings: list[list[tuple[float, float]]] = []
+def _obstacle_rings(water: BaseGeometry) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Outer shells and inner island holes as (kind, vertices) rings."""
+    rings: list[tuple[str, list[tuple[float, float]]]] = []
     for poly in _iter_polygons(water):
+        outer = _ring_coords(poly.exterior.coords)
+        if len(outer) >= 3:
+            rings.append(("shell", outer))
         for interior in poly.interiors:
             verts = _ring_coords(interior.coords)
             if len(verts) >= 3:
-                rings.append(verts)
+                rings.append(("hole", verts))
     return rings
 
 
@@ -314,33 +332,47 @@ def _homotopy_side(
     return 0
 
 
-def _first_blocking_hole(
-    rings: list[list[tuple[float, float]]],
+def _first_blocking_ring(
+    rings: list[tuple[str, list[tuple[float, float]]]],
     origin: tuple[float, float],
     goal: tuple[float, float],
+    water: BaseGeometry,
     seed_line: LineString | None,
     seed_max_dist: float = 500.0,
-) -> list[tuple[float, float]] | None:
-    """Nearest island ring that the chord origin→goal actually cuts, if A* also rounded it."""
+) -> tuple[str, list[tuple[float, float]], BaseGeometry | None] | None:
+    """Nearest obstacle ring the chord cuts: island hole or outer-shore cape."""
     line = LineString([origin, goal])
+    if water.covers(line):
+        return None
     origin_pt = Point(origin)
-    best: list[tuple[float, float]] | None = None
+    leftover = line.difference(water)
+    best: tuple[str, list[tuple[float, float]], BaseGeometry | None] | None = None
     best_d = math.inf
-    for verts in rings:
-        poly = Polygon(verts)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        if poly.is_empty:
-            continue
-        inter = line.intersection(poly)
-        if inter.is_empty or getattr(inter, "geom_type", "") in ("Point", "MultiPoint"):
-            continue
-        if seed_line is not None and seed_line.distance(poly) > seed_max_dist:
-            continue
-        d = origin_pt.distance(inter)
+    for kind, verts in rings:
+        ring_ls = LineString(verts + [verts[0]]) if len(verts) >= 2 else None
+        if kind == "hole":
+            poly = Polygon(verts)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty:
+                continue
+            inter = line.intersection(poly)
+            if inter.is_empty or getattr(inter, "geom_type", "") in ("Point", "MultiPoint"):
+                continue
+            if seed_line is not None and seed_line.distance(poly) > seed_max_dist:
+                continue
+            d = origin_pt.distance(inter)
+            focus = inter
+        else:
+            if leftover is None or leftover.is_empty or ring_ls is None:
+                continue
+            if leftover.distance(ring_ls) > 2.0:
+                continue
+            d = origin_pt.distance(leftover)
+            focus = leftover
         if d < best_d:
             best_d = d
-            best = verts
+            best = (kind, verts, focus)
     return best
 
 
@@ -351,12 +383,13 @@ def _pick_tangent_vertex(
     water: BaseGeometry,
     side: int,
     used: set[tuple[float, float]],
+    focus: BaseGeometry | None = None,
+    focus_max_dist: float = 500.0,
 ) -> tuple[float, float] | None:
-    """Supporting vertex of the blocking island, on the A* side.
+    """Supporting vertex of the blocking ring, on the A* side.
 
     Only true supporting vertices (both neighbours on one side of origin→vertex).
-    Never snap to the nearest contour point — that hugs capes. Prefer a vertex
-    from which the goal is an open-water shot.
+    Prefer a vertex from which the goal is an open-water shot.
     """
     if has_open_goal_los(water, origin, goal):
         return None
@@ -365,6 +398,8 @@ def _pick_tangent_vertex(
     for i, v in enumerate(verts):
         key = _pt_key(v)
         if key in used or key == _pt_key(origin):
+            continue
+        if focus is not None and focus.distance(Point(v)) > focus_max_dist:
             continue
         if not _forward_progress(origin, goal, v):
             continue
@@ -422,23 +457,23 @@ def vertex_string_pull(
     if len(pts) <= 2:
         return pts
     goal = pts[-1]
-    rings = _hole_rings(water)
+    rings = _obstacle_rings(water)
     seed_line = LineString(pts) if len(pts) >= 2 else None
     out: list[tuple[float, float]] = [pts[0]]
     current = pts[0]
     used: set[tuple[float, float]] = {_pt_key(current)}
     for _ in range(128):
-        # Direct shot to B wins: in-water chord, or only a shallow outer-cape nick.
-        # Do not search tangents / seed waypoints when this is true.
+        # Direct shot to B only when the chord is in water (endpoint slop at B).
         if has_open_goal_los(water, current, goal):
             if _pt_key(out[-1]) != _pt_key(goal):
                 out.append(goal)
             return out
-        ring = _first_blocking_hole(rings, current, goal, seed_line)
+        blocked = _first_blocking_ring(rings, current, goal, water, seed_line)
         advanced = False
-        if ring is not None:
+        if blocked is not None:
+            _kind, ring, focus = blocked
             side = _homotopy_side(pts, current, goal)
-            v = _pick_tangent_vertex(ring, current, goal, water, side, used)
+            v = _pick_tangent_vertex(ring, current, goal, water, side, used, focus=focus)
             if v is not None:
                 used.add(_pt_key(v))
                 if _pt_key(out[-1]) != _pt_key(v):
