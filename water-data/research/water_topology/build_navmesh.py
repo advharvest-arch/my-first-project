@@ -29,6 +29,13 @@ from .osm_store import OsmStore
 from .rings import reconstruct_relation_geometry
 
 DEFAULT_CRS = "EPSG:32636"
+# Longest triangle edge after Steiner refinement (projected metres).
+# Caps open-water CDT faces so A* centroids follow the geodesic more closely.
+MAX_TRI_EDGE_M = 400.0
+_MAX_REFINE_PASSES = 24
+
+Vertex = tuple[float, float]
+TriangleVerts = tuple[Vertex, Vertex, Vertex]
 
 
 def _round_pt(pt: tuple[float, float], digits: int = 9) -> tuple[float, float]:
@@ -137,6 +144,93 @@ class WaterNavmesh:
         }
 
 
+def _pt_dist(a: Vertex, b: Vertex) -> float:
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _midpoint(a: Vertex, b: Vertex, digits: int) -> Vertex:
+    return _round_pt(((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5), digits)
+
+
+def _split_one_triangle(
+    verts: TriangleVerts,
+    long_edges: set[tuple[Vertex, Vertex]],
+    mids: dict[tuple[Vertex, Vertex], Vertex],
+    digits: int,
+) -> list[TriangleVerts]:
+    """Subdivide a triangle according to how many of its edges are marked long."""
+    v0, v1, v2 = verts
+    e01 = _edge_key(v0, v1, digits)
+    e12 = _edge_key(v1, v2, digits)
+    e20 = _edge_key(v2, v0, digits)
+    f01 = e01 in long_edges
+    f12 = e12 in long_edges
+    f20 = e20 in long_edges
+    n = int(f01) + int(f12) + int(f20)
+    if n == 0:
+        return [verts]
+    if n == 3:
+        m01, m12, m20 = mids[e01], mids[e12], mids[e20]
+        return [
+            (v0, m01, m20),
+            (v1, m12, m01),
+            (v2, m20, m12),
+            (m01, m12, m20),
+        ]
+    if n == 1:
+        if f01:
+            m = mids[e01]
+            return [(v0, m, v2), (m, v1, v2)]
+        if f12:
+            m = mids[e12]
+            return [(v1, m, v0), (m, v2, v0)]
+        m = mids[e20]
+        return [(v2, m, v1), (m, v0, v1)]
+    # Two long edges: apex is the vertex incident to both.
+    if not f01:
+        apex, p, q = v2, v1, v0
+        m_ap, m_aq = mids[e12], mids[e20]
+    elif not f12:
+        apex, p, q = v0, v1, v2
+        m_ap, m_aq = mids[e01], mids[e20]
+    else:
+        apex, p, q = v1, v0, v2
+        m_ap, m_aq = mids[e01], mids[e12]
+    return [
+        (apex, m_ap, m_aq),
+        (m_ap, p, q),
+        (m_aq, m_ap, q),
+    ]
+
+
+def _refine_long_edges(
+    tris: list[TriangleVerts],
+    max_edge_m: float,
+    digits: int,
+) -> list[TriangleVerts]:
+    """Insert Steiner midpoints on edges longer than max_edge_m (longest-edge split)."""
+    if max_edge_m <= 0.0 or not tris:
+        return tris
+    current = tris
+    for _ in range(_MAX_REFINE_PASSES):
+        long_edges: set[tuple[Vertex, Vertex]] = set()
+        mids: dict[tuple[Vertex, Vertex], Vertex] = {}
+        for v0, v1, v2 in current:
+            for a, b in ((v0, v1), (v1, v2), (v2, v0)):
+                if _pt_dist(a, b) > max_edge_m:
+                    ek = _edge_key(a, b, digits)
+                    if ek not in long_edges:
+                        long_edges.add(ek)
+                        mids[ek] = _midpoint(a, b, digits)
+        if not long_edges:
+            break
+        nxt: list[TriangleVerts] = []
+        for verts in current:
+            nxt.extend(_split_one_triangle(verts, long_edges, mids, digits))
+        current = nxt
+    return current
+
+
 def _extract_polygons(geom: BaseGeometry) -> list[Polygon]:
     if geom is None or geom.is_empty:
         return []
@@ -154,8 +248,14 @@ def build_navmesh_from_geometry(
     crs: str = DEFAULT_CRS,
     project_from_wgs84: bool = False,
     simplify_tolerance: float = 0.0,
+    max_edge_m: float | None = None,
 ) -> WaterNavmesh:
-    """Triangulate Polygon/MultiPolygon with CDT and build its triangle dual graph."""
+    """Triangulate Polygon/MultiPolygon with CDT and build its triangle dual graph.
+
+    When ``project_from_wgs84`` is true (or ``max_edge_m`` is set), triangles
+    whose longest edge exceeds the cap are split by Steiner midpoints so the
+    dual graph is dense enough for A* to track a near-geodesic on open water.
+    """
     work_geom = geom
     if project_from_wgs84:
         transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
@@ -176,12 +276,16 @@ def build_navmesh_from_geometry(
                 parts.append(sub)
                 hole_count += len(sub.interiors)
 
+    if max_edge_m is None:
+        max_edge_m = MAX_TRI_EDGE_M if project_from_wgs84 else 0.0
+
     triangles: list[NavmeshTriangle] = []
     edge_to_tris: dict[tuple[tuple[float, float], tuple[float, float]], list[int]] = defaultdict(list)
     digits = 3 if project_from_wgs84 else 9
 
     for part_idx, poly in enumerate(parts):
         cdt_collection = shapely.constrained_delaunay_triangles(poly)
+        raw_tris: list[TriangleVerts] = []
         for tri_geom in getattr(cdt_collection, "geoms", ()):
             if not isinstance(tri_geom, Polygon) or tri_geom.is_empty:
                 continue
@@ -193,10 +297,18 @@ def build_navmesh_from_geometry(
             v2 = (float(coords[2][0]), float(coords[2][1]))
             cx = (v0[0] + v1[0] + v2[0]) / 3.0
             cy = (v0[1] + v1[1] + v2[1]) / 3.0
-            area = float(tri_geom.area)
-            if area <= 0.0:
+            if float(tri_geom.area) <= 0.0:
                 continue
             # Ensure triangle interior is inside the water polygon (not inside a hole)
+            if not poly.covers(Point(cx, cy)):
+                continue
+            raw_tris.append((v0, v1, v2))
+        for v0, v1, v2 in _refine_long_edges(raw_tris, max_edge_m, digits):
+            cx = (v0[0] + v1[0] + v2[0]) / 3.0
+            cy = (v0[1] + v1[1] + v2[1]) / 3.0
+            area = abs((v1[0] - v0[0]) * (v2[1] - v0[1]) - (v2[0] - v0[0]) * (v1[1] - v0[1])) * 0.5
+            if area <= 0.0:
+                continue
             if not poly.covers(Point(cx, cy)):
                 continue
             tri_id = len(triangles)
