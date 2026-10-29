@@ -1816,7 +1816,9 @@ gpxExportBtn.addEventListener('click', () => {
 function bootFromQuery(): void {
   const params = new URLSearchParams(window.location.search);
   if (waterRouterEnabledFromSearchParams(params)) {
-    setStatus('Селигер: A* + Funnel маршрутизатор по CDT Navmesh и коридорам (?waterRouter=1).');
+    panel.hidden = true;
+    panelToggle.hidden = true;
+    setStatus('Селигер: клик A, затем клик B — маршрут через /api/route (?waterRouter=1).');
     void mountWaterRouterOverlay(map).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus(`Water router: не удалось загрузить маршруты. ${msg}`, true);
@@ -1920,8 +1922,18 @@ function bootFromQuery(): void {
 
 syncControls();
 syncSpeedPresetChips();
-setStatus('Кликните точки маршрута на воде.');
-warmWaterCache();
+{
+  const bootParams = new URLSearchParams(window.location.search);
+  const overlayOnly =
+    waterRouterEnabledFromSearchParams(bootParams) ||
+    seligerDebugEnabledFromSearchParams(bootParams) ||
+    seligerTopologyDebugEnabledFromSearchParams(bootParams) ||
+    russiaWaterTopologyDebugEnabled();
+  if (!overlayOnly) {
+    setStatus('Кликните точки маршрута на воде.');
+    warmWaterCache();
+  }
+}
 bootFromQuery();
 
 /** Dev-only: inspect Clear/BUILD lifecycle without noisy console spam. */

@@ -169,7 +169,7 @@ function showWaterRouterMessage(map: L.Map, latlng: L.LatLng, html: string): voi
     .openOn(map);
 }
 
-function drawWaterRouterGeoJSON(map: L.Map, layer: L.LayerGroup, fc: WaterRouterCollection): void {
+function drawWaterRouterGeoJSON(layer: L.LayerGroup, fc: WaterRouterCollection): void {
   L.geoJSON(fc as GeoJSON.GeoJsonObject, {
     pane: 'waterRouterPane',
     filter: (feature) => feature.properties?.kind === 'water-route',
@@ -297,7 +297,7 @@ export async function mountWaterRouterOverlay(map: L.Map): Promise<{
           `<p><strong>${status}</strong></p><p>маршрут не построен</p>`,
         );
       }
-      drawWaterRouterGeoJSON(map, layer, fc);
+      drawWaterRouterGeoJSON(layer, fc);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       showWaterRouterMessage(
