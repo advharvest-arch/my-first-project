@@ -45,6 +45,11 @@ STATUS_NO_PATH = "NO_PATH"
 # Dual-graph cost: prefer high clearance from shore / island rings.
 # factor(d) = 1 + K / (d + 1); K in the same units as d (metres in EPSG:32636).
 CLEARANCE_K = 100.0
+# Skip A* seed waypoints that hug the contour within this distance of the boundary.
+OPEN_WATER_CLEARANCE_M = 75.0
+# Goal LoS: treat an outer-shore (cape) leftover shorter than this as open water.
+# Inner island holes never use this tolerance — they always block.
+OPEN_SHORE_CLIP_M = 250.0
 
 
 def _tri_area2(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
@@ -151,6 +156,59 @@ def has_line_of_sight(
         return True
     # covers: interior + boundary; within alone rejects a line that kisses a shore.
     return bool(water.covers(line))
+
+
+def _leftover_max_length(leftover: BaseGeometry) -> float:
+    if leftover is None or leftover.is_empty:
+        return 0.0
+    geoms = leftover.geoms if hasattr(leftover, "geoms") else (leftover,)
+    return max((float(g.length) for g in geoms if not g.is_empty), default=0.0)
+
+
+def _chord_crosses_hole(
+    water: BaseGeometry,
+    line: LineString,
+) -> bool:
+    """True if a→b actually enters an island interior (not a mere boundary kiss)."""
+    for poly in _iter_polygons(water):
+        for interior in poly.interiors:
+            hole = Polygon(interior)
+            if not hole.is_valid:
+                hole = hole.buffer(0)
+            if hole.is_empty:
+                continue
+            inter = line.intersection(hole)
+            if inter.is_empty:
+                continue
+            gtype = getattr(inter, "geom_type", "")
+            if gtype in ("Point", "MultiPoint"):
+                continue
+            return True
+    return False
+
+
+def has_open_goal_los(
+    water: BaseGeometry,
+    a: tuple[float, float],
+    b: tuple[float, float],
+    min_clearance: float = OPEN_SHORE_CLIP_M,
+) -> bool:
+    """Straight shot to B: in-water chord, or only a shallow outer-shore nick (cape).
+
+    Inner island holes always block (no 250 m tolerance). A leftover clip of the
+    *outer* shore shorter than ``min_clearance`` (default 250 m) does not.
+    """
+    if a == b:
+        return True
+    line = LineString([a, b])
+    if line.length <= 0.0:
+        return True
+    if water.covers(line):
+        return True
+    if _chord_crosses_hole(water, line):
+        return False
+    leftover = line.difference(water)
+    return _leftover_max_length(leftover) < min_clearance
 
 
 def los_string_pull(
@@ -272,11 +330,14 @@ def _first_blocking_hole(
         poly = Polygon(verts)
         if not poly.is_valid:
             poly = poly.buffer(0)
-        if poly.is_empty or not line.intersects(poly):
+        if poly.is_empty:
+            continue
+        inter = line.intersection(poly)
+        if inter.is_empty or getattr(inter, "geom_type", "") in ("Point", "MultiPoint"):
             continue
         if seed_line is not None and seed_line.distance(poly) > seed_max_dist:
             continue
-        d = origin_pt.distance(line.intersection(poly))
+        d = origin_pt.distance(inter)
         if d < best_d:
             best_d = d
             best = verts
@@ -291,7 +352,14 @@ def _pick_tangent_vertex(
     side: int,
     used: set[tuple[float, float]],
 ) -> tuple[float, float] | None:
-    """Supporting vertex of the blocking island, on the A* side, nearest to origin→goal."""
+    """Supporting vertex of the blocking island, on the A* side.
+
+    Only true supporting vertices (both neighbours on one side of origin→vertex).
+    Never snap to the nearest contour point — that hugs capes. Prefer a vertex
+    from which the goal is an open-water shot.
+    """
+    if has_open_goal_los(water, origin, goal):
+        return None
     n = len(verts)
     cands: list[tuple[tuple[float, float], float, float, bool]] = []
     for i, v in enumerate(verts):
@@ -306,27 +374,15 @@ def _pick_tangent_vertex(
             continue
         cross = _tri_area2(origin, goal, v)
         dist_line = _dist_to_segment_line(origin, goal, v)
-        cands.append((v, cross, dist_line, True))
-    if not cands:
-        # Fallback: nearest visible contour vertex to the chord (user's blocking corner).
-        for i, v in enumerate(verts):
-            key = _pt_key(v)
-            if key in used or key == _pt_key(origin):
-                continue
-            if not _forward_progress(origin, goal, v):
-                continue
-            if not has_line_of_sight(water, origin, v):
-                continue
-            cross = _tri_area2(origin, goal, v)
-            dist_line = _dist_to_segment_line(origin, goal, v)
-            cands.append((v, cross, dist_line, False))
+        sees_goal = has_open_goal_los(water, v, goal)
+        cands.append((v, cross, dist_line, sees_goal))
     if not cands:
         return None
     if side != 0:
         matching = [c for c in cands if (c[1] > 0.0) == (side > 0)]
         if matching:
             cands = matching
-    # Prefer true tangents, then the vertex closest to the direct line (grazing contact).
+    # Prefer a vertex that already sees B; then the grazing contact (closest to chord).
     cands.sort(key=lambda c: (0 if c[3] else 1, c[2]))
     return cands[0][0]
 
@@ -337,12 +393,21 @@ def _farthest_visible_point(
     pts: list[tuple[float, float]],
 ) -> tuple[float, float] | None:
     origin_key = _pt_key(origin)
+    goal = pts[-1] if pts else origin
+    hug: tuple[float, float] | None = None
     for p in reversed(pts):
         if _pt_key(p) == origin_key:
             continue
-        if has_line_of_sight(water, origin, p):
+        if not has_line_of_sight(water, origin, p):
+            continue
+        if _pt_key(p) == _pt_key(goal):
             return p
-    return None
+        if Point(p).distance(water.boundary) < OPEN_WATER_CLEARANCE_M:
+            if hug is None:
+                hug = p
+            continue
+        return p
+    return hug
 
 
 def vertex_string_pull(
@@ -363,7 +428,9 @@ def vertex_string_pull(
     current = pts[0]
     used: set[tuple[float, float]] = {_pt_key(current)}
     for _ in range(128):
-        if has_line_of_sight(water, current, goal):
+        # Direct shot to B wins: in-water chord, or only a shallow outer-cape nick.
+        # Do not search tangents / seed waypoints when this is true.
+        if has_open_goal_los(water, current, goal):
             if _pt_key(out[-1]) != _pt_key(goal):
                 out.append(goal)
             return out
@@ -389,6 +456,9 @@ def vertex_string_pull(
             if _pt_key(current) == _pt_key(goal):
                 return out
     if _pt_key(out[-1]) != _pt_key(goal):
+        if has_open_goal_los(water, current, goal):
+            out.append(goal)
+            return out
         rest = los_string_pull(water, [current, *pts])
         for p in rest[1:]:
             if _pt_key(out[-1]) != _pt_key(p):
