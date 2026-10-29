@@ -35,8 +35,20 @@ export default defineConfig({
   },
   preview: {
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
   server: {
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
 });
