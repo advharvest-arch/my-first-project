@@ -27,13 +27,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from .build_corridors import CorridorNetwork, WaterwayCorridor, build_corridors
-from .build_navmesh import (
-    DEFAULT_CRS,
-    NavmeshTriangle,
-    WaterNavmesh,
-    build_navmesh_from_geometry,
-    _edge_key,
-)
+from .build_navmesh import DEFAULT_CRS, NavmeshTriangle, WaterNavmesh, build_navmesh_from_geometry
 from .build_water_graph import (
     ENDPOINT_ON_POLYGON,
     SHARED_NODE,
@@ -48,9 +42,9 @@ STATUS_OK = "OK"
 STATUS_OUTSIDE_WATER = "OUTSIDE_WATER"
 STATUS_NO_PATH = "NO_PATH"
 
-# Dual-graph penalty for CDT triangles hugging islands / narrow passages.
-NARROW_ISLAND_DIST_M = 75.0
-NARROW_WEIGHT_FACTOR = 2.0
+# Dual-graph cost: prefer high clearance from shore / island rings.
+# factor(d) = 1 + K / (d + 1); K in the same units as d (metres in EPSG:32636).
+CLEARANCE_K = 100.0
 
 
 def _tri_area2(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
@@ -318,50 +312,16 @@ class UnifiedWaterRouter:
         self.adj[u].append((v, w, meta))
         self.adj[v].append((u, w, meta))
 
-    def _hole_polygons(self, water: BaseGeometry) -> list[Polygon]:
-        parts: list[Polygon] = []
-        if isinstance(water, Polygon):
-            parts = [water]
-        else:
-            parts = [g for g in getattr(water, "geoms", ()) if isinstance(g, Polygon)]
-        holes: list[Polygon] = []
-        for poly in parts:
-            for ring in poly.interiors:
-                if len(ring.coords) >= 4:
-                    hole = Polygon(ring)
-                    if not hole.is_empty:
-                        holes.append(hole)
-        return holes
-
-    def _narrow_triangle_ids(self, area_key: str, mesh: WaterNavmesh) -> set[int]:
-        """Triangles that share an edge with an inner island, or sit within 75 m of one."""
+    def _triangle_clearance(self, area_key: str, centroid: tuple[float, float]) -> float:
+        """Metres (or CRS units) from triangle centroid to nearest water boundary or hole."""
         water = self.area_polygons.get(area_key)
-        if water is None:
-            return set()
-        holes = self._hole_polygons(water)
-        if not holes:
-            return set()
-        digits = 3 if self.project_from_wgs84 else 9
-        inner_edges: set[tuple[tuple[float, float], tuple[float, float]]] = set()
-        for hole in holes:
-            coords = list(hole.exterior.coords)
-            for a, b in zip(coords, coords[1:]):
-                inner_edges.add(_edge_key((float(a[0]), float(a[1])), (float(b[0]), float(b[1])), digits))
-        holes_union = shapely.union_all(holes) if len(holes) > 1 else holes[0]
-        dist_limit = NARROW_ISLAND_DIST_M if self.project_from_wgs84 else 0.0
-        narrow: set[int] = set()
-        for t in mesh.triangles:
-            v0, v1, v2 = t.vertices
-            if (
-                _edge_key(v0, v1, digits) in inner_edges
-                or _edge_key(v1, v2, digits) in inner_edges
-                or _edge_key(v2, v0, digits) in inner_edges
-            ):
-                narrow.add(t.tri_id)
-                continue
-            if dist_limit > 0.0 and Point(t.centroid).distance(holes_union) < dist_limit:
-                narrow.add(t.tri_id)
-        return narrow
+        if water is None or water.is_empty:
+            return 0.0
+        return float(Point(centroid).distance(water.boundary))
+
+    @staticmethod
+    def _clearance_factor(clearance: float) -> float:
+        return 1.0 + CLEARANCE_K / (clearance + 1.0)
 
     def _find_boundary_triangle(self, area_key: str, x: float, y: float) -> int | None:
         mesh = self.navmeshes.get(area_key)
@@ -385,15 +345,17 @@ class UnifiedWaterRouter:
         for area_key, mesh in sorted(self.navmeshes.items()):
             for t in mesh.triangles:
                 self.state_xy[("tri", area_key, t.tri_id)] = t.centroid
-            narrow = self._narrow_triangle_ids(area_key, mesh)
+            clearance = {
+                t.tri_id: self._triangle_clearance(area_key, t.centroid) for t in mesh.triangles
+            }
             for de in mesh.dual_edges:
                 u = ("tri", area_key, de.from_tri)
                 v = ("tri", area_key, de.to_tri)
                 self.portal_lookup[(area_key, de.from_tri, de.to_tri)] = de.portal
                 self.portal_lookup[(area_key, de.to_tri, de.from_tri)] = de.portal
-                w = de.weight
-                if de.from_tri in narrow or de.to_tri in narrow:
-                    w *= NARROW_WEIGHT_FACTOR
+                fa = self._clearance_factor(clearance.get(de.from_tri, 0.0))
+                fb = self._clearance_factor(clearance.get(de.to_tri, 0.0))
+                w = de.weight * 0.5 * (fa + fb)
                 self._add_undirected(
                     u,
                     v,
