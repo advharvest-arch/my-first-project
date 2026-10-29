@@ -15,10 +15,12 @@ from water_topology.osm_store import Member, OsmStore, RelRec, WayRec
 from water_topology.rings import reconstruct_relation_geometry
 from water_topology.route import (
     CLEARANCE_K,
+    OPEN_WATER_CLEARANCE_M,
     STATUS_NO_PATH,
     STATUS_OK,
     STATUS_OUTSIDE_WATER,
     UnifiedWaterRouter,
+    has_open_goal_los,
     vertex_string_pull,
 )
 
@@ -106,6 +108,31 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
             )
         )
         self.assertLessEqual(len(res.coordinates_xy), 4)
+
+    def test_02e_open_goal_los_does_not_hug_outer_cape(self):
+        # North-shore cape hangs down and nicks the A–B chord; leftover is ~8 m,
+        # well under OPEN_WATER_CLEARANCE_M. Seed hugs the cape tip — must not.
+        shell = [
+            (0.0, 0.0),
+            (200.0, 0.0),
+            (200.0, 200.0),
+            (120.0, 200.0),
+            (100.0, 50.0),
+            (80.0, 200.0),
+            (0.0, 200.0),
+            (0.0, 0.0),
+        ]
+        water = Polygon(shell)
+        start, goal = (20.0, 80.0), (180.0, 80.0)
+        self.assertTrue(has_open_goal_los(water, start, goal))
+        seed = [start, (100.0, 55.0), goal]
+        pulled = vertex_string_pull(water, seed)
+        self.assertEqual(pulled[0], start)
+        self.assertEqual(pulled[-1], goal)
+        self.assertTrue(all(p[1] < 100.0 for p in pulled))
+        self.assertLessEqual(len(pulled), 3)
+        self.assertGreaterEqual(OPEN_WATER_CLEARANCE_M, 50.0)
+        self.assertLessEqual(OPEN_WATER_CLEARANCE_M, 100.0)
 
     def test_02c_low_clearance_triangles_cost_more(self):
         mesh = self.router.navmeshes["r9"]
