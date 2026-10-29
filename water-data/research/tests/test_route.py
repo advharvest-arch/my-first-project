@@ -19,6 +19,7 @@ from water_topology.route import (
     STATUS_OK,
     STATUS_OUTSIDE_WATER,
     UnifiedWaterRouter,
+    vertex_string_pull,
 )
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "seliger_store.json.gz"
@@ -78,6 +79,33 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         self.assertEqual(res.status, STATUS_OK)
         self.assertAlmostEqual(res.length_m, 80.0, delta=1.0)
         self.assertLessEqual(len(res.coordinates_xy), 3)
+
+    def test_02d_vertex_string_pull_uses_island_tangent(self):
+        # Direct chord (10,10)→(90,90) cuts the island; the taut path must wrap a corner.
+        water = Polygon(
+            [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)],
+            [[(40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)]],
+        )
+        seed = [(10.0, 10.0), (20.0, 50.0), (50.0, 80.0), (90.0, 90.0)]
+        pulled = vertex_string_pull(water, seed)
+        corners = {(40.0, 40.0), (60.0, 40.0), (60.0, 60.0), (40.0, 60.0)}
+        self.assertTrue(any(p in corners for p in pulled))
+        self.assertEqual(pulled[0], (10.0, 10.0))
+        self.assertEqual(pulled[-1], (90.0, 90.0))
+        self.assertFalse(LineString(pulled).intersects(Polygon([(40.1, 40.1), (59.9, 40.1), (59.9, 59.9), (40.1, 59.9)])))
+        # Start → tangent corner → goal, no mid-lake centroid kink.
+        self.assertLessEqual(len(pulled), 4)
+
+        res = self.router.route_xy((10.0, 10.0), (90.0, 90.0))
+        self.assertEqual(res.status, STATUS_OK)
+        self.assertTrue(
+            any(
+                math.hypot(p[0] - c[0], p[1] - c[1]) < 1e-3
+                for p in res.coordinates_xy
+                for c in corners
+            )
+        )
+        self.assertLessEqual(len(res.coordinates_xy), 4)
 
     def test_02c_low_clearance_triangles_cost_more(self):
         mesh = self.router.navmeshes["r9"]
