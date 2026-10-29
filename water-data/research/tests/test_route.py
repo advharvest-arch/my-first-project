@@ -72,6 +72,12 @@ class SyntheticRoutingAndFunnelTests(unittest.TestCase):
         route_line = LineString(res.coordinates_xy)
         self.assertFalse(route_line.intersects(island_interior))
 
+    def test_02b_open_water_line_of_sight_is_straight(self):
+        res = self.router.route_xy((10.0, 10.0), (10.0, 90.0))
+        self.assertEqual(res.status, STATUS_OK)
+        self.assertAlmostEqual(res.length_m, 80.0, delta=1.0)
+        self.assertLessEqual(len(res.coordinates_xy), 3)
+
     def test_03_cross_corridor_route_between_two_lakes(self):
         res = self.router.route_xy((20.0, 20.0), (250.0, 50.0))
         self.assertEqual(res.status, STATUS_OK)
