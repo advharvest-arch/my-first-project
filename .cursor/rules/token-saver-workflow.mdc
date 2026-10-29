@@ -1,0 +1,15 @@
+---
+description: Token-saver execution discipline and production isolation guardrails
+alwaysApply: true
+---
+
+# Token-Saver & Production Isolation Rules
+
+## 1. Context & Token Efficiency
+- Read only the target files required for the current task; do not run repo-wide scans, read old logs, or inspect unrelated directories.
+- Execute changes in a single clean pass without redundant reflection loops.
+- Run only targeted unit tests for the modified module unless a full suite is explicitly requested.
+
+## 2. Production Isolation
+- Unless explicitly instructed, never modify production routing, `WRG` / `wrg_*`, `BRouter`, `wg_edges`, `Area-Bridge`, database schemas, or existing debug overlays.
+- Keep experimental water-graph, CDT navmesh, corridor, and A* routing work isolated in `water-data/research/` and dedicated opt-in query flags (such as `?waterRouter=1`).
